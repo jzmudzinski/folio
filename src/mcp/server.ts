@@ -3,8 +3,13 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
   type Tool,
+  type Resource,
 } from "@modelcontextprotocol/sdk/types.js";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import {
   createNote,
@@ -17,7 +22,7 @@ import {
   suggestThread,
   stats,
 } from "../core/storage";
-import { loadConfig } from "../core/config";
+import { loadConfig, folioRoot, bundledThemesDir, themesDir } from "../core/config";
 import { listThemes, getTheme } from "../core/themes";
 import { db } from "../core/db";
 import type { NoteType, RenderProfile } from "../core/types";
@@ -121,6 +126,27 @@ const tools: Tool[] = [
     description: "List available themes with name, source (bundled/user), summary, and best-for hints from theme.md.",
     inputSchema: { type: "object", properties: {} },
   },
+  {
+    name: "folio.export",
+    description: "Export a note as a single self-contained HTML document. Use this when the user asks to share / download / send a note — agent gets back the full HTML string ready to paste, save, or pipe further. The note file on disk is NOT modified.",
+    inputSchema: {
+      type: "object",
+      required: ["id"],
+      properties: {
+        id: { type: "string" },
+        profile: { type: "string", enum: ["standalone", "hosted"], description: "'standalone' (default) inlines theme.css so the file works offline; 'hosted' keeps the <link> tag and only makes sense within a running viewer." },
+      },
+    },
+  },
+  {
+    name: "folio.unfinalize",
+    description: "Reverse a finalize: re-enable auto-cleanup countdown on a note. Use sparingly — only when user explicitly says 'this isn't the right version after all'. Sets expires_at = created + default_lifespan and is_final=false.",
+    inputSchema: {
+      type: "object",
+      required: ["id"],
+      properties: { id: { type: "string" } },
+    },
+  },
 ];
 
 function jsonContent(obj: unknown) {
@@ -138,7 +164,7 @@ function pickFirstLine(s: string, maxLen = 140): string {
 export async function buildServer(): Promise<Server> {
   const server = new Server(
     { name: "folio", version: "0.1.0" },
-    { capabilities: { tools: {} } }
+    { capabilities: { tools: {}, resources: {} } }
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
@@ -276,12 +302,121 @@ export async function buildServer(): Promise<Server> {
           });
         }
 
+        case "folio.export": {
+          const id = String(args.id ?? "");
+          if (!id) return errContent("Missing id");
+          const note = getNoteMeta(id);
+          if (!note) return errContent(`Not found: ${id}`);
+          const profile = (String(args.profile ?? "standalone")) as RenderProfile;
+          let html = readNoteHtml(note);
+          if (profile === "standalone") {
+            // Inline theme.css instead of <link>
+            const themeName = note.theme;
+            let css: string | null = null;
+            for (const root of [themesDir(), bundledThemesDir()]) {
+              const p = join(root, themeName, "theme.css");
+              if (existsSync(p)) { css = readFileSync(p, "utf-8"); break; }
+            }
+            if (css) {
+              const linkRx = /<link\s+rel="stylesheet"\s+href="\/themes\/[^"]+\/theme\.css">/;
+              if (linkRx.test(html)) {
+                html = html.replace(linkRx, `<style>\n${css}\n</style>`);
+              } else if (!/<style>/.test(html)) {
+                html = html.replace(/<\/head>/, `<style>\n${css}\n</style>\n</head>`);
+              }
+            }
+          }
+          return jsonContent({
+            id: note.id,
+            slug: note.slug,
+            title: note.title,
+            profile,
+            size_kb: Math.round(html.length / 1024),
+            html,
+          });
+        }
+
+        case "folio.unfinalize": {
+          const id = String(args.id ?? "");
+          if (!id) return errContent("Missing id");
+          const note = getNoteMeta(id);
+          if (!note) return errContent(`Not found: ${id}`);
+          if (!note.is_final) return jsonContent({ ok: false, id, note: "Already not final, no change." });
+          const cfg = await loadConfig();
+          // Re-arm expiry: created + default_lifespan
+          db().run(
+            "UPDATE notes SET is_final = 0, expires_at = datetime(?, '+' || ? || ' days'), updated = datetime('now') WHERE id = ?",
+            [note.created, cfg.default_lifespan_days, id]
+          );
+          // Log event for analytics
+          db().run(
+            "INSERT INTO events (ts, kind, note_id, thread_id, data) VALUES (?, ?, ?, ?, ?)",
+            [new Date().toISOString(), "note_unfinalized", id, note.thread_id, JSON.stringify({ via: "mcp" })]
+          );
+          return jsonContent({ ok: true, id, expires_at_reset_to: `created + ${cfg.default_lifespan_days} days` });
+        }
+
         default:
           return errContent(`Unknown tool: ${name}`);
       }
     } catch (e: any) {
       return errContent(`Error in ${name}: ${e?.message ?? String(e)}`);
     }
+  });
+
+  // ──────────────  RESOURCES  ──────────────
+  // Folio exposes a small set of read-only resources for context-loading
+  // without invoking tools. Useful when an agent wants to "browse" before deciding.
+  server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    const cfg = await loadConfig();
+    const resources: Resource[] = [
+      { uri: "folio://recent", name: "Recent notes", description: `${cfg.viewer_host} most-recent 20 notes (metadata only)`, mimeType: "application/json" },
+      { uri: "folio://final", name: "Final notes", description: "All notes marked is_final=true", mimeType: "application/json" },
+      { uri: "folio://expiring", name: "Expiring soon", description: "Non-final notes within 7d of auto-delete", mimeType: "application/json" },
+      { uri: "folio://threads", name: "All threads", description: "Thread index with counts + final markers", mimeType: "application/json" },
+    ];
+    // Plus each thread as its own resource
+    const threads = listThreads(undefined, 100);
+    for (const t of threads) {
+      resources.push({
+        uri: `folio://thread/${t.thread_id}`,
+        name: `Thread: ${t.thread_id}`,
+        description: `${t.count} notes${t.final_count > 0 ? ` (${t.final_count} final)` : ""}`,
+        mimeType: "application/json",
+      });
+    }
+    return { resources };
+  });
+
+  server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
+    const uri = req.params.uri;
+    const respond = (payload: unknown) => ({
+      contents: [{ uri, mimeType: "application/json", text: JSON.stringify(payload, null, 2) }],
+    });
+
+    if (uri === "folio://recent") return respond(listNotes({ limit: 20 }));
+    if (uri === "folio://final") return respond(listNotes({ is_final: true, limit: 100 }));
+    if (uri === "folio://threads") return respond(listThreads(undefined, 200));
+    if (uri === "folio://expiring") {
+      const rows = db()
+        .query<any, []>(
+          `SELECT id, slug, title, type, thread_id, created, expires_at,
+                  CAST(julianday(expires_at) - julianday('now') AS INTEGER) AS days_left
+           FROM notes
+           WHERE status='active' AND is_final = 0 AND expires_at IS NOT NULL
+             AND expires_at < datetime('now', '+7 days')
+           ORDER BY expires_at ASC`
+        )
+        .all();
+      return respond(rows);
+    }
+    const threadMatch = uri.match(/^folio:\/\/thread\/(.+)$/);
+    if (threadMatch) {
+      const tid = decodeURIComponent(threadMatch[1]!);
+      const notes = listNotes({ thread_id: tid, limit: 200 });
+      return respond({ thread_id: tid, count: notes.length, notes });
+    }
+    throw new Error(`Unknown resource: ${uri}`);
   });
 
   return server;

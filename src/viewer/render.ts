@@ -232,6 +232,31 @@ a { color: inherit; text-decoration: none; }
 .theme-switch:hover { border-color: var(--vink); }
 .theme-switch:focus { outline: 0; border-color: var(--vorange); box-shadow: 0 0 0 3px var(--vorange-soft); }
 
+.reading-progress { position: fixed; top: 0; left: 0; right: 0; height: 2px; background: transparent; z-index: 30; pointer-events: none; }
+.reading-progress-fill { height: 100%; background: var(--vorange); width: 0%; transition: width .05s linear; }
+
+.toc { margin: 0 0 18px; padding: 14px 0 12px; border-top: 1px solid var(--vline); border-bottom: 1px solid var(--vline); }
+.toc[hidden] { display: none; }
+.toc .toc-lbl { font-family: var(--vmono); font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--vmuted-2); margin-bottom: 10px; font-weight: 500; }
+.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: toc; display: flex; flex-direction: column; gap: 3px; }
+.toc li { position: relative; counter-increment: toc; padding-left: 22px; }
+.toc li::before { content: counter(toc, decimal-leading-zero); position: absolute; left: 0; top: 2px; font-family: var(--vmono); font-size: 9.5px; color: var(--vmuted-2); letter-spacing: 0.04em; }
+.toc li.h3 { padding-left: 34px; }
+.toc li.h3::before { left: 14px; opacity: 0.6; }
+.toc a { display: block; color: var(--vmuted); font-size: 12.5px; line-height: 1.35; padding: 2px 0; transition: color .12s; cursor: pointer; }
+.toc a:hover { color: var(--vink); }
+.toc li.active a { color: var(--vorange); font-weight: 500; }
+
+.prev-next { display: flex; gap: 6px; margin-bottom: 20px; }
+.pn-btn { flex: 1; padding: 8px 10px; border: 1px solid var(--vline); border-radius: 7px; font-family: var(--vmono); font-size: 11px; color: var(--vmuted); text-align: center; transition: color .12s, border-color .12s; min-width: 0; }
+.pn-btn:hover { border-color: var(--vorange); color: var(--vorange); }
+.pn-btn.disabled { opacity: 0.3; pointer-events: none; }
+.pn-btn .pn-label { display: block; font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--vmuted-2); margin-bottom: 2px; }
+
+.side-action { font-family: var(--vmono); font-size: 11px; color: var(--vmuted); letter-spacing: 0.06em; padding: 4px 0; transition: color .12s; background: transparent; border: 0; text-align: left; cursor: pointer; width: 100%; }
+.side-action:hover { color: var(--vorange); }
+.side-action.copied { color: var(--vgood); }
+
 .lightbox { position: fixed; inset: 0; background: rgba(0,0,0,0.92); z-index: 9999; display: flex; align-items: center; justify-content: center; cursor: zoom-out; animation: lb-in .15s ease-out; }
 .lightbox img { max-width: 95vw; max-height: 95vh; box-shadow: 0 8px 32px rgba(0,0,0,0.6); border-radius: 4px; }
 .lightbox .lb-close { position: absolute; top: 18px; right: 22px; font-family: var(--vmono); font-size: 11px; color: rgba(255,255,255,0.7); letter-spacing: 0.14em; text-transform: uppercase; cursor: pointer; }
@@ -624,16 +649,31 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
        </div>`
     : "";
 
-  // Pick representative version label — first note in thread or v(n)
-  const siblings = db()
-    .query<{ id: string }, [string, string]>(
-      `SELECT id FROM notes WHERE thread_id = ? AND status='active' AND created <= ? ORDER BY created ASC`
+  // Sibling notes in thread, ascending — for version label + prev/next nav
+  const allSiblings = db()
+    .query<{ id: string; created: string }, [string]>(
+      `SELECT id, created FROM notes WHERE thread_id = ? AND status='active' ORDER BY created ASC`
     )
-    .all(note.thread_id, note.created);
-  const version = siblings.length;
-  const totalInThread = db()
-    .query<{ n: number }, [string]>("SELECT COUNT(*) AS n FROM notes WHERE thread_id = ? AND status='active'")
-    .get(note.thread_id)?.n ?? 1;
+    .all(note.thread_id);
+  const myIdx = allSiblings.findIndex((s) => s.id === note.id);
+  const version = myIdx >= 0 ? myIdx + 1 : 1;
+  const totalInThread = allSiblings.length || 1;
+  const prevSibling = myIdx > 0 ? allSiblings[myIdx - 1] : null;
+  const nextSibling = myIdx >= 0 && myIdx < allSiblings.length - 1 ? allSiblings[myIdx + 1] : null;
+
+  // Reading time @ ~220 wpm
+  const readingMin = Math.max(1, Math.ceil(note.word_count / 220));
+
+  const prevNextHtml = totalInThread > 1
+    ? `<div class="prev-next">
+         ${prevSibling
+           ? `<a class="pn-btn" href="/n/${prevSibling.id}"><span class="pn-label">← prev</span>v${myIdx}</a>`
+           : `<span class="pn-btn disabled"><span class="pn-label">prev</span>—</span>`}
+         ${nextSibling
+           ? `<a class="pn-btn" href="/n/${nextSibling.id}"><span class="pn-label">next →</span>v${myIdx + 2}</a>`
+           : `<span class="pn-btn disabled"><span class="pn-label">next</span>—</span>`}
+       </div>`
+    : "";
 
   const actionCard = note.is_final
     ? `<div class="action-card" style="background:var(--vorange-soft);color:var(--vorange);cursor:default">
@@ -652,6 +692,8 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
   const tagsHtml = note.tags.length > 0
     ? `<dt>Tagi</dt><dd><div class="side-tags">${note.tags.map((t) => `<span class="tg">${esc(t)}</span>`).join("")}</div></dd>`
     : "";
+
+  const tocHtml = `<nav class="toc" id="folio-toc" hidden><div class="toc-lbl">W tym dokumencie</div><ol class="toc-list"></ol></nav>`;
 
   const themes = listThemes();
   const themeOptions = themes
@@ -779,6 +821,152 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
       document.addEventListener('keydown', esc);
       document.body.appendChild(ov);
     }
+    // Reading progress bar — listens to iframe scroll, updates fill width
+    var progressFill = document.querySelector('.reading-progress-fill');
+    function updateProgress(){
+      if (!iframe || !iframe.contentWindow || !progressFill) return;
+      var win = iframe.contentWindow;
+      var docEl = win.document.documentElement;
+      var total = docEl.scrollHeight - win.innerHeight;
+      var pct = total <= 0 ? 0 : Math.min(100, Math.max(0, (win.scrollY / total) * 100));
+      progressFill.style.width = pct + '%';
+    }
+
+    // TOC builder — only shows if 3+ headings; scroll spy highlights active
+    function buildToc(doc){
+      var toc = document.getElementById('folio-toc');
+      var list = toc ? toc.querySelector('.toc-list') : null;
+      if (!toc || !list) return;
+      var headings = doc.querySelectorAll('article h2, article h3, [data-folio-content] h2, [data-folio-content] h3');
+      if (headings.length < 3) { toc.hidden = true; return; }
+      list.innerHTML = '';
+      var items = [];
+      headings.forEach(function(h){
+        if (!h.id) h.id = slugify(h.textContent);
+        var li = document.createElement('li');
+        li.className = h.tagName.toLowerCase();
+        li.dataset.targetId = h.id;
+        var a = document.createElement('a');
+        a.textContent = (h.textContent || '').replace(/¶$/, '').trim();
+        a.addEventListener('click', function(e){
+          e.preventDefault();
+          h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+        li.appendChild(a);
+        list.appendChild(li);
+        items.push({ el: h, li: li });
+      });
+      toc.hidden = false;
+      // Scroll spy via IntersectionObserver in iframe context
+      try {
+        var io = new (iframe.contentWindow.IntersectionObserver || IntersectionObserver)(function(entries){
+          entries.forEach(function(en){
+            var item = items.find(function(i){ return i.el === en.target; });
+            if (!item) return;
+            if (en.isIntersecting) {
+              items.forEach(function(i){ i.li.classList.remove('active'); });
+              item.li.classList.add('active');
+            }
+          });
+        }, { root: null, rootMargin: '-30% 0px -55% 0px', threshold: 0 });
+        items.forEach(function(i){ io.observe(i.el); });
+      } catch (e) { /* IO unavailable — skip scroll spy */ }
+    }
+
+    // HTML → Markdown conversion (basic, handles common Folio body shapes)
+    function htmlToMd(node){
+      function walk(n){
+        var out = '';
+        n.childNodes.forEach(function(c){
+          if (c.nodeType === 3) {
+            out += c.textContent;
+          } else if (c.nodeType === 1) {
+            var tag = c.tagName.toLowerCase();
+            var inner = walk(c).trim();
+            switch (tag) {
+              case 'h1': out += '\\n# ' + inner + '\\n\\n'; break;
+              case 'h2': out += '\\n## ' + inner + '\\n\\n'; break;
+              case 'h3': out += '\\n### ' + inner + '\\n\\n'; break;
+              case 'h4': out += '\\n#### ' + inner + '\\n\\n'; break;
+              case 'p':  out += inner + '\\n\\n'; break;
+              case 'strong': case 'b': out += '**' + inner + '**'; break;
+              case 'em': case 'i': out += '*' + inner + '*'; break;
+              case 'code':
+                if (c.parentNode && c.parentNode.tagName === 'PRE') out += inner;
+                else out += '\`' + inner + '\`';
+                break;
+              case 'pre': out += '\\n\`\`\`\\n' + inner + '\\n\`\`\`\\n\\n'; break;
+              case 'ul': case 'ol': {
+                var i = 1;
+                c.querySelectorAll(':scope > li').forEach(function(li){
+                  var lt = walk(li).trim();
+                  out += (tag === 'ol' ? (i++) + '. ' : '- ') + lt + '\\n';
+                });
+                out += '\\n';
+                break;
+              }
+              case 'li': out += inner; break;
+              case 'a': {
+                var href = c.getAttribute('href') || '';
+                out += '[' + inner + '](' + href + ')';
+                break;
+              }
+              case 'br': out += '  \\n'; break;
+              case 'hr': out += '\\n---\\n\\n'; break;
+              case 'blockquote':
+                out += inner.split('\\n').map(function(l){ return '> ' + l; }).join('\\n') + '\\n\\n';
+                break;
+              case 'img':
+                out += '![' + (c.getAttribute('alt') || '') + '](' + (c.getAttribute('src') || '') + ')';
+                break;
+              case 'table': out += tableToMd(c) + '\\n'; break;
+              case 'script': case 'style': case 'iframe': break;
+              default: out += inner;
+            }
+          }
+        });
+        return out;
+      }
+      function tableToMd(t){
+        var rows = [];
+        t.querySelectorAll('tr').forEach(function(tr){
+          var cells = [];
+          tr.querySelectorAll('th, td').forEach(function(c){
+            cells.push((c.textContent || '').trim().replace(/\\|/g, '\\\\|'));
+          });
+          rows.push('| ' + cells.join(' | ') + ' |');
+        });
+        if (rows.length > 1) {
+          var firstRow = rows[0];
+          var cols = (firstRow.match(/\\|/g) || []).length - 1;
+          rows.splice(1, 0, '| ' + Array(cols).fill('---').join(' | ') + ' |');
+        }
+        return rows.join('\\n');
+      }
+      return walk(node).replace(/\\n{3,}/g, '\\n\\n').trim();
+    }
+
+    // Copy buttons (plain text + markdown)
+    document.querySelectorAll('[data-copy]').forEach(function(btn){
+      btn.addEventListener('click', function(e){
+        e.preventDefault();
+        var doc; try { doc = iframe.contentDocument; } catch(_){ return; }
+        if (!doc) return;
+        var article = doc.querySelector('article, [data-folio-content]');
+        if (!article) return;
+        var mode = btn.dataset.copy;
+        var text = mode === 'markdown'
+          ? htmlToMd(article)
+          : (article.textContent || '').replace(/\\n{3,}/g, '\\n\\n').trim();
+        navigator.clipboard.writeText(text).then(function(){
+          var orig = btn.dataset.label;
+          btn.textContent = '✓ skopiowane';
+          btn.classList.add('copied');
+          setTimeout(function(){ btn.textContent = orig; btn.classList.remove('copied'); }, 1500);
+        });
+      });
+    });
+
     function onIframeLoad(){
       var doc; try { doc = iframe.contentDocument; } catch(e) { return; }
       if (!doc) return;
@@ -787,6 +975,11 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
       attachCopyCode(doc);
       attachAnchors(doc);
       attachExternalLinks(doc);
+      buildToc(doc);
+      if (iframe.contentWindow) {
+        iframe.contentWindow.addEventListener('scroll', updateProgress, { passive: true });
+      }
+      updateProgress();
     }
     if (iframe) {
       iframe.addEventListener('load', onIframeLoad);
@@ -795,26 +988,30 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
   })();</script>`;
 
   return shell(note.title, `${topbar()}
+<div class="reading-progress"><div class="reading-progress-fill"></div></div>
 <div class="note-shell">
   <aside class="note-side">
     <a href="/" class="back">← Wstecz do listy</a>
     <span class="type-pill ${note.type}">${note.type}</span>
     <h1>${esc(note.title)}</h1>
     ${actionCard}
+    ${prevNextHtml}
+    ${tocHtml}
     <dl class="side-meta">
       <dt>Wątek</dt><dd class="thread"><a href="/t/${esc(note.thread_id)}">${esc(note.thread_id)}</a></dd>
       <dt>Status</dt><dd class="${note.is_final ? "final" : "warn"}">${note.is_final ? "★ final" : (expiring ? `⏱ wygasa za ${expiring}` : "aktywna")}</dd>
       <dt>Utworzona</dt><dd>${ago(note.created)}</dd>
       <dt>Wersja</dt><dd>v${version} z ${totalInThread}</dd>
-      <dt>Słów</dt><dd>${note.word_count}</dd>
+      <dt>Słów</dt><dd>${note.word_count} · ~${readingMin} min</dd>
       <dt>Theme</dt>${themeDd}
       <dt>Profile</dt><dd>${esc(note.theme_profile)}</dd>
       ${tagsHtml}
     </dl>
     <nav class="side-aux">
+      <button class="side-action" data-copy="plain" data-label="⎘ Copy plain text">⎘ Copy plain text</button>
+      <button class="side-action" data-copy="markdown" data-label="⎘ Copy as markdown">⎘ Copy as markdown</button>
       <a href="/raw/${note.id}" target="_blank">↗ View raw HTML</a>
-      <a href="#" onclick="return false">↗ Export standalone</a>
-      <a href="#" onclick="return false">↗ Share link · 7d</a>
+      <a href="#" onclick="window.print();return false">↗ Print / PDF</a>
     </nav>
   </aside>
   <main class="note-main">

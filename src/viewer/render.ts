@@ -1,5 +1,6 @@
 import type { NoteMeta, SearchHit } from "../core/types";
 import { db } from "../core/db";
+import { listThemes } from "../core/themes";
 
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -226,6 +227,15 @@ a { color: inherit; text-decoration: none; }
 .side-aux a, .side-aux button { font-family: var(--vmono); font-size: 11px; color: var(--vmuted); letter-spacing: 0.06em; padding: 4px 0; transition: color .12s; background: transparent; border: 0; text-align: left; cursor: pointer; }
 .side-aux a:hover, .side-aux button:hover { color: var(--vorange); }
 .side-aux .danger { color: #c8412a; opacity: 0.7; }
+
+.theme-switch { font-family: var(--vmono); font-size: 12px; color: var(--vink-2); background: transparent; border: 1px solid var(--vline); padding: 3px 6px 3px 4px; border-radius: 4px; cursor: pointer; max-width: 140px; }
+.theme-switch:hover { border-color: var(--vink); }
+.theme-switch:focus { outline: 0; border-color: var(--vorange); box-shadow: 0 0 0 3px var(--vorange-soft); }
+
+.lightbox { position: fixed; inset: 0; background: rgba(0,0,0,0.92); z-index: 9999; display: flex; align-items: center; justify-content: center; cursor: zoom-out; animation: lb-in .15s ease-out; }
+.lightbox img { max-width: 95vw; max-height: 95vh; box-shadow: 0 8px 32px rgba(0,0,0,0.6); border-radius: 4px; }
+.lightbox .lb-close { position: absolute; top: 18px; right: 22px; font-family: var(--vmono); font-size: 11px; color: rgba(255,255,255,0.7); letter-spacing: 0.14em; text-transform: uppercase; cursor: pointer; }
+@keyframes lb-in { from { opacity: 0; } to { opacity: 1; } }
 
 .note-main { background: var(--vpanel); min-width: 0; }
 .note-banner { padding: 12px 24px; background: linear-gradient(90deg, rgba(201,142,45,0.08), transparent 60%); border-bottom: 1px solid var(--vline-2); display: flex; align-items: center; justify-content: space-between; font-family: var(--vmono); font-size: 11.5px; color: var(--vink-2); gap: 14px; flex-wrap: wrap; }
@@ -643,6 +653,61 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
     ? `<dt>Tagi</dt><dd><div class="side-tags">${note.tags.map((t) => `<span class="tg">${esc(t)}</span>`).join("")}</div></dd>`
     : "";
 
+  const themes = listThemes();
+  const themeOptions = themes
+    .map((t) => `<option value="${esc(t.name)}"${t.name === note.theme ? " selected" : ""}>${esc(t.name)}${t.name === note.theme ? " · saved" : ""}</option>`)
+    .join("");
+  const themeDd = `<dd><select class="theme-switch" data-noteid="${note.id}" data-original="${esc(note.theme)}">${themeOptions}</select></dd>`;
+
+  const noteScript = `<script>(function(){
+    var iframe = document.querySelector('.note-iframe');
+    var sel = document.querySelector('.theme-switch');
+    if (sel && iframe) {
+      sel.addEventListener('change', function(){
+        var t = sel.value;
+        var orig = sel.dataset.original;
+        iframe.src = '/raw/' + sel.dataset.noteid + (t !== orig ? '?theme=' + encodeURIComponent(t) : '');
+      });
+    }
+    function attachLightbox(){
+      if (!iframe) return;
+      var doc; try { doc = iframe.contentDocument; } catch(e) { return; }
+      if (!doc) return;
+      var imgs = doc.querySelectorAll('article img, [data-folio-content] img');
+      imgs.forEach(function(img){
+        if (img.dataset.lbBound) return;
+        img.dataset.lbBound = '1';
+        img.style.cursor = 'zoom-in';
+        img.addEventListener('click', function(e){
+          e.preventDefault();
+          openLightbox(img.currentSrc || img.src, img.alt || '');
+        });
+      });
+    }
+    function openLightbox(src, alt){
+      var ov = document.createElement('div');
+      ov.className = 'lightbox';
+      var im = document.createElement('img');
+      im.src = src; im.alt = alt;
+      var cx = document.createElement('div');
+      cx.className = 'lb-close';
+      cx.textContent = '✕ esc';
+      ov.appendChild(im); ov.appendChild(cx);
+      function close(){
+        ov.remove();
+        document.removeEventListener('keydown', esc);
+      }
+      function esc(e){ if (e.key === 'Escape') close(); }
+      ov.addEventListener('click', close);
+      document.addEventListener('keydown', esc);
+      document.body.appendChild(ov);
+    }
+    if (iframe) {
+      iframe.addEventListener('load', attachLightbox);
+      if (iframe.contentDocument && iframe.contentDocument.readyState === 'complete') attachLightbox();
+    }
+  })();</script>`;
+
   return shell(note.title, `${topbar()}
 <div class="note-shell">
   <aside class="note-side">
@@ -656,7 +721,7 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
       <dt>Utworzona</dt><dd>${ago(note.created)}</dd>
       <dt>Wersja</dt><dd>v${version} z ${totalInThread}</dd>
       <dt>Słów</dt><dd>${note.word_count}</dd>
-      <dt>Theme</dt><dd>${esc(note.theme)}</dd>
+      <dt>Theme</dt>${themeDd}
       <dt>Profile</dt><dd>${esc(note.theme_profile)}</dd>
       ${tagsHtml}
     </dl>
@@ -672,7 +737,7 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
       <iframe class="note-iframe" src="/raw/${note.id}" title="${esc(note.title)}" sandbox="allow-same-origin"></iframe>
     </div>
   </main>
-</div>`);
+</div>${noteScript}`);
 }
 
 export function pageStats(s: any): string {

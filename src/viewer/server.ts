@@ -94,11 +94,19 @@ export async function startServer(): Promise<void> {
         }
 
         // GET /raw/:id  (the actual HTML file, served raw for the iframe)
+        // ?theme=X overrides the linked theme.css for preview only (does not mutate the file).
         if (req.method === "GET" && path.startsWith("/raw/")) {
           const id = path.slice(5);
           const note = getNoteMeta(id);
           if (!note) return new Response("not found", { status: 404 });
-          const html = readNoteHtml(note);
+          let html = readNoteHtml(note);
+          const themeOverride = url.searchParams.get("theme");
+          if (themeOverride && themeOverride !== note.theme && resolveTheme(themeOverride) !== null) {
+            html = html.replace(
+              /<link\s+rel="stylesheet"\s+href="\/themes\/[^"]+\/theme\.css">/,
+              `<link rel="stylesheet" href="/themes/${themeOverride}/theme.css">`
+            );
+          }
           return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
         }
 

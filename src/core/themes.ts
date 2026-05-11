@@ -10,30 +10,35 @@ export interface Theme {
   path: string;
 }
 
-let _cache: Map<string, Theme> | null = null;
-
-export function loadThemes(force = false): Map<string, Theme> {
-  if (_cache && !force) return _cache;
+// Themes are filesystem-backed. No in-memory cache — we re-scan on every call
+// so that newly added theme folders (e.g., user dropping a `themes/aurora/`
+// or a `folio install` later writing one) become visible without a server
+// restart. The scan is ~10ms over ~20 directories with 2 file existence
+// checks each; cheap relative to the rest of a request.
+export function loadThemes(_force = false): Map<string, Theme> {
   const themes = new Map<string, Theme>();
   for (const root of [bundledThemesDir(), themesDir()]) {
     if (!existsSync(root)) continue;
     for (const name of readdirSync(root)) {
       const dir = join(root, name);
-      if (!statSync(dir).isDirectory()) continue;
+      try {
+        if (!statSync(dir).isDirectory()) continue;
+      } catch {
+        continue;
+      }
       const cssPath = join(dir, "theme.css");
       const promptPath = join(dir, "theme.md");
       if (!existsSync(cssPath)) continue;
       const source: Theme["source"] = root === themesDir() ? "user" : "bundled";
       themes.set(name, {
         name,
-        css: Bun.file(cssPath).text() as unknown as string,
-        prompt: existsSync(promptPath) ? (Bun.file(promptPath).text() as unknown as string) : "",
+        css: "",      // populated lazily by getTheme()
+        prompt: existsSync(promptPath) ? "" : "",
         source,
         path: dir,
       });
     }
   }
-  _cache = themes;
   return themes;
 }
 

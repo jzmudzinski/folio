@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Folio · viewer redesign v2</title>
+<link rel="stylesheet" href="viewer.css">
+<style>
+  /* Prototype-only chrome: route switcher pinned to top of page,
+     above the real top bar. Strip this in production. */
+  .proto-switcher {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 999;
+    background: #0a0a0a; color: #fafaf7;
+    border-radius: 999px; padding: 6px;
+    display: flex; gap: 2px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    box-shadow: 0 12px 36px rgba(0,0,0,0.25), 0 2px 6px rgba(0,0,0,0.1);
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .proto-switcher button {
+    background: transparent; border: 0; color: inherit;
+    padding: 7px 14px; border-radius: 999px;
+    cursor: pointer; font: inherit; letter-spacing: inherit; text-transform: inherit;
+    transition: background .12s;
+  }
+  .proto-switcher button:hover { background: rgba(255,255,255,0.08); }
+  .proto-switcher button.on { background: #ff5a1f; color: #fff; }
+  .proto-switcher .legend {
+    padding: 7px 12px 7px 14px;
+    color: #6b6b66;
+    border-right: 1px solid rgba(255,255,255,0.08);
+    margin-right: 4px;
+  }
+  .route { display: none; }
+  .route.on { display: block; }
+  @media (max-width: 540px) {
+    .proto-switcher .legend { display: none; }
+    .proto-switcher button { padding: 6px 9px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ════════════════  ROUTE: /  (list)  ════════════════ -->
+<section class="route on" data-route="list" data-screen-label="01 List /">
+
+  <header class="v-top">
+    <div class="v-top-inner">
+      <a href="#" class="v-logo" aria-label="Folio home">
+        <span class="mark">folio<span class="dot">.</span></span>
+        <span class="div"></span>
+        <span class="tagline">Visual comm for agents</span>
+      </a>
+      <form class="v-search" role="search" onsubmit="return false">
+        <span class="ico">⌕</span>
+        <input type="search" placeholder="Szukaj not, wątków, autorów…">
+        <kbd>/</kbd>
+      </form>
+      <nav class="v-nav">
+        <a href="#" class="on">Noty</a>
+        <a href="#">Wątki</a>
+        <a href="#">Stats</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="v-strip">
+    <div class="v-strip-inner">
+      <a class="fp on">Wszystkie <span class="count">42</span></a>
+      <a class="fp">Research <span class="count">18</span></a>
+      <a class="fp">Comparison <span class="count">9</span></a>
+      <a class="fp">Technical <span class="count">11</span></a>
+      <a class="fp">Journal <span class="count">4</span></a>
+      <span class="sep"></span>
+      <a class="fp"><span class="star">★</span> Final <span class="count">7</span></a>
+      <a class="fp warn">⏱ Wygasające 7d <span class="count">3</span></a>
+      <span class="results-meta">42 not · ostatnia 4 min temu</span>
+    </div>
+  </div>
+
+  <main class="v-page">
+
+    <div class="group">
+      <div class="group-lbl">Dzisiaj <span class="count">· 3</span><span class="spacer"></span><span class="accent">świeże</span></div>
+
+      <a class="hero" href="#" onclick="route('note');return false">
+        <div>
+          <div class="eyebrow">
+            <span class="dot"></span>
+            <span>Research · świeże · 4 min temu</span>
+          </div>
+          <h1>RAG vs Fine-Tuning: kiedy każdy z nich faktycznie się opłaca</h1>
+          <p class="lead">Wyciąg z 14 case study — kiedy zwykły RAG przegrywa z LoRA, dlaczego hybrid wygrywa w 70% domen, i jak liczyć break-even na żywym ruchu produkcyjnym.</p>
+          <div class="meta">
+            <span class="thread">📂 rag-vs-finetuning</span>
+            <span class="pip"></span>
+            <span>847 słów</span>
+            <span class="pip"></span>
+            <span>theme: linen</span>
+            <span class="pip"></span>
+            <span class="final">★ FINAL</span>
+          </div>
+        </div>
+        <div class="hero-arrow">→</div>
+      </a>
+
+      <div class="rows">
+        <a class="row" href="#">
+          <span class="type technical">technical</span>
+          <div>
+            <span class="title">MCP server side-effects on cold-start latency</span>
+            <span class="title-sub"><span class="thread">📂 perf-debug</span>  ·  jetbrains mono · 1 240 słów</span>
+          </div>
+          <span class="age">42 min temu</span>
+          <span class="stat warn">⏱ 7d</span>
+        </a>
+        <a class="row" href="#">
+          <span class="type comparison">comparison</span>
+          <div>
+            <span class="title">Bun vs Deno vs Node 22 — startup p95 na hot path</span>
+            <span class="title-sub"><span class="thread">📂 runtime-eval</span>  ·  3 wersje · v3 latest</span>
+          </div>
+          <span class="age">2 godz temu</span>
+          <span class="stat">·</span>
+        </a>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-lbl">Wczoraj <span class="count">· 4</span></div>
+      <div class="rows">
+        <a class="row" href="#">
+          <span class="type research">research</span>
+          <div>
+            <span class="title">Adversarial prompts in customer-support agents</span>
+            <span class="title-sub"><span class="thread">📂 safety</span>  ·  newsroom theme · 2 130 słów</span>
+          </div>
+          <span class="age">wczoraj 21:14</span>
+          <span class="stat final">★ final</span>
+        </a>
+        <a class="row" href="#">
+          <span class="type journal">journal</span>
+          <div>
+            <span class="title">Notatki z rozmowy z Mar­tą — obsidian export pipeline</span>
+            <span class="title-sub"><span class="thread">📂 daily</span>  ·  notebook theme</span>
+          </div>
+          <span class="age">wczoraj 18:02</span>
+          <span class="stat warn">⏱ 6d</span>
+        </a>
+        <a class="row" href="#">
+          <span class="type technical">technical</span>
+          <div>
+            <span class="title">SQLite FTS5 tokenizer tuning dla polskiego korpusu</span>
+            <span class="title-sub"><span class="thread">📂 search</span>  ·  terminal theme</span>
+          </div>
+          <span class="age">wczoraj 11:48</span>
+          <span class="stat">·</span>
+        </a>
+        <a class="row" href="#">
+          <span class="type snippet">snippet</span>
+          <div>
+            <span class="title">Tailwind v4 oklch palette — quick reference</span>
+            <span class="title-sub"><span class="thread">📂 css-recipes</span>  ·  140 słów</span>
+          </div>
+          <span class="age">wczoraj 09:22</span>
+          <span class="stat warn">⏱ 5d</span>
+        </a>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-lbl">W tym tygodniu <span class="count">· 11</span></div>
+      <div class="rows">
+        <a class="row" href="#">
+          <span class="type research">research</span>
+          <div>
+            <span class="title">Anthropic skill manifests — patterns w open-sourcowych repo</span>
+            <span class="title-sub"><span class="thread">📂 skills</span>  ·  4 wersje · v4 latest · v2 final</span>
+          </div>
+          <span class="age">3d temu</span>
+          <span class="stat final">★ final</span>
+        </a>
+        <a class="row" href="#">
+          <span class="type comparison">comparison</span>
+          <div>
+            <span class="title">Vector DB benchmark: pgvector vs Qdrant vs Turbopuffer</span>
+            <span class="title-sub"><span class="thread">📂 retrieval</span>  ·  brutalist theme · 3 800 słów</span>
+          </div>
+          <span class="age">4d temu</span>
+          <span class="stat">·</span>
+        </a>
+        <a class="row" href="#">
+          <span class="type technical">technical</span>
+          <div>
+            <span class="title">Bun.serve sticky sessions via SQLite session table</span>
+            <span class="title-sub"><span class="thread">📂 infra</span>  ·  dossier theme</span>
+          </div>
+          <span class="age">5d temu</span>
+          <span class="stat">·</span>
+        </a>
+        <a class="row" href="#">
+          <span class="type journal">journal</span>
+          <div>
+            <span class="title">Tydzień 19 — co siadło z append-only, co zostaje</span>
+            <span class="title-sub"><span class="thread">📂 weekly</span>  ·  pastel theme</span>
+          </div>
+          <span class="age">6d temu</span>
+          <span class="stat final">★ final</span>
+        </a>
+      </div>
+    </div>
+
+  </main>
+</section>
+
+
+<!-- ════════════════  ROUTE: /search  ════════════════ -->
+<section class="route" data-route="search" data-screen-label="02 Search /search?q=…">
+
+  <header class="v-top">
+    <div class="v-top-inner">
+      <a href="#" class="v-logo" onclick="route('list');return false">
+        <span class="mark">folio<span class="dot">.</span></span>
+        <span class="div"></span>
+        <span class="tagline">Visual comm for agents</span>
+      </a>
+      <form class="v-search" role="search" onsubmit="return false">
+        <span class="ico">⌕</span>
+        <input type="search" value="rag retrieval">
+        <kbd>esc</kbd>
+      </form>
+      <nav class="v-nav">
+        <a href="#" onclick="route('list');return false" class="on">Noty</a>
+        <a href="#" onclick="route('threads');return false">Wątki</a>
+        <a href="#">Stats</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="v-strip">
+    <div class="v-strip-inner">
+      <a class="fp on">Wszystkie <span class="count">12</span></a>
+      <a class="fp">Research <span class="count">7</span></a>
+      <a class="fp">Technical <span class="count">3</span></a>
+      <a class="fp">Comparison <span class="count">2</span></a>
+      <span class="sep"></span>
+      <a class="fp"><span class="star">★</span> Final <span class="count">2</span></a>
+      <span class="results-meta">12 trafień · 23 ms · fts5</span>
+    </div>
+  </div>
+
+  <main class="v-page">
+
+    <div class="group">
+      <div class="group-lbl">Wątki <span class="count">· 2 trafienia kolekcji</span><span class="spacer"></span><span class="accent">grupy</span></div>
+
+      <a class="cluster" href="#">
+        <div>
+          <div class="tid">📂 rag-vs-finetuning</div>
+          <h3>RAG vs Fine-Tuning</h3>
+          <p class="blurb">Wątek aktywny od 12 dni. 5 not, jedna oznaczona jako <em>final</em>. Ostatnia rewizja 4 min temu — uwzględnia świeże <mark>retrieval</mark> benchmarki z Q1.</p>
+          <div class="stack">
+            <span class="chip final">★ v5 final · 847w</span>
+            <span class="chip">v4 · 612w</span>
+            <span class="chip">v3 · 580w</span>
+            <span class="chip">v2 · 410w</span>
+            <span class="chip">v1 · 290w</span>
+          </div>
+        </div>
+        <div class="cluster-meta">
+          <span class="big">5</span>
+          <span>not</span>
+          <span>★ final · 4 min temu</span>
+        </div>
+      </a>
+
+      <a class="cluster" href="#">
+        <div>
+          <div class="tid">📂 retrieval</div>
+          <h3>Retrieval architecture</h3>
+          <p class="blurb">Vector DB benchmarki, hybrid <mark>retrieval</mark> patterns, eval rigs. Aktywny od miesiąca, 8 not — żadna jeszcze nie final.</p>
+          <div class="stack">
+            <span class="chip">v8 · benchmark</span>
+            <span class="chip">v7 · qdrant deep-dive</span>
+            <span class="chip">v6 · …</span>
+            <span class="chip">+5 wcześniejszych</span>
+          </div>
+        </div>
+        <div class="cluster-meta">
+          <span class="big">8</span>
+          <span>not</span>
+          <span>4d temu</span>
+        </div>
+      </a>
+    </div>
+
+    <div class="group">
+      <div class="group-lbl">Notatki <span class="count">· 10 trafień indywidualnych</span><span class="spacer"></span><span class="accent">single hits</span></div>
+
+      <div class="rows">
+        <a class="row with-snippet" href="#" onclick="route('note');return false">
+          <span class="type research">research</span>
+          <div>
+            <span class="title">RAG vs Fine-Tuning: kiedy każdy z nich faktycznie się opłaca</span>
+            <p class="snippet">…hybrid <mark>retrieval</mark> wygrywa w 70% domen, ale tylko jeśli twój korpus przekracza 50k chunków. Dla małych kolekcji zwykły dense <mark>retrieval</mark> + reranker bije pełny finetune w 9/10 przypadków…</p>
+            <span class="title-sub"><span class="thread">📂 rag-vs-finetuning</span>  ·  4 min temu  ·  847 słów</span>
+          </div>
+          <span class="age">★ 12.4</span>
+          <span class="stat final">★</span>
+        </a>
+        <a class="row with-snippet" href="#">
+          <span class="type comparison">comparison</span>
+          <div>
+            <span class="title">Vector DB benchmark: pgvector vs Qdrant vs Turbopuffer</span>
+            <p class="snippet">…pgvector przegrywa na hot path > 10k QPS, ale dla typowego <mark>retrieval</mark> workloadu Qdrant ma marginal advantage <mark>retrieval</mark>-only metric…</p>
+            <span class="title-sub"><span class="thread">📂 retrieval</span>  ·  4d temu</span>
+          </div>
+          <span class="age">★ 9.1</span>
+          <span class="stat">·</span>
+        </a>
+        <a class="row with-snippet" href="#">
+          <span class="type technical">technical</span>
+          <div>
+            <span class="title">SQLite FTS5 tokenizer tuning dla polskiego korpusu</span>
+            <p class="snippet">…polski stemmer + custom <mark>retrieval</mark> ranker daje +18% recall@10 vs ngram dla notatek …</p>
+            <span class="title-sub"><span class="thread">📂 search</span>  ·  wczoraj 11:48</span>
+          </div>
+          <span class="age">★ 6.2</span>
+          <span class="stat">·</span>
+        </a>
+        <a class="row with-snippet" href="#">
+          <span class="type research">research</span>
+          <div>
+            <span class="title">Embedding cache invalidation patterns</span>
+            <p class="snippet">…content-hashed embeddings + lazy <mark>retrieval</mark> warmup pattern, zaobserwowane w 4 z 5 prod systemów z e-commerce…</p>
+            <span class="title-sub"><span class="thread">📂 retrieval</span>  ·  9d temu</span>
+          </div>
+          <span class="age">★ 5.8</span>
+          <span class="stat final">★</span>
+        </a>
+      </div>
+    </div>
+
+  </main>
+</section>
+
+
+<!-- ════════════════  ROUTE: /threads  ════════════════ -->
+<section class="route" data-route="threads" data-screen-label="03 Threads /threads">
+
+  <header class="v-top">
+    <div class="v-top-inner">
+      <a href="#" class="v-logo" onclick="route('list');return false">
+        <span class="mark">folio<span class="dot">.</span></span>
+        <span class="div"></span>
+        <span class="tagline">Visual comm for agents</span>
+      </a>
+      <form class="v-search" role="search" onsubmit="return false">
+        <span class="ico">⌕</span>
+        <input type="search" placeholder="Szukaj wątków…">
+        <kbd>/</kbd>
+      </form>
+      <nav class="v-nav">
+        <a href="#" onclick="route('list');return false">Noty</a>
+        <a href="#" class="on">Wątki</a>
+        <a href="#">Stats</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="v-strip">
+    <div class="v-strip-inner">
+      <a class="fp on">Wszystkie <span class="count">14</span></a>
+      <a class="fp">Aktywne · 7d <span class="count">9</span></a>
+      <a class="fp">Zamknięte <span class="count">5</span></a>
+      <span class="sep"></span>
+      <a class="fp"><span class="star">★</span> Z finalem <span class="count">6</span></a>
+      <span class="results-meta">14 wątków · sort: ostatnia aktywność</span>
+    </div>
+  </div>
+
+  <main class="v-page">
+    <div class="group">
+      <div class="group-lbl">Aktywne <span class="count">· 9</span><span class="spacer"></span><span class="accent">w toku</span></div>
+      <div class="rows">
+
+        <a class="thread-card" href="#">
+          <div>
+            <div class="tid">📂 rag-vs-finetuning</div>
+            <div class="title">RAG vs Fine-Tuning</div>
+            <div class="progress">
+              <span class="tick has"></span>
+              <span class="tick has"></span>
+              <span class="tick has"></span>
+              <span class="tick has"></span>
+              <span class="tick final"></span>
+            </div>
+          </div>
+          <div class="count">5<small>not</small></div>
+          <div class="latest">
+            4 min temu
+            <span class="final-marker">★ v5 final</span>
+          </div>
+        </a>
+
+        <a class="thread-card" href="#">
+          <div>
+            <div class="tid">📂 retrieval</div>
+            <div class="title">Retrieval architecture</div>
+            <div class="progress">
+              <span class="tick has"></span>
+              <span class="tick has"></span>
+              <span class="tick has"></span>
+              <span class="tick has"></span>
+              <span class="tick has"></span>
+              <span class="tick has"></span>
+              <span class="tick has"></span>
+              <span class="tick has"></span>
+              <span class="more">8 wersji, brak final</span>
+            </div>
+          </div>
+          <div class="count">8<small>not</small></div>
+          <div class="latest">4d temu</div>
+        </a>
+
+        <a class="thread-card" href="#">
+          <div>
+            <div class="tid">📂 perf-debug</div>
+            <div class="title">MCP cold-start performance</div>
+            <div class="progress">
+              <span class="tick has"></span>
+              <span class="tick has"></span>
+              <span class="tick has"></span>
+            </div>
+          </div>
+          <div class="count">3<small>not</small></div>
+          <div class="latest">42 min temu</div>
+        </a>
+
+        <a class="thread-card" href="#">
+          <div>
+            <div class="tid">📂 skills</div>
+            <div class="title">Anthropic skill manifests</div>
+            <div class="progress">
+              <span class="tick has"></span>
+              <span class="tick final"></span>
+              <span class="tick has"></span>
+              <span class="tick has"></span>
+            </div>
+          </div>
+          <div class="count">4<small>not</small></div>
+          <div class="latest">
+            3d temu
+            <span class="final-marker">★ v2 final</span>
+          </div>
+        </a>
+
+        <a class="thread-card" href="#">
+          <div>
+            <div class="tid">📂 safety</div>
+            <div class="title">Adversarial prompts</div>
+            <div class="progress">
+              <span class="tick final"></span>
+              <span class="tick has"></span>
+            </div>
+          </div>
+          <div class="count">2<small>not</small></div>
+          <div class="latest">
+            wczoraj
+            <span class="final-marker">★ v1 final</span>
+          </div>
+        </a>
+
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-lbl">Zamknięte <span class="count">· 5</span></div>
+      <div class="rows">
+
+        <a class="thread-card" href="#">
+          <div>
+            <div class="tid">📂 viewer-redesign-v2</div>
+            <div class="title">Viewer redesign — round 1 brief</div>
+            <div class="progress">
+              <span class="tick has"></span>
+              <span class="tick final"></span>
+            </div>
+          </div>
+          <div class="count">2<small>not</small></div>
+          <div class="latest">
+            10d temu
+            <span class="final-marker">★ closed</span>
+          </div>
+        </a>
+
+        <a class="thread-card" href="#">
+          <div>
+            <div class="tid">📂 runtime-eval</div>
+            <div class="title">Bun vs Deno vs Node</div>
+            <div class="progress">
+              <span class="tick has"></span>
+              <span class="tick has"></span>
+              <span class="tick final"></span>
+            </div>
+          </div>
+          <div class="count">3<small>not</small></div>
+          <div class="latest">
+            14d temu
+            <span class="final-marker">★ closed</span>
+          </div>
+        </a>
+
+      </div>
+    </div>
+  </main>
+</section>
+
+
+<!-- ════════════════  ROUTE: /n/:id  ════════════════ -->
+<section class="route" data-route="note" data-screen-label="04 Note /n/:id">
+
+  <header class="v-top">
+    <div class="v-top-inner">
+      <a href="#" class="v-logo" onclick="route('list');return false">
+        <span class="mark">folio<span class="dot">.</span></span>
+        <span class="div"></span>
+        <span class="tagline">Visual comm for agents</span>
+      </a>
+      <form class="v-search" role="search" onsubmit="return false">
+        <span class="ico">⌕</span>
+        <input type="search" placeholder="Szukaj not, wątków, autorów…">
+        <kbd>/</kbd>
+      </form>
+      <nav class="v-nav">
+        <a href="#" onclick="route('list');return false">Noty</a>
+        <a href="#" onclick="route('threads');return false">Wątki</a>
+        <a href="#">Stats</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="note-shell">
+    <aside class="note-side">
+      <a href="#" class="back" onclick="route('list');return false">← Wstecz do listy</a>
+
+      <span class="type-pill">Research</span>
+      <h1>RAG vs Fine-Tuning: kiedy każdy z nich faktycznie się opłaca</h1>
+
+      <button class="action-card" type="button" onclick="this.classList.toggle('done')">
+        <div class="ac-lbl">Primary action</div>
+        <div class="ac-title"><span class="ac-star">★</span> Mark as final</div>
+        <div class="ac-hint">Zatrzymaj auto-delete · zarchiwizuj jako wersję kanoniczną wątku</div>
+      </button>
+
+      <dl class="side-meta">
+        <dt>Wątek</dt>      <dd class="thread"><a href="#" onclick="route('threads');return false">rag-vs-finetuning</a></dd>
+        <dt>Status</dt>     <dd class="warn">⏱ wygasa za 30d</dd>
+        <dt>Utworzona</dt>  <dd>4 min temu</dd>
+        <dt>Wersja</dt>     <dd>v5 (latest)</dd>
+        <dt>Słów</dt>       <dd>847</dd>
+        <dt>Theme</dt>      <dd>linen</dd>
+        <dt>Profile</dt>    <dd>polished</dd>
+        <dt>Tagi</dt>       <dd>
+          <div class="side-tags">
+            <span class="tg">ai</span>
+            <span class="tg">rag</span>
+            <span class="tg">retrieval</span>
+            <span class="tg">finetuning</span>
+            <span class="tg">benchmark</span>
+          </div>
+        </dd>
+      </dl>
+
+      <nav class="side-aux">
+        <a href="#">↗ View raw HTML</a>
+        <a href="#">↗ Export standalone</a>
+        <a href="#">↗ Share link · 7d</a>
+        <a href="#" style="color:#c8412a;opacity:.7">✕ Delete now</a>
+      </nav>
+    </aside>
+
+    <main class="note-main">
+      <div class="note-banner">
+        <div><span class="lbl">⏱ Auto-delete za 30d</span> &nbsp; chyba że oznaczysz jako final albo opublikujesz</div>
+        <button class="finalize-btn" type="button">★ Finalize</button>
+      </div>
+
+      <div class="note-iframe-wrap">
+        <!-- In production this is an <iframe src="/raw/:id">; in the mockup we render
+             a faithful placeholder so the chrome composition is visible without a server. -->
+        <article class="note-iframe-fallback">
+          <p style="font-family:'JetBrains Mono', monospace; font-size:10.5px; letter-spacing:0.18em; text-transform:uppercase; color:#a8a89e; margin:0 0 8px;">Linen · Research · v5 · final</p>
+          <h2>RAG vs Fine-Tuning</h2>
+          <p style="font-family:'Instrument Serif', Georgia, serif; font-style: italic; font-size: 22px; color:#6b6b66; line-height:1.5; margin:0 0 28px; max-width: 52ch;">Kiedy zwykły retrieval przegrywa z LoRA, dlaczego hybrid wygrywa w siedemdziesięciu procentach domen, i jak liczyć break-even na żywym ruchu produkcyjnym.</p>
+          <p class="dropcap">Po przeanalizowaniu czternastu produkcyjnych wdrożeń (od 5k do 12M dziennych zapytań) wzorzec się powtarza: retrieval-only systemy wygrywają na świeżych domenach, gdzie korpus zmienia się szybciej niż cykl re-finetune. Fine-tuning bije retrieval tam, gdzie ton, persona albo struktura odpowiedzi są krytyczne — i gdzie korpus jest na tyle stabilny, że re-train co kwartał wystarcza.</p>
+          <p>Hybrid &mdash; LoRA fine-tune nakładany na embedded retrieval &mdash; wygrywa w 70% przebadanych domen. Koszt: 1.6&times; bazowy infra spend, ale recall@5 rośnie z 0.62 do 0.84, a ton odpowiedzi wreszcie trzyma się brandu.</p>
+          <p style="color:#a8a89e; font-family:'JetBrains Mono', monospace; font-size: 12px; margin-top: 40px;">[ treść renderowana w iframe — tu placeholder ]</p>
+        </article>
+      </div>
+    </main>
+  </div>
+</section>
+
+
+<!-- ════════════════  PROTOTYPE ROUTE SWITCHER  ════════════════ -->
+<nav class="proto-switcher" aria-label="Prototype routes">
+  <span class="legend">Folio · viewer v2</span>
+  <button data-r="list"    class="on">/</button>
+  <button data-r="search">/search</button>
+  <button data-r="threads">/threads</button>
+  <button data-r="note">/n/:id</button>
+</nav>
+
+<script>
+  function route(name) {
+    document.querySelectorAll('.route').forEach(s => s.classList.toggle('on', s.dataset.route === name));
+    document.querySelectorAll('.proto-switcher button').forEach(b => b.classList.toggle('on', b.dataset.r === name));
+    window.scrollTo({top: 0, behavior: 'instant'});
+    history.replaceState({}, '', '#' + name);
+  }
+  document.querySelectorAll('.proto-switcher button').forEach(b => {
+    b.addEventListener('click', () => route(b.dataset.r));
+  });
+  // Resume from hash
+  const initial = (location.hash || '').replace('#','');
+  if (['list','search','threads','note'].includes(initial)) route(initial);
+
+  // Search input shortcut
+  document.addEventListener('keydown', (e) => {
+    if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
+      e.preventDefault();
+      document.querySelector('.route.on .v-search input')?.focus();
+    }
+  });
+</script>
+
+</body>
+</html>

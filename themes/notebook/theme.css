@@ -28,7 +28,8 @@
   --font-serif: 'Caveat', cursive;
   --font-mono: 'JetBrains Mono', monospace;
   --leading: 1.7;
-  --wrap-max: 760px;
+  --wrap-max: clamp(700px, 90vw, 1080px);
+  --read-max: 62ch;
 }
 
 * { box-sizing: border-box; }
@@ -41,6 +42,16 @@ html, body {
   margin: 0; padding: 0;
   -webkit-font-smoothing: antialiased;
 }
+.wrap > p, main > p,
+.wrap > ul, main > ul,
+.wrap > ol, main > ol,
+.wrap > h1, main > h1,
+.wrap > h2, main > h2,
+.wrap > h3, main > h3,
+.wrap > .lead, main > .lead,
+.wrap > p.sub, main > p.sub,
+.wrap > blockquote, main > blockquote,
+.wrap > .eyebrow, main > .eyebrow { max-width: var(--read-max); }
 .wrap, main {
   max-width: var(--wrap-max);
   margin: 0 auto;

@@ -27,7 +27,8 @@
   --font-serif: 'Source Serif Pro', Georgia, serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
   --leading: 1.65;
-  --wrap-max: 720px;
+  --wrap-max: clamp(700px, 90vw, 1100px);
+  --read-max: 64ch;
 }
 
 * { box-sizing: border-box; }
@@ -38,6 +39,16 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 .wrap, main { max-width: var(--wrap-max); margin: 0 auto; padding: clamp(28px, 5vw, 64px); }
+.wrap > p, main > p,
+.wrap > ul, main > ul,
+.wrap > ol, main > ol,
+.wrap > h1, main > h1,
+.wrap > h2, main > h2,
+.wrap > h3, main > h3,
+.wrap > .lead, main > .lead,
+.wrap > p.sub, main > p.sub,
+.wrap > blockquote, main > blockquote,
+.wrap > .eyebrow, main > .eyebrow { max-width: var(--read-max); }
 
 a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
 a:hover { text-decoration-thickness: 2px; }

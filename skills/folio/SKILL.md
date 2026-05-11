@@ -96,6 +96,16 @@ Default user-wide: zwykle **linen** (Apple-grade minimal). Override gdy:
 | Log analysis, debugging, system internals | `terminal` | Mono, green-on-black, code-like |
 | Personal soft communication, gentle | `pastel` | Warm rounded, soft accents |
 | Investigation, OSINT, deep dossier | `dossier` | Typewriter, manila, "classified" stamp |
+| Scientific paper, structured research | `atlas` | Crimson Pro + small caps + dropcap, academic |
+| Design crit, case study, brand audit | `studio` | Fraunces display + huge numerals, gallery feel |
+| Decision doc, business memo | `memo` | IBM Plex Sans + § markers, executive |
+| Treatise, philosophy, long essay | `codex` | UnifrakturCook + EB Garamond rubric, manuscript |
+| Financial report, KPI review | `ledger` | IBM Plex Mono + tabular nums, accounting |
+| Slow read, wabi-sabi observation | `sumi` | Cormorant + Klee One + vermillion seal |
+| Retro tech, demoscene, launch | `arcade` | Major Mono + magenta/cyan glow |
+| Nature writing, gentle research | `garden` | Cormorant italic + sage + ❀ |
+| DIY zine, indie hot take | `kraft` | Bricolage + risograph duotone |
+| Editorial feature, opinion essay | `prism` | Space Grotesk + Newsreader italic |
 
 **Reguła:** jeśli user nie powiedział, użyj defaultu. Proponuj override TYLKO jeśli kontekst silnie pasuje (np. user pisze „zrób mi ADR" → sugeruj `folio` lub `terminal`).
 

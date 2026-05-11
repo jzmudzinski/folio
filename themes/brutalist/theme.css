@@ -27,7 +27,8 @@
   --font-serif: 'Helvetica Neue', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
   --leading: 1.45;
-  --wrap-max: 920px;
+  --wrap-max: clamp(720px, 92vw, 1200px);
+  --read-max: 70ch;
 }
 
 * { box-sizing: border-box; }
@@ -39,6 +40,16 @@ html, body {
   font-weight: 500;
 }
 .wrap, main { max-width: var(--wrap-max); margin: 0 auto; padding: clamp(24px, 4vw, 48px); }
+.wrap > p, main > p,
+.wrap > ul, main > ul,
+.wrap > ol, main > ol,
+.wrap > h1, main > h1,
+.wrap > h2, main > h2,
+.wrap > h3, main > h3,
+.wrap > .lead, main > .lead,
+.wrap > p.sub, main > p.sub,
+.wrap > blockquote, main > blockquote,
+.wrap > .eyebrow, main > .eyebrow { max-width: var(--read-max); }
 
 a { color: var(--accent); text-decoration: none; background: var(--text); padding: 1px 4px; }
 a:hover { background: var(--accent); color: var(--text); }

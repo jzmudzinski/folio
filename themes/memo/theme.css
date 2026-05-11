@@ -1,0 +1,157 @@
+/* Memo — corporate/legal memo. IBM Plex Sans + clinical grid, restrained. */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300..700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --bg: #f6f6f4;
+  --bg-2: #ececea;
+  --panel: #ffffff;
+  --panel-2: #f0f0ee;
+  --border: rgba(16,18,22,0.14);
+
+  --text: #0c0e12;
+  --soft: #20242b;
+  --muted: #595e69;
+  --muted-light: #9097a3;
+
+  --accent: #0f4d8a;
+  --accent-2: #8a4a0f;
+  --accent-3: #4a4f5a;
+
+  --good: #1f6f3a;
+  --bad: #a8261f;
+  --mid: #a07020;
+
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-head: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-serif: 'IBM Plex Serif', Georgia, serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --leading: 1.55;
+
+  --wrap-max: clamp(720px, 88vw, 1100px);
+  --read-max: 68ch;
+}
+
+* { box-sizing: border-box; }
+html, body { background: var(--bg); color: var(--text); font-family: var(--font-sans); line-height: var(--leading); margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+.wrap, main {
+  max-width: var(--wrap-max); margin: 0 auto;
+  padding: clamp(28px, 5vw, 64px);
+  border-top: 4px solid var(--text);
+  position: relative;
+}
+.wrap::before, main::before {
+  content: "INTERNAL MEMORANDUM";
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.24em; color: var(--muted-light);
+  position: absolute; top: -22px; left: clamp(28px, 5vw, 64px);
+  background: var(--bg); padding: 0 8px;
+}
+
+.wrap > p, main > p,
+.wrap > ul, main > ul,
+.wrap > ol, main > ol,
+.wrap > h3, main > h3,
+.wrap > .lead, main > .lead,
+.wrap > p.sub, main > p.sub,
+.wrap > blockquote, main > blockquote,
+.wrap > .eyebrow, main > .eyebrow { max-width: var(--read-max); }
+
+a { color: var(--accent); text-decoration: underline; text-underline-offset: 0.2em; }
+a:hover { color: var(--text); }
+
+.eyebrow {
+  font-family: var(--font-mono); font-size: 11px;
+  letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--accent); font-weight: 500;
+  display: inline-block; margin-bottom: 12px;
+  padding: 3px 0;
+  border-bottom: 1px solid currentColor;
+}
+
+h1 {
+  font-family: var(--font-head); font-weight: 600;
+  font-size: clamp(26px, 3.6vw, 38px);
+  letter-spacing: -0.012em; line-height: 1.15;
+  margin: 0 0 6px;
+}
+h1 + .lead { border-top: 1px solid var(--border); padding-top: 18px; margin-top: 14px; }
+
+h2 {
+  font-family: var(--font-head); font-weight: 600;
+  font-size: 17px; letter-spacing: -0.005em;
+  margin: 34px 0 8px;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+
+h3 {
+  font-family: var(--font-head); font-weight: 600;
+  font-size: 15px;
+  margin: 24px 0 6px;
+  color: var(--text);
+}
+h3::before {
+  content: "§";
+  color: var(--accent); margin-right: 8px; font-weight: 400;
+  font-family: var(--font-serif);
+}
+
+.lead, p.sub {
+  font-family: var(--font-serif); font-style: italic; font-weight: 400;
+  font-size: 17px; color: var(--soft); line-height: 1.5;
+  margin: 0 0 24px;
+}
+
+p { font-size: 15.5px; color: var(--soft); line-height: 1.62; margin: 0 0 12px; }
+strong { color: var(--text); font-weight: 600; }
+em { font-style: italic; color: var(--soft); font-family: var(--font-serif); }
+
+ul, ol { padding-left: 22px; margin: 8px 0 16px; }
+li { color: var(--soft); margin: 4px 0; font-size: 15.5px; line-height: 1.55; }
+ul li::marker { color: var(--accent); }
+ol { counter-reset: m; padding-left: 0; list-style: none; }
+ol li { counter-increment: m; padding-left: 36px; position: relative; }
+ol li::before {
+  content: counter(m) ".";
+  position: absolute; left: 0; font-family: var(--font-mono);
+  font-size: 13px; color: var(--accent); font-weight: 500;
+}
+
+blockquote { font-family: var(--font-serif); font-style: italic; font-size: 16px; margin: 20px 0; padding: 4px 0 4px 16px; border-left: 2px solid var(--accent); color: var(--soft); }
+
+code { font-family: var(--font-mono); font-size: 0.88em; background: var(--panel-2); padding: 1px 6px; border-radius: 2px; }
+pre { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; background: var(--panel); border: 1px solid var(--border); padding: 14px 18px; border-radius: 3px; overflow-x: auto; margin: 18px 0; }
+pre code { background: transparent; padding: 0; }
+
+table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; border-top: 1.5px solid var(--text); }
+th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--border); }
+th { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 500; background: var(--panel); border-bottom: 1.5px solid var(--text); }
+tbody tr:nth-child(even) td { background: var(--bg-2); }
+
+hr { border: 0; border-top: 1px solid var(--border); margin: 28px 0; }
+mark { background: rgba(15,77,138,0.14); color: var(--text); padding: 0 3px; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 500;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 2px;
+  background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+}
+.pill.good { color: var(--good); border-color: rgba(31,111,58,0.35); }
+.pill.bad  { color: var(--bad); border-color: rgba(168,38,31,0.35); }
+.pill.mid  { color: var(--mid); border-color: rgba(160,112,32,0.35); }
+.pill.acc  { color: var(--accent); border-color: rgba(15,77,138,0.35); background: rgba(15,77,138,0.06); }
+.pill.info { color: var(--accent-3); border-color: rgba(74,79,90,0.35); }
+
+.card { background: var(--panel); border: 1px solid var(--border); padding: 18px 20px; margin: 12px 0; border-radius: 3px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+
+.verdict {
+  background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent);
+  padding: 18px 22px; margin: 26px 0; border-radius: 0;
+}
+.verdict h3 { margin-top: 0; }
+.verdict h3::before { content: "RECOMMENDATION —"; color: var(--accent); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; margin-right: 8px; }
+
+footer { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--text); color: var(--muted); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }

@@ -28,7 +28,8 @@
   --font-serif: 'Instrument Serif', Georgia, serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
   --leading: 1.6;
-  --wrap-max: 880px;
+  --wrap-max: clamp(720px, 92vw, 1180px);
+  --read-max: 68ch;
 }
 
 * { box-sizing: border-box; }
@@ -40,6 +41,16 @@ html, body {
   font-feature-settings: "ss01", "cv11";
 }
 .wrap, main { max-width: var(--wrap-max); margin: 0 auto; padding: clamp(28px, 5vw, 64px); }
+.wrap > p, main > p,
+.wrap > ul, main > ul,
+.wrap > ol, main > ol,
+.wrap > h1, main > h1,
+.wrap > h2, main > h2,
+.wrap > h3, main > h3,
+.wrap > .lead, main > .lead,
+.wrap > p.sub, main > p.sub,
+.wrap > blockquote, main > blockquote,
+.wrap > .eyebrow, main > .eyebrow { max-width: var(--read-max); }
 
 a { color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; transition: border-color .15s; }
 a:hover { border-bottom-color: var(--accent); }

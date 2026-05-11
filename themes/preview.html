@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Folio v2 themes — preview</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; background: #1a1a1a; color: #eee; }
+  .toolbar { position: sticky; top: 0; z-index: 10; background: #0a0a0a; padding: 14px 22px; border-bottom: 1px solid #333; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+  .toolbar strong { color: #fff; margin-right: 12px; }
+  .toolbar button { background: #2a2a2a; color: #ddd; border: 1px solid #444; padding: 5px 11px; border-radius: 4px; cursor: pointer; font-size: 12px; font-family: ui-monospace, monospace; }
+  .toolbar button:hover { background: #3a3a3a; color: #fff; }
+  .toolbar button.active { background: #fff; color: #000; border-color: #fff; }
+  iframe { border: 0; width: 100%; height: calc(100vh - 56px); display: block; background: #fff; }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <strong>FOLIO v2</strong>
+  <span id="buttons"></span>
+</div>
+<iframe id="frame" src="about:blank"></iframe>
+<script>
+const themes = ['linen','folio','newsroom','notebook','brutalist','terminal','pastel','dossier',
+                'atlas','studio','memo','codex','ledger','sumi','arcade','garden','kraft','prism'];
+const newOnes = new Set(['atlas','studio','memo','codex','ledger','sumi','arcade','garden','kraft','prism']);
+
+const sample = (theme) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="${theme}/theme.css"></head>
+<body><main class="wrap">
+<span class="eyebrow">Field report · ${theme}</span>
+<h1>Why our retrieval <em>silently</em> degraded</h1>
+<p class="lead">Trzy tygodnie po launchu zauważyliśmy że recall@10 spadł z 0.82 do 0.61. Nie wywaliło nic — po prostu odpowiedzi stały się bardziej "generyczne". Oto co się stało, dlaczego nikt tego nie zauważył od razu, i co naprawiliśmy.</p>
+
+<p>Pierwszy sygnał przyszedł z eval'i — zestaw 200 zapytań produkcyjnych który trzymamy w CI. Recall spadał stopniowo, dzień po dniu, około 0.7 punktu procentowego dziennie. Tak wolno że alerts ustawione na 5% delta nie odpaliły. <strong>Drift był ciągły, nie skokowy.</strong></p>
+
+<p>Drugi sygnał przyszedł od użytkowników, ale dopiero po 11 dniach. Treść feedbacku: "odpowiedzi są w porządku ale jakieś takie ogólne". To zła jakość sygnału — bez nazwiska konkretnego dokumentu którego brakuje nie można odtworzyć problemu.</p>
+
+<h2>Co znaleźliśmy</h2>
+<p>Embedding model dostał ciche aktualizacje od dostawcy. Numer wersji nie zmieniał się, ale wektory dla tych samych tekstów zaczęły się drobnie różnić od dnia X. Stara baza wektorów + nowy enkoder zapytań = systematyczne przesunięcie cosine distance.</p>
+
+<ol>
+  <li>Ponumerowaliśmy wszystkie indeksy z timestampem embeddingu.</li>
+  <li>Włączyliśmy alert na A/B distribution shift w cosine score.</li>
+  <li>Re-embed cały korpus dla nowych zapytań idących przez ten enkoder.</li>
+</ol>
+
+<h3>Metryki przed/po fixu</h3>
+<table>
+<thead><tr><th>Metric</th><th>Before</th><th>After</th><th>Δ</th></tr></thead>
+<tbody>
+<tr><td>recall@10</td><td>0.61</td><td>0.84</td><td>+0.23</td></tr>
+<tr><td>p50 latency</td><td>180ms</td><td>185ms</td><td>+5ms</td></tr>
+<tr><td>cost / 1k req</td><td>$0.12</td><td>$0.18</td><td>+$0.06</td></tr>
+<tr><td>user CSAT</td><td>3.4</td><td>4.1</td><td>+0.7</td></tr>
+</tbody>
+</table>
+
+<blockquote>Nie mierzysz tego, czego nie mierzysz. Embedding version drift to klasyczny przypadek metryki która istniała, ale nikt na nią nie patrzył.</blockquote>
+
+<div class="cards">
+<div class="card"><h3>Wnioski 01</h3><p>Wersjonuj embeddingi <strong>twardo</strong>. Hash modelu + data — w nazwie indeksu.</p></div>
+<div class="card"><h3>Wnioski 02</h3><p>Trzymaj eval set który leci codziennie, nie tylko przy release.</p></div>
+<div class="card"><h3>Wnioski 03</h3><p>Drift jest <em>ciągły</em>. Alert na delta-percentage gubi powolny spadek.</p></div>
+</div>
+
+<h3>Stan po naprawie</h3>
+<p>Re-embed zajął 6 godzin. Koszt jednorazowy: ~$340. <span class="pill good">Resolved</span> <span class="pill info">Monitored</span> <span class="pill mid">Re-embed planned Q1</span></p>
+
+<pre><code># detect embedding drift
+distances = cosine(old_queries, new_queries_re_encoded)
+if distances.mean() > 0.04:
+    raise EmbeddingDriftAlert(model_hash, drift=distances.mean())</code></pre>
+
+<div class="verdict">
+<h3>Recommendation</h3>
+<p>Każdy zewnętrzny model dostaje pin do konkretnego hash'u, nie wersji. Eval CI codziennie, nie tylko na release. Alert na <strong>distribution shape</strong>, nie tylko delta. Następny review za 60 dni.</p>
+</div>
+
+<hr>
+<footer>Folio · ${theme} · v2.0 · 2025-01-18</footer>
+</main></body></html>`;
+
+const buttonsEl = document.getElementById('buttons');
+const frame = document.getElementById('frame');
+const baseUrl = location.href.replace(/[^/]+$/,'');
+
+function show(theme) {
+  document.querySelectorAll('#buttons button').forEach(b => b.classList.toggle('active', b.dataset.theme === theme));
+  const blob = new Blob([sample(theme)], {type: 'text/html'});
+  // need to render with base href so theme.css resolves
+  const html = sample(theme).replace('<head>', `<head><base href="${baseUrl}">`);
+  frame.srcdoc = html;
+  location.hash = theme;
+}
+
+themes.forEach(t => {
+  const b = document.createElement('button');
+  b.textContent = t;
+  b.dataset.theme = t;
+  if (newOnes.has(t)) b.style.borderColor = '#ffd700';
+  b.onclick = () => show(t);
+  buttonsEl.appendChild(b);
+});
+
+show(location.hash.slice(1) || 'atlas');
+</script>
+</body>
+</html>

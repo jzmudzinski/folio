@@ -49,10 +49,26 @@ export function configPath(): string {
 }
 
 export function bundledThemesDir(): string {
+  // Env override dla compiled binaries (bun --compile) — `import.meta.dir`
+  // resolve'uje do embedded path który nie istnieje na disk. Production deploy
+  // (Jetson) ships themes osobno + FOLIO_BUNDLED_THEMES_DIR=/opt/folio/themes.
+  const envDir = process.env.FOLIO_BUNDLED_THEMES_DIR?.trim();
+  if (envDir && existsSync(envDir)) return envDir;
+  // Fallback: relative to execPath (binary location)
+  if (process.execPath && existsSync(process.execPath)) {
+    const next = join(process.execPath, "..", "themes");
+    if (existsSync(next)) return next;
+  }
   return join(import.meta.dir, "..", "..", "themes");
 }
 
 export function bundledTemplatesDir(): string {
+  const envDir = process.env.FOLIO_BUNDLED_TEMPLATES_DIR?.trim();
+  if (envDir && existsSync(envDir)) return envDir;
+  if (process.execPath && existsSync(process.execPath)) {
+    const next = join(process.execPath, "..", "templates");
+    if (existsSync(next)) return next;
+  }
   return join(import.meta.dir, "..", "..", "templates");
 }
 

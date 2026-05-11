@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, renameSync, writeFileSync, readFileSync } from "
 import { join, relative } from "node:path";
 import { db, logEvent } from "./db";
 import { folioRoot, threadsDir, notesDir, loadConfig } from "./config";
-import { slugify } from "./slug";
+import { slugify, plNormalize } from "./slug";
 import { sanitize } from "./sanitize";
 import { extractText } from "./text";
 import { renderNote } from "./templates";
@@ -97,7 +97,13 @@ export async function createNote(input: CreateNoteInput): Promise<NoteMeta> {
     }
     d.run(
       "INSERT INTO notes_fts (id, title, headings, body, tags) VALUES (?, ?, ?, ?, ?)",
-      [id, input.title, stats.headings, stats.body, (input.tags ?? []).join(" ")]
+      [
+        id,
+        plNormalize(input.title),
+        plNormalize(stats.headings),
+        plNormalize(stats.body),
+        plNormalize((input.tags ?? []).join(" ")),
+      ]
     );
   })();
 
@@ -250,6 +256,65 @@ export function finalize(id: string): boolean {
   ]);
   logEvent("note_finalized", { age_days_at_finalize: ageDays }, id, note.thread_id);
   return true;
+}
+
+export interface ReindexResult {
+  ok: number;
+  failed: Array<{ id: string; error: string }>;
+}
+
+/**
+ * Rebuild FTS index for all active notes from their HTML files on disk.
+ * Use after tokenizer or normalization changes.
+ */
+export async function reindexAll(): Promise<ReindexResult> {
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const d = db();
+  let ok = 0;
+  const failed: ReindexResult["failed"] = [];
+
+  const notes = d
+    .query<{ id: string; path: string; title: string }, []>(
+      "SELECT id, path, title FROM notes WHERE status = 'active'"
+    )
+    .all();
+
+  for (const n of notes) {
+    try {
+      const html = readFileSync(join(folioRoot(), n.path), "utf-8");
+      const articleMatch = html.match(/<article[^>]*>([\s\S]*?)<\/article>/);
+      const bodySrc = articleMatch ? articleMatch[1] : html;
+      const stats = extractText(bodySrc);
+      const tags = d
+        .query<{ tag: string }, [string]>("SELECT tag FROM tags WHERE note_id = ? ORDER BY tag")
+        .all(n.id)
+        .map((r) => r.tag);
+      d.transaction(() => {
+        d.run("DELETE FROM notes_fts WHERE id = ?", [n.id]);
+        d.run(
+          "INSERT INTO notes_fts (id, title, headings, body, tags) VALUES (?, ?, ?, ?, ?)",
+          [
+            n.id,
+            plNormalize(n.title),
+            plNormalize(stats.headings),
+            plNormalize(stats.body),
+            plNormalize(tags.join(" ")),
+          ]
+        );
+        d.run("UPDATE notes SET word_count = ?, summary = ? WHERE id = ?", [
+          stats.word_count,
+          stats.summary,
+          n.id,
+        ]);
+      })();
+      ok++;
+    } catch (e: any) {
+      failed.push({ id: n.id, error: e?.message ?? String(e) });
+    }
+  }
+
+  return { ok, failed };
 }
 
 export interface CleanupResult {
@@ -414,7 +479,8 @@ function escapeFtsQuery(q: string): string {
   // Strip FTS5-special chars; AND tokens with prefix matching.
   // Split on whitespace AND hyphens: unicode61 tokenizes "Fine-Tuning" as ["fine", "tuning"],
   // so our query must mirror that to match.
-  const tokens = q
+  // plNormalize handles Polish ł/Ł (FTS5 remove_diacritics doesn't touch non-combining codepoints).
+  const tokens = plNormalize(q)
     .trim()
     .split(/[\s\-]+/)
     .map((t) => t.replace(/[^\p{L}\p{N}_]/gu, ""))

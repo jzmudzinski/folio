@@ -25,15 +25,28 @@ function getExampleDirs(): string[] {
   return readdirSync(EXAMPLES_DIR);
 }
 
-test("examples folder exists with 4 typed examples", () => {
+test("examples folder includes all 8 reference examples", () => {
   const dirs = getExampleDirs();
-  expect(dirs).toContain("research");
-  expect(dirs).toContain("comparison");
-  expect(dirs).toContain("technical");
-  expect(dirs).toContain("snippet");
+  for (const d of ["research", "comparison", "technical", "snippet", "journal", "atlas-research", "sumi-observation", "ledger-financial"]) {
+    expect(dirs).toContain(d);
+  }
 });
 
-for (const name of ["research", "comparison", "technical", "snippet"]) {
+// Examples mapped to the type they should be created as (the directory name
+// may include theme/topic suffixes for variety, but the *type* must be one of
+// the 5 supported)
+const EXAMPLES: Array<[string, string]> = [
+  ["research", "research"],
+  ["comparison", "comparison"],
+  ["technical", "technical"],
+  ["snippet", "snippet"],
+  ["journal", "journal"],
+  ["atlas-research", "research"],
+  ["sumi-observation", "snippet"],
+  ["ledger-financial", "technical"],
+];
+
+for (const [name, type] of EXAMPLES) {
   test(`example "${name}" creates a sanitized note with no inline styles`, async () => {
     const { createNote } = await import("../src/core/storage");
     const { db } = await import("../src/core/db");
@@ -43,7 +56,7 @@ for (const name of ["research", "comparison", "technical", "snippet"]) {
     const body = readFileSync(htmlPath, "utf-8");
 
     const note = await createNote({
-      type: name as any,
+      type: type as any,
       title: `Example ${name}`,
       body_html: body,
       thread_id: `ex-${name}`,

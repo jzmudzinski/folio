@@ -1,0 +1,25 @@
+<span class="eyebrow">Journal · Czwartek</span>
+<h1>Marta — dwie rozmowy</h1>
+<p class="lead">Co ustaliliśmy, co zostaje na potem, co mnie zaskoczyło.</p>
+
+<h3>Rano: pipeline</h3>
+<p>Krótki sync o Obsidian export. Marta proponuje webhook zamiast scheduled job — argument: synchroniczny feedback po edycji, brak 5-minutowego opóźnienia. Sensowne dla jej use case'u, mniej dla mojego (batch import 50 not = 50 webhooków = rate limit).</p>
+<p><strong>Decyzja:</strong> webhook + debouncer po stronie nasłuchu. Ona przygotuje endpoint, ja przygotuję folio side w przyszłym tygodniu.</p>
+
+<h3>Po południu: research RAG</h3>
+<p>Wracam do tematu RAG vs fine-tuning po sesji z Martą. Ona mówi że w ich firmie (10 osób, ~5k zapytań dziennie) hybrid wygrywa — RAG dla świeżych dokumentów, fine-tune dla tone matching customer support. To zgadza się z tym co czytałem w research o RAG vs FT z poprzedniego threadu.</p>
+<ul>
+  <li>Embedding model: zostawili OpenAI ada-3 (nie próbowali lokalnego)</li>
+  <li>Vector DB: pgvector w istniejącym Postgresie, nie chcieli osobnej infry</li>
+  <li>Eval rig: ręczny, raz w tygodniu — chcą zautomatyzować</li>
+</ul>
+
+<h3>Co mnie zaskoczyło</h3>
+<p>Że Marta robi eval ręcznie. Sądziłem że już mają RAGAS / TruLens. Może dobry temat na <em>follow-up research note</em> — automated eval dla małych zespołów, ile to kosztuje setup, czy warto?</p>
+
+<h3>Open</h3>
+<ul>
+  <li>Dokończyć notatkę o eval pipeline — może być pomocne dla ich teamu</li>
+  <li>Sprawdzić ich webhook spec zanim zacznę implementację</li>
+  <li>Wrócić do pomysłu „eval-as-a-prompt" — krótki Folio research?</li>
+</ul>

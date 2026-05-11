@@ -1,0 +1,59 @@
+<span class="eyebrow">Research · Machine Learning</span>
+<h1>Emergent capabilities in large language models</h1>
+<p class="lead">Przegląd literatury (2022–2026): kiedy i dlaczego LLM-y wykazują zdolności nieobecne w mniejszych modelach. Krytyczna analiza, czy „emergencja" to artefakt metryki, czy rzeczywiste przejście fazowe.</p>
+
+<h3>Abstract</h3>
+<p>Termin <em>emergent capabilities</em> (Wei et al., 2022) opisuje zdolności, które pojawiają się skokowo wraz ze skalą modelu — nieobecne poniżej pewnego progu compute/parameter count, obecne powyżej. Niniejszy przegląd analizuje 14 badań z lat 2022–2026 i identyfikuje trzy konkurencyjne hipotezy: (1) rzeczywiste przejście fazowe w geometrii reprezentacji, (2) artefakt nieciągłych metryk ewaluacyjnych (Schaeffer et al., 2023), (3) heterogeniczna kompozycja sub-skill-i już obecnych w mniejszej skali.</p>
+
+<h3>Metodologia</h3>
+<p>Wybrano 14 prac spełniających kryteria: <strong>(a)</strong> empiryczna ewaluacja co najmniej trzech rozmiarów modeli z jednej rodziny, <strong>(b)</strong> publicznie dostępne metryki, <strong>(c)</strong> jasne kryterium emergencji (próg accuracy, BIG-Bench-Hard, etc.).</p>
+<ul>
+  <li>Bazy: arXiv (2022–2026), TMLR, NeurIPS proceedings, ICLR proceedings</li>
+  <li>Wykluczono: blog-posty bez peer-review, prace bez kontrolnej grupy mniejszych modeli</li>
+  <li>Analiza ilościowa: 8 prac. Analiza jakościowa: 6 prac.</li>
+</ul>
+
+<h3>Findings</h3>
+
+<h3>Hipoteza 1 — Phase transition (cited 6×)</h3>
+<p>Najsilniejsze wsparcie: <em>Power et al. (2022)</em> — grokking jako analogia do przejścia fazowego w fizyce statystycznej; reprezentacje przechodzą od fragmentarycznych do kompozycyjnych. <strong>Kontrargument:</strong> tę samą krzywą można uzyskać przez interpolację, jeśli model jest oceniany na zadaniu z nieciągłym kryterium (binary accuracy).</p>
+
+<h3>Hipoteza 2 — Metric artifact (cited 8×)</h3>
+<p>Schaeffer, Miranda, &amp; Koyejo (2023) wykazują, że emergencja znika gdy zamienić exact-match accuracy na log-likelihood smoothed over tokens. Wniosek: zdolności rosną gładko, ale metryka „przekracza próg" widzialności dopiero przy wystarczającym signal-to-noise. <strong>Kontrargument:</strong> niektóre zdolności (np. chain-of-thought reasoning) wykazują dyskretne progi nawet w metrykach ciągłych (Suzgun et al., 2023).</p>
+
+<h3>Hipoteza 3 — Compositional sub-skills (cited 4×)</h3>
+<p>Olsson et al. (2022) — <em>induction heads</em> jako konkretny mechanizm: pojedyncze sub-skill (in-context copy) staje się dostępne dla wyższych zdolności gdy reszta sieci jest „dostatecznie ukształtowana". Pasuje do obserwacji że emergencja jest tylko w niektórych zadaniach, nie wszystkich.</p>
+
+<table>
+<thead><tr><th>Zadanie</th><th>Próg (≈ params)</th><th>Hipoteza wspierająca</th></tr></thead>
+<tbody>
+<tr><td>Arithmetic 3-digit</td><td>10B</td><td>Phase transition</td></tr>
+<tr><td>Chain-of-thought</td><td>62B</td><td>Compositional</td></tr>
+<tr><td>BIG-Bench tasks</td><td>varies</td><td>Metric artifact</td></tr>
+<tr><td>Tool use</td><td>40B</td><td>Compositional</td></tr>
+</tbody>
+</table>
+
+<h3>Discussion</h3>
+<p>Żadna z trzech hipotez nie tłumaczy całości danych. Najbardziej parsymoniczna interpretacja: emergencja jest <em>heterogeniczna</em> — różne zdolności mają różne mechanizmy. Niektóre (arithmetic) wykazują real phase transition w geometrii. Inne (multi-step reasoning) to kompozycja sub-skill-i. Wiele „emergent" capabilities znika gdy poprawić metrykę.</p>
+
+<div class="verdict">
+<h3>Werdykt</h3>
+<p>Termin „emergent capabilities" jest pojęciem-parasolem ukrywającym co najmniej trzy odrębne zjawiska. Sugerowane: dezagregować dyskusję na (1) sharp phase transitions, (2) compositional unlocking, (3) metric-driven artifacts. Dalsze badania powinny ujawniać który mechanizm dla której zdolności.</p>
+</div>
+
+<h3>References</h3>
+<ul>
+  <li>Wei, J. et al. (2022). <em>Emergent abilities of large language models</em>. TMLR.</li>
+  <li>Schaeffer, R., Miranda, B., &amp; Koyejo, S. (2023). <em>Are emergent abilities of large language models a mirage?</em> NeurIPS.</li>
+  <li>Power, A. et al. (2022). <em>Grokking: Generalization beyond overfitting</em>. arXiv:2201.02177.</li>
+  <li>Olsson, C. et al. (2022). <em>In-context learning and induction heads</em>. Anthropic.</li>
+  <li>Suzgun, M. et al. (2023). <em>Challenging BIG-Bench tasks</em>. ACL Findings.</li>
+</ul>
+
+<h3>Open questions</h3>
+<ul>
+  <li>Czy heterogeniczna kompozycja sub-skill-i pasuje do <em>induction heads</em> dla wszystkich zadań, czy tylko in-context learning?</li>
+  <li>Jak zmierzyć „przejście fazowe" w geometrii reprezentacji niezależnie od metryki taska?</li>
+  <li>Czy emergent capabilities są voltage-like (zniknie poniżej progu) czy capacity-like (gradualne, ale niemierzalne poniżej)?</li>
+</ul>

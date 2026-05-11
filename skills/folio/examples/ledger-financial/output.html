@@ -1,0 +1,67 @@
+<span class="eyebrow">Financial Review · Q3 2026</span>
+<h1>Q3 2026 — Financial Review</h1>
+<p class="lead">Przychody, koszty, marża operacyjna per linia produktu. Porównanie QoQ + YoY. Status oznaczony pill'ami.</p>
+
+<h3>Headline</h3>
+<table>
+<thead><tr><th>KPI</th><th>Q3 2026</th><th>Q2 2026</th><th>QoQ Δ</th><th>YoY Δ</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td>Revenue (total)</td><td>$4,820k</td><td>$4,180k</td><td>+15.3%</td><td>+38.2%</td><td><span class="pill good">growth</span></td></tr>
+<tr><td>Gross margin</td><td>68.4%</td><td>67.1%</td><td>+1.3pp</td><td>+2.8pp</td><td><span class="pill good">expanding</span></td></tr>
+<tr><td>Operating margin</td><td>22.1%</td><td>24.3%</td><td>−2.2pp</td><td>+0.4pp</td><td><span class="pill mid">compression</span></td></tr>
+<tr><td>Cash burn</td><td>$310k</td><td>$245k</td><td>+26.5%</td><td>+82.4%</td><td><span class="pill bad">attention</span></td></tr>
+<tr><td>ARR run-rate</td><td>$19.3M</td><td>$16.7M</td><td>+15.6%</td><td>+42.1%</td><td><span class="pill good">on track</span></td></tr>
+</tbody>
+</table>
+
+<h3>Revenue breakdown per linia produktu</h3>
+<table>
+<thead><tr><th>Product</th><th>Q3</th><th>Q2</th><th>Δ</th><th>% of total</th><th>CAGR</th></tr></thead>
+<tbody>
+<tr><td>SaaS · core platform</td><td>$2,890k</td><td>$2,580k</td><td>+12.0%</td><td>60.0%</td><td>34.5%</td></tr>
+<tr><td>SaaS · enterprise tier</td><td>$1,180k</td><td>$890k</td><td>+32.6%</td><td>24.5%</td><td>58.2%</td></tr>
+<tr><td>Pro services</td><td>$420k</td><td>$510k</td><td>−17.6%</td><td>8.7%</td><td>−4.1%</td></tr>
+<tr><td>Marketplace fees</td><td>$330k</td><td>$200k</td><td>+65.0%</td><td>6.8%</td><td>n/a (Q2 launch)</td></tr>
+</tbody>
+</table>
+
+<h3>Cost structure</h3>
+<table>
+<thead><tr><th>Category</th><th>Q3</th><th>% of revenue</th><th>Trend</th></tr></thead>
+<tbody>
+<tr><td>R&amp;D headcount</td><td>$1,620k</td><td>33.6%</td><td><span class="pill mid">↑ +18%</span></td></tr>
+<tr><td>Sales &amp; marketing</td><td>$840k</td><td>17.4%</td><td><span class="pill good">↓ from 19.8%</span></td></tr>
+<tr><td>Infrastructure (compute)</td><td>$520k</td><td>10.8%</td><td><span class="pill bad">↑ +42%</span></td></tr>
+<tr><td>G&amp;A</td><td>$310k</td><td>6.4%</td><td><span class="pill good">flat</span></td></tr>
+<tr><td>Other opex</td><td>$465k</td><td>9.6%</td><td><span class="pill mid">↑ +8%</span></td></tr>
+</tbody>
+</table>
+
+<h3>Co się stało z infra costs</h3>
+<p>+42% QoQ to nie GPU compute (te flat), tylko egress bandwidth — embedding cache invalidation poszła źle w lipcu, dwie aplikacje zaczęły rebuild'ować embeddings co godzinę zamiast co dobę. Naprawione w sierpniu (commit infra-2026-08-14). Q4 forecast: powrót do ~$370k baseline.</p>
+
+<h3>Cash position</h3>
+<table>
+<thead><tr><th>Item</th><th>$</th></tr></thead>
+<tbody>
+<tr><td>Opening cash (Jul 1)</td><td>$8,420k</td></tr>
+<tr><td>Operating cash flow</td><td>+$610k</td></tr>
+<tr><td>Capex (infra + equipment)</td><td>−$285k</td></tr>
+<tr><td>Working capital change</td><td>−$120k</td></tr>
+<tr><td>Closing cash (Sep 30)</td><td><strong>$8,625k</strong></td></tr>
+</tbody>
+</table>
+<p>Runway: <strong>27.8 miesiąca</strong> przy current burn ($310k/mo). Comfortable.</p>
+
+<div class="verdict">
+<h3>Werdykt</h3>
+<p><strong>Wynik dobry, ale dwa warning'i.</strong> Operating margin schudł 2.2pp przez R&amp;D headcount ramp (nowa team in Q3) i wahnięcie infra costs. Oba odwracalne: headcount ramp pokryje się przychodami enterprise w Q4 (już 3 nowi customers w pipeline); infra back to baseline w sierpniu. Reszta — przychody, gross margin, ARR — silne. Pro services −17.6% to świadoma decyzja (pivot z usług na produkt), nie problem.</p>
+</div>
+
+<h3>Action items</h3>
+<ul>
+  <li>Monitor infra costs Q4 — confirm return to $370k baseline</li>
+  <li>Plan kolejnej rekrutacji R&amp;D dopiero po Q4 financials</li>
+  <li>Marketplace ramp continuing — re-evaluate take rate w Q1 2027</li>
+  <li>Pro services wind-down do końca Q4 (komunikacja z 4 remaining clients)</li>
+</ul>

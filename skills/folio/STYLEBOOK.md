@@ -148,6 +148,49 @@ Theme.css formatuje. Brak inline `style="font-family:monospace"`.
 
 W theme'ach typu newsroom dostaje większy weight.
 
+## Iframe embed (sandboxed)
+
+Wolno wstawiać interaktywne treści przez `<iframe>` — viewer sanityzuje i wymusza bezpieczny sandbox. Use case: CodeSandbox, Observable notebook, YouTube, embedowane karty, demo z innego serwisu.
+
+```html
+<iframe
+  src="https://codesandbox.io/embed/abc123"
+  sandbox="allow-scripts"
+  width="100%"
+  height="400"
+  title="Live demo: useCallback patterns"></iframe>
+```
+
+**Co jest enforced automatycznie:**
+- `src` tylko `https://` (NIE `data:`, `javascript:`)
+- `sandbox` zawsze present; `allow-same-origin` **zawsze stripped** (frame cross-origin do parent — nie ma escape)
+- Default sandbox jeśli pominięty: `allow-scripts allow-popups allow-forms`
+- `on*` event handlers dropped
+- `referrerpolicy="no-referrer"` forced
+
+**Kiedy iframe:**
+- ✅ Embed third-party demo (CodeSandbox, Observable, Loom, YouTube)
+- ✅ Custom interactive widget z zaufanego URL
+- ✅ Live chart z innego origin (D3, ECharts demo page)
+
+**Kiedy NIE iframe:**
+- ❌ Inline interactive — użyj `<details>`/`<summary>` (CSS-only accordion działa wszędzie)
+- ❌ Twoje własne JS w nocie — nie ma `<script>` w body, użyj iframe srcdoc gdy musisz
+- ❌ Auth-wrapped content — agent nie ma sesji usera
+
+## Co user dostaje automatycznie (viewer helpers)
+
+Twoja notatka renderuje się w viewerze z wieloma helpers attached parent-side. **Projektuj treść żeby z nich korzystała:**
+
+- **TOC sidebar pojawia się** gdy są **≥ 3 nagłówki h2/h3** — pisz długie noty z structured sekcjami zamiast jednym wallem tekstu. Każdy heading dostaje auto-id i klik na ¶ kopiuje URL do sekcji.
+- **Copy code** button hoveruje się nad każdym `<pre>` — agent nie musi dodawać własnego CTA „copy this" w treści
+- **Lightbox** dla każdego `<img>` — wstawiaj większe obrazy, user może powiększyć
+- **External linki** auto-dostają `target=_blank` — nie pisz tego w atrybucie
+- **Reading time** liczone z word_count (~220 wpm) — gęsty research z 4 min readingu robi inne wrażenie niż snippet 30s
+- **Copy as plain / markdown** — agent's HTML powinien być dobrze semantyczny, żeby konwersja MD była clean. Unikaj zagnieżdżonych dziwactw (np. `<div>` wewnątrz `<p>`)
+- **Prev/Next w threadzie** — gdy iterujesz, kontynuuj ten sam `thread_id` (suggest_thread sprawdzi)
+- **Theme preview switcher** — user może podejrzeć każdą notę w innym themie, więc treść powinna pracować across themes (NIE writequipped do konkretnego — używaj utility classes, NIE hardcoded colors)
+
 ## Czego NIE robisz
 
 ❌ **Inline `style="..."`** — łamie spójność theme'ów. Wyjątki:

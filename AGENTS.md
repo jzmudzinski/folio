@@ -10,7 +10,7 @@ Visual communication layer between AI agents and humans. Markdown is flat; Folio
 
 **Pivot v3 (ADR-009):** Folio is communication, NOT a knowledge base. Append-only (ADR-014) — agents only CREATE, never UPDATE. Iterations = new sibling notes in the same thread folder.
 
-Full strategy in `docs/planning/Folio.md`. All decisions in `docs/planning/Decisions.md` (ADR-001 to ADR-020+).
+Strategy + ADRs are mirrored from the maintainer's Obsidian vault and intentionally not in this repo. The codebase is the source of truth — read `src/`, `themes/`, `skills/`, and tests to understand current behavior.
 
 ---
 
@@ -70,11 +70,9 @@ Full strategy in `docs/planning/Folio.md`. All decisions in `docs/planning/Decis
 │   ├── STYLEBOOK.md            Utility class contract + iframe + helpers
 │   └── examples/<type>/        Few-shot examples per note type/theme
 ├── tests/                      `bun test` discovers *.test.ts
-├── docs/                       Design briefs, mockups, planning sync,
-│                                 release artifacts (wordmark, planning/*)
-├── docs/planning/              Mirror of Obsidian Projekty/Folio for
-│                                 self-contained codebase context
-├── docs/redesign/              Claude Design v2 handoff package
+├── docs/                       Public-facing docs only
+│   ├── mcp-setup.md            Agent client setup (OpenClaw, Claude Desktop, …)
+│   └── wordmark-v05.html       Brand wordmark variations (10 lockups)
 ├── .github/workflows/          release.yml — tag push → tar.gz to GH
 └── ~/Folio/                    User runtime data (NOT in repo):
                                   threads/<thread>/*.html, notes/, .trash/,
@@ -105,7 +103,7 @@ Tests grouped by area: `storage.test.ts`, `mcp.test.ts`, `skill-examples.test.ts
 2. Add case to the switch in `setRequestHandler(CallToolRequestSchema, ...)`
 3. Add test to `tests/mcp.test.ts` exercising the happy path + at least one error
 4. If the tool is a real workflow change, update `skills/folio/SKILL.md` (which agents use to learn workflow)
-5. Document in `docs/planning/Changelog.md` (push to Obsidian later)
+5. Note the change in the commit message so it surfaces in auto-generated release notes
 
 ### A new CLI command
 
@@ -186,19 +184,6 @@ Wait — actually outer iframe DOES have `allow-scripts` now (commit `5f0839d`) 
 
 ---
 
-## What's parked in `docs/planning/`
-
-Obsidian sync — read-only mirror of project planning. Useful for:
-- `Folio.md` — current pitch + open questions
-- `Decisions.md` — all ADRs (most current decisions live here)
-- `Changelog.md` — implementation history per commit cluster
-- `Architecture.md` — high-level design
-- `Sprint-extend-from.md` — parked sprint for token-efficient append patches
-
-If you're going to implement something already discussed in planning, **read the relevant doc first** — it captures rejected alternatives and tradeoffs.
-
----
-
 ## Release flow
 
 ```bash
@@ -219,4 +204,4 @@ Per `.github/workflows/release.yml` — tag triggered, ~1 min build, auto-genera
 - "What's the schema?" → `src/core/db.ts` `SCHEMA_V1` const
 - "What's the brand?" → `themes/linen/theme.css` (default) + `docs/wordmark-v05.html` (variations)
 - "What does the viewer look like?" → `bun bin/folio.ts serve` and open `http://127.0.0.1:4810`. Source in `src/viewer/render.ts` (CSS + HTML helpers) and `src/viewer/server.ts` (routes)
-- "Why is X like that?" → grep `docs/planning/Decisions.md` for "ADR-NN" by topic
+- "Why is X like that?" → check commit history (`git log --oneline -- <path>`) — substantive decisions land in commit messages

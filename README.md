@@ -1,91 +1,140 @@
 # Folio
 
 > Visual communication layer between AI agents and humans.
-> Markdown isn't enough. Folio = standalone HTML as the medium for current conversation with an agent. **Not a knowledge base — communication.**
+
+Markdown is flat. Folio is the medium where an AI agent stops *describing* something and starts *showing* it — scorecards, color-coded findings, sortable tables, embedded interactive demos, all in a single standalone HTML file that lives on your disk and travels anywhere.
+
+Folio is not a knowledge base. It's the surface on which your current conversation with an agent renders.
+
+---
 
 ## Install
 
-**From a release** (recommended for end-users):
+**From a release** (recommended):
 
 ```bash
-# Download latest darwin-arm64 (or linux-x64) tarball from
-#   https://github.com/jzmudzinski/folio/releases/latest
-curl -L https://github.com/jzmudzinski/folio/releases/latest/download/folio-darwin-arm64.tar.gz \
+# Pick the right tarball for your machine
+TARGET=darwin-arm64    # or linux-x64, or linux-arm64
+
+curl -L "https://github.com/jzmudzinski/folio/releases/latest/download/folio-${TARGET}.tar.gz" \
   | tar xz -C /tmp/folio-install
-cd /tmp/folio-install
-./install.sh                  # installs to ~/.local/folio
-export PATH="$HOME/.local/folio:$PATH"
-folio init && folio serve
+cd /tmp/folio-install && ./install.sh
+export PATH="$HOME/.local/folio:$PATH"      # add to your shell rc
+
+folio init
+folio serve     # http://127.0.0.1:4810
 ```
 
-**From source** (development):
+**From source** (you want to hack on it):
 
 ```bash
 git clone https://github.com/jzmudzinski/folio.git
-cd folio
-bun install
+cd folio && bun install
 bun bin/folio.ts init
 bun bin/folio.ts serve
 ```
 
-## Quick start
+Requires Bun 1.3+ for source install. Release tarballs ship pre-compiled single-file binaries — no runtime dependency.
 
-```bash
-# 1. Bootstrap
-folio init                        # or: bun bin/folio.ts init
+---
 
-# 2. Create a note (HTML fragment, no <html>/<body> needed)
-folio new \
-  --title "RAG vs Fine-Tuning" \
-  --type research \
-  --thread rag-vs-finetuning \
-  --tags "ai,rag" \
-  --html @sample.html
+## How it works in 60 seconds
 
-# 3. Browse
-folio serve
-# → http://127.0.0.1:4810
-```
+1. An MCP-capable agent (OpenClaw, Claude Code, Claude Desktop, Cursor, Continue, …) connects to `folio-mcp` over stdio.
+2. When the agent has something visual to show — research, comparison, technical doc, interactive demo — it calls `folio.create` with an HTML body and a theme.
+3. The note lands at `~/Folio/threads/<topic>/<slug>.html` and the agent replies with `http://127.0.0.1:4810/n/<id>`.
+4. You open the link in a browser. The local viewer renders the note in the chosen theme, attaches a sidebar with metadata + actions, and stays out of the way.
+5. Want another angle? Tell the agent. It writes a new note in the same thread folder. The previous one stays intact (Folio is append-only). Mark the best one as "final" — it skips the 30-day auto-cleanup.
+
+---
 
 ## Commands
 
 | Command | What |
 |---|---|
 | `folio init` | Bootstrap `~/Folio/` (or `$FOLIO_HOME`) |
-| `folio new --title T --type X --html @file.html` | Create note |
-| `folio list [--type X] [--thread T] [--final] [--limit N] [--json]` | List recent |
-| `folio search "query" [--type X] [--json]` | FTS5 full-text search |
-| `folio finalize <id>` | Mark as final (skip auto-cleanup) |
+| `folio new --title T --type X --html @file.html` | Create a note from an HTML fragment |
+| `folio list [--type] [--thread] [--final] [--json]` | List recent notes |
+| `folio search "query" [--type] [--json]` | FTS5 full-text search (Polish-aware) |
+| `folio finalize <id>` | Mark as final — skip auto-cleanup |
+| `folio open <id\|slug>` | Open note URL in default browser |
+| `folio export <id> [--standalone] [--out path]` | Export a single self-contained HTML |
+| `folio cleanup [--dry-run]` | Trash non-final notes past expiry (30d default) |
+| `folio reindex` | Rebuild FTS index from files on disk |
 | `folio stats` | Counts + analytics |
 | `folio serve` | Local viewer on `:4810` |
+| `folio-mcp` | Stdio MCP server for agent clients |
 
-`FOLIO_HOME=/path` overrides storage root. `FOLIO_DEBUG=1` for stack traces.
+Environment: `FOLIO_HOME=/path` overrides storage root. `FOLIO_DEBUG=1` for stack traces.
 
-## Status (2026-05-11)
+---
 
-- **S0** ✓ Repo + Bun + MCP SDK validated on Bun
-- **S1** ✓ Storage (SQLite + FTS5) + viewer + analytics
-- **S2** ✓ Templates (`_base`, `research`) + themes (Linen default, Folio) + render profiles
-- **S3** ⬜ MCP server
-- **S4** ⬜ OpenClaw Skill
-- **S5** ⬜ Lifespan + cleanup daemon
-- **S6** ⬜ Cloud publish (folio.app)
-- **S7** ⬜ Polish + mobile
+## Agent integration
 
-## Concepts
+Folio is built around the MCP protocol. The server (`folio-mcp`) exposes **10 tools** (`folio.create`, `get`, `list`, `search`, `finalize`, `unfinalize`, `suggest_thread`, `list_expiring`, `list_themes`, `export`) and **6 resources** for context-loading.
 
-- **Append-only** (ADR-014) — agents only CREATE, never edit. New version = new document in same thread folder.
-- **Threads** — related notes live in `~/Folio/threads/<thread_id>/`.
-- **Final marker** — opt-in via UI/CLI/MCP. Non-final notes auto-delete after 30 days (ADR-015). Publish auto-finalizes.
-- **Themes** (ADR-020) — folder per theme: `theme.css` + `theme.md` (prompt addendum). Bundled: `linen` (default), `folio`. Drop your own in `~/Folio/themes/<name>/`.
-- **Render profiles** (ADR-012) — `hosted` (links theme.css, -50% tokens) vs `standalone` (inline, share-ready).
-- **Analytics** (ADR-017) — every action logs to `events` table. `folio stats` shows class-match rate (validates token claim).
+### OpenClaw + mcporter
 
-## Design references
+```bash
+mcporter config add folio --command folio-mcp --scope home
 
-The HTML mockups in `docs/` are *both* design specs and reference notes for the agent to learn from (S4 STYLEBOOK):
+# Optional: install the skill so agents know when/how to call Folio
+ln -s "$HOME/.local/folio/skills/folio" "$HOME/.openclaw/workspace/skills/folio"
+```
 
-- `docs/plan-dzialania.html` — strategy + roadmap
-- `docs/plan-implementacji.html` — ADRs, sprints, blockers, risks
-- `docs/mockup-viewer.html` — 4 viewer states (browse / search / thread / note)
-- `docs/mockup-themes.html` — 8 starter themes side-by-side
+### Claude Desktop
+
+```jsonc
+// ~/Library/Application Support/Claude/claude_desktop_config.json
+{
+  "mcpServers": {
+    "folio": { "command": "folio-mcp" }
+  }
+}
+```
+
+### Claude Code / Cursor / Continue
+
+Most MCP-capable clients accept the same shape: command `folio-mcp`, no args. See [`docs/mcp-setup.md`](docs/mcp-setup.md) for details.
+
+---
+
+## Themes
+
+18 themes ship bundled, each with two files:
+
+- `theme.css` — CSS variables + utility classes (`.eyebrow`, `.lead`, `.pill`, `.card`, `.verdict`, …) the agent uses for structure
+- `theme.md` — prompt addendum the Skill injects so the agent matches the theme's voice and structure
+
+Defaults: `linen` (warm cream, Familjen Grotesk + Instrument Serif italic, orange accent). Switch per-note via `folio.create({ theme })` or globally in `~/Folio/folio.config.json`.
+
+Drop your own folder at `~/Folio/themes/<name>/` and it appears in the viewer dropdown immediately — no restart, no rebuild.
+
+Full theme list and contract: [`themes/README.md`](themes/README.md).
+
+---
+
+## Architecture
+
+- **Bun** runtime + TypeScript (no build step in dev; `bun build --compile` for release binaries)
+- **`bun:sqlite`** with FTS5 for storage and search (Polish-aware tokenizer + suffix stemmer)
+- **`sanitize-html`** for agent body sanitization — drops top-level `<script>`, forces safe sandboxes on `<iframe>` (no `allow-same-origin` ever passes through, `https:` only, `on*` handlers stripped)
+- **Eta** templates wrap agent-supplied HTML in a theme-linked document
+- **Vanilla viewer** — server-rendered HTML + ~300 LOC of vanilla JS for the helpers (lightbox, copy-code, heading anchors, TOC with scroll spy, reading progress, theme preview switcher, prev/next in thread)
+- **MCP SDK** for the stdio server
+
+No React, no frontend framework, no build step at runtime. Notes are pure HTML files; the viewer renders them through an iframe so theme.css is isolated from viewer chrome.
+
+---
+
+## Hacking on Folio
+
+[`AGENTS.md`](AGENTS.md) is the canonical "how to work on this codebase" guide — file layout, conventions, hard rules, common pitfalls. Read it before adding tools, themes, or viewer helpers.
+
+Tests: `bun test` (a few dozen, ~700ms). Branch protection on `main` means changes flow through PRs.
+
+---
+
+## License
+
+[MIT](LICENSE).

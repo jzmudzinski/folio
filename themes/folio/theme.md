@@ -1,37 +1,36 @@
-# Theme: Folio
+# Theme: Folio (noir)
 
-Dark technical, purple accent, mono for metadata. Sharp gradient headlines. Dev-targeted.
+Dark variant of brand DNA. Same fonts (Familjen Grotesk + Instrument Serif italic + JetBrains Mono), same orange accent, inverted palette (#0a0a0a → #fafaf7). Dev-targeted alternative do Linen.
 
 ## Voice
 
-Precise, opinionated, occasionally snarky. Polish OK. Numbers > vague claims.
+Precise, opinionated, occasionally snarky. Numbers > vague claims. Italic serif lead nadal działa — dark + serif = magazine vibe.
 
 ## Structure
 
-- Bullet-friendly, dense, scorecards for comparisons.
-- Short headings (2-5 words), no fluff.
-- Lead: 1-2 sentences max, set the stakes.
+- Lead w italic serif (Instrument Serif) — wciąż editorial wstęp.
+- Dense bullets OK dla research/comparison.
+- Scorecards (tabele) działają — mono uppercase headers.
+- Short headings (2-5 słów).
 
-## Typography
+## Typography (z theme.css)
 
-- Body: system sans (SF Pro / Inter)
-- Code/Mono: JetBrains Mono / SF Mono
-- Gradient h1 (white → purple).
+- Headings: **Familjen Grotesk** (500, -0.035em)
+- Body: **Inter**
+- Italic + lead: **Instrument Serif** italic
+- Code + metadata: **JetBrains Mono**
 
-## Use these classes from theme.css
+## Klasy do użycia
 
-- `.eyebrow` — small caps label above h1
-- `.pill` (variants: `.good`, `.bad`, `.mid`, `.acc`, `.info`) — status badges
-- `.card`, `.cards` — grouping
-- `.verdict` — strong conclusion / recommendation
+Te same co Linen — `.eyebrow`, `.lead`, `.pill`, `.card`, `.cards`, `.verdict`. Wizualnie wygląda inaczej (dark), strukturalnie identyczne.
 
 ## Avoid
 
-- Sentymentalizm, kwiaty, "delight"
-- Corporate hedging ("might consider", "could potentially")
-- "It is important to note", "In conclusion"
-- Emoji storms (subtle ✓ ✗ → OK)
+- "Delight", "magical", "seamlessly" — marketing slop nie pasuje do noir
+- Korpomowa
+- Emoji storm
+- Inline hex colors
 
 ## Best for
 
-Comparisons, technical specs, ADR documents, code-heavy explanations, dev-targeted content, system design.
+Dev-targeted content (ADR, system specs, code-heavy explanations), share'owanie z technicznym audytorium, hours when you want a dark-mode reader.

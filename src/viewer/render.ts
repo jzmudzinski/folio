@@ -42,21 +42,44 @@ function dateGroup(iso: string): string {
 }
 
 const VIEWER_CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400..700&family=Instrument+Serif:ital@0;1&family=Inter:wght@300..700&family=JetBrains+Mono:wght@300..600&display=swap');
+
 :root {
-  --vbg: #fbfaf7; --vbg-2: #f5f4f0; --vpanel: #fff; --vborder: #e5e3dc;
-  --vtext: #1d1d1f; --vsoft: #333; --vmuted: #86868b;
-  --vaccent: #0066cc; --vaccent-2: #3b82f6;
-  --vmid: #ff9500; --vgood: #34c759; --vbad: #ff3b30;
-  --vfont: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif;
-  --vmono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  --vbg: #f5f3ee; --vbg-2: #efeae0; --vpanel: #fff; --vborder: rgba(10,10,10,0.10);
+  --vtext: #0a0a0a; --vsoft: #1a1a1a; --vmuted: #6b6b66; --vmuted-light: #a8a89e;
+  --vaccent: #ff5a1f; --vaccent-2: #d4a574;
+  --vmid: #c98e2d; --vgood: #2f9050; --vbad: #c8412a;
+  --vfont: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --vhead: 'Familjen Grotesk', 'Inter', system-ui, sans-serif;
+  --vserif: 'Instrument Serif', Georgia, serif;
+  --vmono: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
 }
 * { box-sizing: border-box; }
 html, body { background: var(--vbg); color: var(--vtext); font-family: var(--vfont); margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
 a { color: var(--vaccent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-.v-top { padding: 14px 24px; border-bottom: 1px solid var(--vborder); display: flex; align-items: center; gap: 14px; background: var(--vbg-2); position: sticky; top: 0; z-index: 10; }
-.v-logo { font-weight: 800; font-size: 16px; letter-spacing: -0.01em; display: flex; align-items: center; gap: 6px; }
+.v-top { padding: 14px 24px; border-bottom: 1px solid var(--vborder); display: flex; align-items: center; gap: 18px; background: var(--vbg); position: sticky; top: 0; z-index: 10; }
+.v-logo {
+  display: flex; align-items: baseline; gap: 14px;
+  font-family: var(--vhead); font-weight: 500;
+  letter-spacing: -0.035em;
+  color: var(--vtext);
+  text-decoration: none;
+  line-height: 1;
+}
+.v-logo:hover { text-decoration: none; }
+.v-logo .mark { font-size: 26px; }
+.v-logo .mark .dot { color: var(--vaccent); }
+.v-logo .divider { width: 1px; height: 18px; background: var(--vborder); align-self: center; }
+.v-logo .tagline {
+  font-family: var(--vmono); font-size: 10.5px;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--vmuted-light); font-weight: 400;
+}
+@media (max-width: 720px) {
+  .v-logo .divider, .v-logo .tagline { display: none; }
+}
 .v-search { flex: 1; max-width: 560px; background: var(--vpanel); border: 1px solid var(--vborder); border-radius: 8px; padding: 7px 14px; display: flex; align-items: center; gap: 8px; font-family: var(--vmono); font-size: 13px; }
 .v-search input { flex: 1; background: transparent; border: 0; outline: 0; color: var(--vtext); font-family: var(--vmono); font-size: 13px; }
 .v-actions { display: flex; gap: 8px; color: var(--vmuted); }
@@ -66,8 +89,8 @@ a:hover { text-decoration: underline; }
 .v-filters { padding: 11px 24px; border-bottom: 1px solid var(--vborder); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; background: var(--vbg); }
 .fp { padding: 4px 11px; border-radius: 999px; font-size: 12px; font-weight: 600; background: transparent; border: 1px solid var(--vborder); color: var(--vmuted); text-decoration: none; }
 .fp:hover { color: var(--vtext); }
-.fp.active { background: rgba(0,102,204,0.1); border-color: var(--vaccent); color: var(--vaccent); }
-.fp.warn { background: rgba(255,149,0,0.1); border-color: rgba(255,149,0,0.4); color: var(--vmid); }
+.fp.active { background: rgba(255,90,31,0.1); border-color: var(--vaccent); color: var(--vaccent); }
+.fp.warn { background: rgba(201,142,45,0.1); border-color: rgba(201,142,45,0.4); color: var(--vmid); }
 .fp .count { margin-left: 5px; opacity: 0.7; font-weight: 500; }
 .divider { width: 1px; height: 18px; background: var(--vborder); margin: 0 6px; }
 
@@ -79,34 +102,34 @@ a:hover { text-decoration: underline; }
 .note-card { background: var(--vpanel); border: 1px solid var(--vborder); border-radius: 11px; padding: 14px 18px; margin-bottom: 8px; display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: start; text-decoration: none; color: var(--vtext); transition: border-color 0.15s, transform 0.15s; }
 .note-card:hover { border-color: var(--vaccent); transform: translateY(-1px); text-decoration: none; }
 .note-card .type { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; padding: 4px 9px; border-radius: 6px; font-weight: 700; font-family: var(--vmono); align-self: start; margin-top: 2px; white-space: nowrap; }
-.type-research { background: rgba(26,170,255,0.13); color: var(--vaccent-2); }
-.type-comparison { background: rgba(124,92,255,0.15); color: #7c5cff; }
-.type-technical { background: rgba(245,158,11,0.13); color: #b45309; }
-.type-journal { background: rgba(52,199,89,0.13); color: var(--vgood); }
+.type-research { background: rgba(255,90,31,0.10); color: var(--vaccent); }
+.type-comparison { background: rgba(212,165,116,0.18); color: #8b6535; }
+.type-technical { background: rgba(74,108,247,0.10); color: #2c4ad9; }
+.type-journal { background: rgba(47,144,80,0.10); color: var(--vgood); }
 .type-snippet { background: var(--vbg-2); color: var(--vmuted); }
 .note-body .title { font-weight: 600; font-size: 14.5px; line-height: 1.35; margin-bottom: 5px; color: var(--vtext); }
 .note-body .meta { font-size: 12px; color: var(--vmuted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
 .note-body .meta .sep { opacity: 0.4; }
 .note-body .meta .thread { color: var(--vaccent); font-family: var(--vmono); font-size: 11.5px; }
 .note-body .snippet { font-size: 13px; color: var(--vmuted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
-.note-body .snippet mark { background: rgba(255,149,0,0.22); color: var(--vtext); padding: 1px 3px; border-radius: 3px; }
+.note-body .snippet mark { background: rgba(201,142,45,0.22); color: var(--vtext); padding: 1px 3px; border-radius: 3px; }
 .note-status { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; font-family: var(--vmono); font-size: 11px; white-space: nowrap; }
 .note-status .final { color: var(--vgood); }
 .note-status .expiring { color: var(--vmid); }
 .note-status .score { color: var(--vaccent-2); }
 
 .empty { text-align: center; padding: 60px 20px; color: var(--vmuted); }
-.empty h2 { color: var(--vtext); font-weight: 700; margin-bottom: 10px; }
+.empty h2 { color: var(--vtext); font-family: var(--vhead); font-weight: 500; font-size: 28px; letter-spacing: -0.02em; margin-bottom: 10px; }
 .empty code { background: var(--vbg-2); padding: 2px 8px; border-radius: 4px; font-family: var(--vmono); }
 
-.search-bar { padding: 14px 24px; background: rgba(0,102,204,0.05); border-bottom: 1px solid var(--vborder); color: var(--vmuted); font-size: 13px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.search-bar { padding: 14px 24px; background: rgba(255,90,31,0.06); border-bottom: 1px solid var(--vborder); color: var(--vmuted); font-size: 13px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
 .search-bar .query { font-family: var(--vmono); color: var(--vaccent); }
 .search-bar .count { color: var(--vtext); font-weight: 600; }
 
 .thread-head { padding: 24px 24px 20px; border-bottom: 1px solid var(--vborder); background: var(--vbg-2); }
 .thread-head .crumb { font-size: 12px; color: var(--vmuted); font-family: var(--vmono); margin-bottom: 8px; }
 .thread-head .crumb a { color: var(--vaccent); }
-.thread-head h2 { margin: 0 0 8px; font-size: 22px; font-weight: 700; color: var(--vtext); }
+.thread-head h2 { margin: 0 0 8px; font-size: 26px; font-weight: 500; font-family: var(--vhead); letter-spacing: -0.02em; color: var(--vtext); }
 .thread-head .summary { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--vmuted); }
 
 .note-shell { display: grid; grid-template-columns: 280px 1fr; min-height: calc(100vh - 60px); }
@@ -125,11 +148,11 @@ a:hover { text-decoration: underline; }
 .side-actions { display: flex; flex-direction: column; gap: 6px; margin-top: auto; }
 .btn { padding: 7px 14px; border-radius: 7px; font-size: 12.5px; font-weight: 600; border: 1px solid var(--vborder); background: var(--vpanel); color: var(--vsoft); cursor: pointer; text-align: center; text-decoration: none; display: block; font-family: var(--vfont); }
 .btn:hover { border-color: var(--vaccent); color: var(--vtext); text-decoration: none; }
-.btn.primary { background: rgba(0,102,204,0.1); border-color: var(--vaccent); color: var(--vaccent); }
+.btn.primary { background: rgba(255,90,31,0.1); border-color: var(--vaccent); color: var(--vaccent); }
 .btn.primary:hover { background: rgba(0,102,204,0.18); }
 
 .note-iframe { width: 100%; height: calc(100vh - 60px); border: 0; }
-.note-banner { padding: 12px 18px; background: rgba(255,149,0,0.07); border-bottom: 1px solid rgba(255,149,0,0.25); display: flex; justify-content: space-between; align-items: center; gap: 14px; font-size: 13px; color: var(--vsoft); flex-wrap: wrap; }
+.note-banner { padding: 12px 18px; background: rgba(201,142,45,0.07); border-bottom: 1px solid rgba(201,142,45,0.25); display: flex; justify-content: space-between; align-items: center; gap: 14px; font-size: 13px; color: var(--vsoft); flex-wrap: wrap; }
 .note-banner .lbl { color: var(--vmid); font-weight: 600; }
 
 @media (max-width: 780px) {
@@ -141,7 +164,11 @@ a:hover { text-decoration: underline; }
 function topbar(query = ""): string {
   return `
 <div class="v-top">
-  <a href="/" class="v-logo">📄 Folio</a>
+  <a href="/" class="v-logo">
+    <span class="mark">folio<span class="dot">.</span></span>
+    <span class="divider"></span>
+    <span class="tagline">VISUAL COMM FOR AGENTS</span>
+  </a>
   <form class="v-search" action="/search" method="get">
     <span>🔍</span>
     <input type="search" name="q" placeholder="Szukaj…" value="${esc(query)}" autocomplete="off">
@@ -294,7 +321,7 @@ export function pageNote(note: NoteMeta, themeName: string): string {
 export function pageStats(s: any): string {
   return shell("Stats", `${topbar()}
 <div class="v-list">
-  <h1 style="margin:0 0 24px;font-size:24px">Statystyki</h1>
+  <h1 style="margin:0 0 24px;font-size:32px;font-family:var(--vhead);font-weight:500;letter-spacing:-0.02em">Statystyki</h1>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:32px">
     <div class="note-card" style="grid-template-columns:1fr"><div><div style="font-size:32px;font-weight:800;color:var(--vaccent)">${s.total}</div><div style="color:var(--vmuted);font-size:12px;text-transform:uppercase;letter-spacing:0.08em;margin-top:6px">Total</div></div></div>
     <div class="note-card" style="grid-template-columns:1fr"><div><div style="font-size:32px;font-weight:800;color:var(--vgood)">${s.final}</div><div style="color:var(--vmuted);font-size:12px;text-transform:uppercase;letter-spacing:0.08em;margin-top:6px">Final ⭐</div></div></div>
@@ -302,12 +329,12 @@ export function pageStats(s: any): string {
     <div class="note-card" style="grid-template-columns:1fr"><div><div style="font-size:32px;font-weight:800">${s.threads}</div><div style="color:var(--vmuted);font-size:12px;text-transform:uppercase;letter-spacing:0.08em;margin-top:6px">Threads</div></div></div>
   </div>
 
-  <h3 style="margin:24px 0 8px">By type</h3>
+  <h3 style="margin:32px 0 10px;font-family:var(--vhead);font-weight:500;letter-spacing:-0.01em">By type</h3>
   <table style="width:100%;border-collapse:collapse">
     ${s.by_type.map((t: any) => `<tr><td style="padding:8px 0;border-bottom:1px solid var(--vborder)"><span class="type type-${t.type}" style="font-family:var(--vmono);font-size:10px;text-transform:uppercase;letter-spacing:0.1em;padding:3px 9px;border-radius:5px">${t.type}</span></td><td style="padding:8px 0;border-bottom:1px solid var(--vborder);text-align:right;font-family:var(--vmono);color:var(--vmuted)">${t.n}</td></tr>`).join("")}
   </table>
 
-  <h3 style="margin:24px 0 8px">Analytics (ADR-017)</h3>
+  <h3 style="margin:32px 0 10px;font-family:var(--vhead);font-weight:500;letter-spacing:-0.01em">Analytics (ADR-017)</h3>
   <p>Class match rate: <strong>${s.analytics.avg_class_match == null ? "—" : (s.analytics.avg_class_match * 100).toFixed(1) + "%"}</strong></p>
   <p>Logged events: <strong>${s.analytics.total_events}</strong></p>
 </div>`);

@@ -1,39 +1,44 @@
 # Theme: Linen
 
-Apple-grade minimal. Off-white background, system font (SF Pro), subtle blue accent. Generous whitespace, no decorations. Default theme for Folio.
+Warm cream paper + orange accent. Familjen Grotesk dla nagłówków, Instrument Serif italic dla lead/cytatów, JetBrains Mono dla metadanych. **Default theme dla Folio — brand-aligned z wordmarkiem.**
+
+Filozofia: editorial-meets-product. Calm, archival but living. Pomarańczowa kropka jako akcent (cytat z wordmark v08). Lead w italic serif działa jak miękki manifest.
 
 ## Voice
 
-Clear, measured, confident without being arrogant. Public-facing tone — assume non-technical audience may read this.
+Clear, measured, confident — z miejscem na poetic moment przez italic serif lead. Public-facing tone — assume non-technical reader may open this on phone.
 
 ## Structure
 
-- Well-paced paragraphs (3-5 sentences). Generous whitespace between sections.
-- Headings descriptive, no jargon. Customer-readable.
-- Use prose over bullets when conveying nuance. Bullets sparingly for concrete lists.
+- Lead jako 1-2 zdania w italic serif (Instrument Serif). To pierwszy oddech notatki, ustawia ton.
+- Akapity dobrze rozłożone (3-5 zdań). Generous whitespace między sekcjami.
+- Nagłówki krótkie (2-5 słów), descriptive, customer-readable.
+- Bullety oszczędnie — proza dla niuansu, lista tylko dla konkretnych itemów.
 
-## Typography
+## Typography (z theme.css)
 
-- Body: system sans (SF Pro / Inter fallback)
-- Code: SF Mono / JetBrains Mono
-- No serif headings, no script fonts.
+- Headings: **Familjen Grotesk** (500 weight, tight tracking -0.03em)
+- Body: **Inter** (system fallback)
+- Italic emphasis + lead: **Instrument Serif** italic
+- Code + metadata: **JetBrains Mono**
 
-## Use these classes from theme.css
+## Klasy do użycia
 
-- `.eyebrow` — small uppercase label above h1
-- `.lead` or `p.sub` — large muted subtitle below h1
-- `.pill` (variants: `.good`, `.bad`, `.mid`, `.acc`) — inline status badges
+- `.eyebrow` — mono caps label nad h1 ("Research · AI / ML")
+- `.lead` / `p.sub` — italic serif subtitle (zamiast plain bold/large)
+- `.pill` (`.good`, `.bad`, `.mid`, `.acc`, `.info`) — inline status
 - `.card`, `.cards` — content grouping
-- `.verdict` — conclusion / recommendation callout
+- `.verdict` — konkluzja z orange left-border
 
 ## Avoid
 
-- Emoji storms. Subtle ✓ ✗ ◆ acceptable at most.
-- Technical acronyms without definition.
-- Exclamation marks.
-- Dark mode references (this theme is light by design).
-- Heavy color contrasts (Linen is intentionally calm).
+- Emoji storm. Subtle ✓ ✗ ◆ akceptowalne.
+- Tech jargon bez definicji.
+- Wykrzykniki (!).
+- Hex colors w atrybutach — używaj klas.
+- Bombarding bullet-after-bullet — wstaw paragraf między.
+- "Revolutionary", "cutting-edge", "seamlessly", "leverages" — marketing slop.
 
 ## Best for
 
-Public reports, sales material, polished docs for sharing, executive summaries, customer-facing explanations.
+Default dla wszystkiego co się publikuje albo share'uje. Public-facing reports, polished docs, customer-facing explanations, executive summaries. Pierwszy theme jaki user widzi.

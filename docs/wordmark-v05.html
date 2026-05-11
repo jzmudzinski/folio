@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Folio — Variation 05, expanded</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400..700&family=Inter:wght@300..900&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@300..800&family=Space+Grotesk:wght@300..700&family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&family=Fraunces:opsz,wght,ital@9..144,300..900,0..1&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --bg-card: #141414;
+    --bg-card-alt: #f5f3ee;
+    --bg-card-cream: #efeae0;
+    --ink: #fafaf7;
+    --ink-dark: #0a0a0a;
+    --accent: #ff5a1f;
+    --accent-soft: #d4a574;
+    --accent-blue: #4a6cf7;
+    --muted: #6b6b66;
+    --muted-light: #a8a89e;
+    --border: rgba(255,255,255,0.08);
+    --border-dark: rgba(0,0,0,0.08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--ink); font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  body { padding: 64px 32px 96px; }
+
+  .header {
+    max-width: 1200px;
+    margin: 0 auto 64px;
+  }
+  .header .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+  .header h1 {
+    font-family: 'Instrument Serif', serif;
+    font-size: clamp(40px, 6vw, 72px);
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    line-height: 0.95;
+    margin-bottom: 16px;
+  }
+  .header h1 em { font-style: italic; color: var(--accent); }
+  .header p {
+    font-size: 15px;
+    color: var(--muted);
+    max-width: 640px;
+    line-height: 1.6;
+  }
+  .header .ref {
+    margin-top: 24px;
+    padding: 16px 20px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 16px;
+    background: var(--bg-card);
+  }
+  .header .ref .ref-mark {
+    font-family: 'Familjen Grotesk', sans-serif;
+    font-weight: 500;
+    font-size: 32px;
+    letter-spacing: -0.04em;
+  }
+  .header .ref .ref-mark .accent { color: var(--accent); font-family: 'Instrument Serif', serif; font-style: italic; }
+  .header .ref .ref-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  @media (max-width: 768px) {
+    .grid { grid-template-columns: 1fr; }
+    body { padding: 32px 16px 64px; }
+  }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 56px 48px 28px;
+    min-height: 300px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.3s ease, border-color 0.3s ease;
+  }
+  .card:hover { transform: translateY(-2px); border-color: rgba(255,255,255,0.15); }
+
+  .card.light { background: var(--bg-card-alt); color: var(--ink-dark); }
+  .card.cream { background: var(--bg-card-cream); color: var(--ink-dark); }
+  .card.light .meta, .card.cream .meta { border-top-color: var(--border-dark); }
+  .card.light .meta-num, .card.cream .meta-num,
+  .card.light .meta-title, .card.cream .meta-title { color: var(--ink-dark); }
+  .card.light .meta-desc, .card.cream .meta-desc { color: var(--muted); }
+
+  .wordmark-stage {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 16px 0;
+  }
+  .wordmark-stage.center { justify-content: center; }
+
+  .meta {
+    border-top: 1px solid var(--border);
+    padding-top: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+  }
+  .meta-left { display: flex; align-items: baseline; gap: 12px; }
+  .meta-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+  }
+  .meta-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .meta-desc {
+    font-size: 12px;
+    color: var(--muted);
+    text-align: right;
+    max-width: 220px;
+    line-height: 1.4;
+  }
+
+  /* Shared base wordmark style — every variation builds on this */
+  .mark {
+    font-family: 'Familjen Grotesk', sans-serif;
+    font-weight: 500;
+    letter-spacing: -0.04em;
+    line-height: 0.9;
+  }
+
+  /* ─── 01 — Pure & quiet ─────────────────── */
+  .v01 { font-size: 64px; }
+  .v01 .name { color: var(--ink); }
+  .v01 .dot { color: var(--accent); }
+  .v01 .sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    color: var(--muted);
+    margin-top: 14px;
+    text-transform: uppercase;
+  }
+
+  /* ─── 02 — Tagline as a serif promise ───── */
+  .v02 .name { font-size: 72px; color: var(--ink-dark); letter-spacing: -0.04em; }
+  .v02 .name .dot { color: var(--accent); }
+  .v02 .sub {
+    font-family: 'Instrument Serif', serif;
+    font-style: italic;
+    font-size: 18px;
+    color: var(--ink-dark);
+    margin-top: 10px;
+    letter-spacing: -0.01em;
+  }
+
+  /* ─── 03 — Coordinates / numeric subline ── */
+  .v03 .name { font-size: 76px; color: var(--ink); }
+  .v03 .name .dot { color: var(--accent); }
+  .v03 .sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: var(--muted-light);
+    margin-top: 14px;
+    display: flex;
+    gap: 12px;
+  }
+  .v03 .sub .accent-num { color: var(--accent); }
+
+  /* ─── 04 — Long dash, two voices ─────────── */
+  .v04 .name { font-size: 64px; color: var(--ink-dark); display: flex; align-items: baseline; gap: 16px; }
+  .v04 .name .dash { color: var(--accent); font-weight: 300; font-size: 0.7em; transform: translateY(-0.18em); }
+  .v04 .name .role {
+    font-family: 'Instrument Serif', serif;
+    font-style: italic;
+    font-size: 0.42em;
+    color: var(--muted);
+    letter-spacing: 0;
+  }
+
+  /* ─── 05 — Stacked / poster layout ───────── */
+  .v05 { color: var(--ink); }
+  .v05 .name { font-size: 80px; }
+  .v05 .name .dot { color: var(--accent); }
+  .v05 .sub-top {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .v05 .sub-bottom {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-top: 12px;
+  }
+
+  /* ─── 06 — Bracketed system label ────────── */
+  .v06 .name { font-size: 68px; color: var(--ink); }
+  .v06 .name .dot { color: var(--accent); }
+  .v06 .sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 14px;
+    letter-spacing: 0.04em;
+  }
+  .v06 .sub .bracket { color: var(--accent); }
+
+  /* ─── 07 — Hand-annotated ───────────────── */
+  .v07 .name { font-size: 76px; color: var(--ink-dark); position: relative; display: inline-block; }
+  .v07 .name .dot { color: var(--accent); }
+  .v07 .name .annotation {
+    position: absolute;
+    top: -14px;
+    right: -90px;
+    font-family: 'Instrument Serif', serif;
+    font-style: italic;
+    font-size: 16px;
+    color: var(--accent);
+    transform: rotate(-6deg);
+    white-space: nowrap;
+  }
+  .v07 .name .annotation::before {
+    content: '';
+    position: absolute;
+    left: -28px;
+    top: 24px;
+    width: 24px;
+    height: 1px;
+    background: var(--accent);
+    transform: rotate(-30deg);
+    transform-origin: right;
+  }
+  .v07 .sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-top: 14px;
+  }
+
+  /* ─── 08 — Inline lockup, single line ────── */
+  .v08 .name {
+    font-size: 56px;
+    color: var(--ink);
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+  }
+  .v08 .name .dot { color: var(--accent); }
+  .v08 .name .divider {
+    width: 1px;
+    height: 28px;
+    background: var(--border);
+    align-self: center;
+  }
+  .v08 .name .tagline {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: var(--muted-light);
+    text-transform: uppercase;
+    font-weight: 400;
+  }
+
+  /* ─── 09 — Versioned / build-stamp ───────── */
+  .v09 .name { font-size: 72px; color: var(--ink-dark); }
+  .v09 .name .dot { color: var(--accent); }
+  .v09 .sub {
+    margin-top: 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .v09 .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--border-dark);
+    border-radius: 100px;
+    font-size: 10px;
+  }
+  .v09 .pill .ping {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px rgba(255,90,31,0.15);
+  }
+
+  /* ─── 10 — Vertical descender, archival ──── */
+  .v10 { display: flex; align-items: flex-start; gap: 20px; }
+  .v10 .name {
+    font-size: 88px;
+    color: var(--ink);
+    line-height: 0.85;
+  }
+  .v10 .name .dot { color: var(--accent); }
+  .v10 .side {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.3em;
+    color: var(--muted-light);
+    text-transform: uppercase;
+    padding-top: 8px;
+  }
+  .v10 .side .accent { color: var(--accent); }
+
+  /* footer */
+  .footer {
+    max-width: 1200px;
+    margin: 80px auto 0;
+    padding-top: 32px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .footer .dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="eyebrow">expanding wordmark · 05 → 10 variations</div>
+  <h1>Same DNA.<br>Ten <em>nuances.</em></h1>
+  <p>Każda wariacja trzyma się tego samego idiomu — lowercase grotesk, ciasna interlitera, pomarańczowy akcent, mała subline. Zmienia się: ton, długość claimu, układ, typografia subline'u i sposób użycia kropki.</p>
+
+  <div class="ref">
+    <div class="ref-mark">folio<span class="accent">.</span></div>
+    <div>
+      <div class="ref-label">REFERENCE · #05 from previous</div>
+    </div>
+  </div>
+</div>
+
+<div class="grid">
+
+  <!-- 01 -->
+  <div class="card">
+    <div class="wordmark-stage">
+      <div class="mark v01">
+        <div class="name">folio<span class="dot">.</span></div>
+        <div class="sub">A QUIET PLACE FOR WORK</div>
+      </div>
+    </div>
+    <div class="meta">
+      <div class="meta-left"><span class="meta-num">01</span><span class="meta-title">Pure & quiet</span></div>
+      <div class="meta-desc">Najbliżej oryginału. Bezpieczny default, mono subline w caps</div>
+    </div>
+  </div>
+
+  <!-- 02 -->
+  <div class="card light">
+    <div class="wordmark-stage">
+      <div class="mark v02">
+        <div class="name">folio<span class="dot">.</span></div>
+        <div class="sub">where your work lives.</div>
+      </div>
+    </div>
+    <div class="meta">
+      <div class="meta-left"><span class="meta-num">02</span><span class="meta-title">Serif promise</span></div>
+      <div class="meta-desc">Subline jako italic serif — cieplejsze, redakcyjne</div>
+    </div>
+  </div>
+
+  <!-- 03 -->
+  <div class="card">
+    <div class="wordmark-stage">
+      <div class="mark v03">
+        <div class="name">folio<span class="dot">.</span></div>
+        <div class="sub">
+          <span>EST. 2026</span>
+          <span>·</span>
+          <span class="accent-num">v0.1</span>
+          <span>·</span>
+          <span>52°N 21°E</span>
+        </div>
+      </div>
+    </div>
+    <div class="meta">
+      <div class="meta-left"><span class="meta-num">03</span><span class="meta-title">Coordinates</span></div>
+      <div class="meta-desc">Stempel jak na opakowaniu — wersja, rok, koordynaty</div>
+    </div>
+  </div>
+
+  <!-- 04 -->
+  <div class="card cream">
+    <div class="wordmark-stage">
+      <div class="mark v04">
+        <div class="name">
+          folio
+          <span class="dash">—</span>
+          <span class="role">a workspace</span>
+        </div>
+      </div>
+    </div>
+    <div class="meta">
+      <div class="meta-left"><span class="meta-num">04</span><span class="meta-title">Em-dash duet</span></div>
+      <div class="meta-desc">Dwa głosy w jednej linii: grotesk + serif italic</div>
+    </div>
+  </div>
+
+  <!-- 05 -->
+  <div class="card">
+    <div class="wordmark-stage">
+      <div class="mark v05">
+        <div class="sub-top">PRODUCT · 2026</div>
+        <div class="name">folio<span class="dot">.</span></div>
+        <div class="sub-bottom">FOR PEOPLE WHO WRITE THINGS DOWN</div>
+      </div>
+    </div>
+    <div class="meta">
+      <div class="meta-left"><span class="meta-num">05</span><span class="meta-title">Poster lockup</span></div>
+      <div class="meta-desc">Sandwich: meta na górze, claim na dole. Plakatowo.</div>
+    </div>
+  </div>
+
+  <!-- 06 -->
+  <div class="card">
+    <div class="wordmark-stage">
+      <div class="mark v06">
+        <div class="name">folio<span class="dot">.</span></div>
+        <div class="sub">
+          <span class="bracket">[</span> notes &middot; people &middot; threads &middot; ideas <span class="bracket">]</span>
+        </div>
+      </div>
+    </div>
+    <div class="meta">
+      <div class="meta-left"><span class="meta-num">06</span><span class="meta-title">Bracketed scope</span></div>
+      <div class="meta-desc">Subline jako lista zawartości — "co tam jest"</div>
+    </div>
+  </div>
+
+  <!-- 07 -->
+  <div class="card cream">
+    <div class="wordmark-stage">
+      <div class="mark v07">
+        <div class="name">
+          folio<span class="dot">.</span>
+          <span class="annotation">finally, somewhere to put it all</span>
+        </div>
+        <div class="sub">SINCE 2026</div>
+      </div>
+    </div>
+    <div class="meta">
+      <div class="meta-left"><span class="meta-num">07</span><span class="meta-title">Hand-annotated</span></div>
+      <div class="meta-desc">Adnotacja kursywą z kreską — jak notatka na marginesie</div>
+    </div>
+  </div>
+
+  <!-- 08 -->
+  <div class="card">
+    <div class="wordmark-stage">
+      <div class="mark v08">
+        <div class="name">
+          <span>folio<span class="dot">.</span></span>
+          <span class="divider"></span>
+          <span class="tagline">YOUR SECOND BRAIN</span>
+        </div>
+      </div>
+    </div>
+    <div class="meta">
+      <div class="meta-left"><span class="meta-num">08</span><span class="meta-title">Inline lockup</span></div>
+      <div class="meta-desc">Wszystko w jednej linii — header strony, footer aplikacji</div>
+    </div>
+  </div>
+
+  <!-- 09 -->
+  <div class="card light">
+    <div class="wordmark-stage">
+      <div class="mark v09">
+        <div class="name">folio<span class="dot">.</span></div>
+        <div class="sub">
+          <span>v0.1.4</span>
+          <span class="pill"><span class="ping"></span>EARLY ACCESS</span>
+        </div>
+      </div>
+    </div>
+    <div class="meta">
+      <div class="meta-left"><span class="meta-num">09</span><span class="meta-title">Build stamp</span></div>
+      <div class="meta-desc">Wersja + status pill — wibe SaaS-u w wersji beta</div>
+    </div>
+  </div>
+
+  <!-- 10 -->
+  <div class="card">
+    <div class="wordmark-stage">
+      <div class="mark v10">
+        <div class="name">folio<span class="dot">.</span></div>
+        <div class="side">CATALOGUE · <span class="accent">№ 001</span> · MMXXVI</div>
+      </div>
+    </div>
+    <div class="meta">
+      <div class="meta-left"><span class="meta-num">10</span><span class="meta-title">Archival spine</span></div>
+      <div class="meta-desc">Pionowy stempel jak na grzbiecie księgi — biblioteczne</div>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">
+  <div><span class="dot"></span>10 nuances on one wordmark</div>
+  <div>folio · workspace artifact</div>
+</div>
+
+</body>
+</html>

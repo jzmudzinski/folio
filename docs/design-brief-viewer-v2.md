@@ -1,6 +1,8 @@
 # Folio Viewer — Design Brief v2
 
 > Brief dla Claude Design / designera. Zakres: **viewer chrome** (interfejs aplikacji), NIE: rendering treści notatek (tym zarządzają osobne theme'y w `themes/`).
+>
+> Cały codebase jest w kontekście — wszystkie ścieżki poniżej są względem repo root.
 
 ---
 
@@ -15,9 +17,11 @@ Folio to lokalny webowy interfejs (`http://127.0.0.1:4810`) do przeglądania HTM
 **Folio = warstwa wizualnej komunikacji między AI agentami a człowiekiem.** Po pivocie v3 NIE jest bazą wiedzy ani Obsidianem. To medium do *bieżącej* rozmowy — agent generuje wizualnie bogate HTML (research, comparison, technical), ląduje w `~/Folio/threads/<topic>/<slug>.html`, user otwiera w przeglądarce w lokalnym viewerze, opcjonalnie share'uje przez `folio export --standalone`.
 
 Pełny kontekst:
-- `~/Projects/Folio/README.md` — szybki overview
-- `Obsidian://Projekty/Folio/Folio.md` — pełny pitch i pivot
-- `Obsidian://Projekty/Folio/Decisions.md` — ADR-009 (pivot), ADR-014 (append-only), ADR-020 (themes)
+- `README.md` — szybki overview, komendy, status
+- `docs/planning/Folio.md` — pełny pitch i pivot (strategia)
+- `docs/planning/Decisions.md` — wszystkie ADRy (ADR-009 pivot, ADR-014 append-only, ADR-020 themes, etc.)
+- `docs/planning/Architecture.md` — high-level architektura
+- `docs/planning/Changelog.md` — historia implementacji, decyzje w czasie
 
 ---
 
@@ -42,7 +46,7 @@ Plus:
 ## Czego NIE projektujesz
 
 - **Renderowanie treści notatek** — to jest pre-zaprojektowane jako 8 osobnych theme'ów (linen default, folio noir, newsroom, notebook, brutalist, terminal, pastel, dossier). Każdy theme = `themes/<name>/theme.css` + `theme.md`. Treści not nie ruszamy.
-- **Wordmark / logo** — już ustalone jako v08 lockup. Zobacz `~/.openclaw/workspace/folio-wordmarks-v5.html` (wersja 08, ostatnia). Lockup: `folio.` w Familjen Grotesk 500 + thin divider + `VISUAL COMM FOR AGENTS` w JetBrains Mono.
+- **Wordmark / logo** — już ustalone jako v08 lockup. Zobacz `docs/wordmark-v05.html` (wersja 08 z 10 variations). Lockup: `folio.` w Familjen Grotesk 500 + thin divider + `VISUAL COMM FOR AGENTS` w JetBrains Mono.
 - **Backend, API, storage** — działają, nie ruszaj.
 
 ---
@@ -67,30 +71,49 @@ Wszystko z Google Fonts CDN — możesz polegać na fontach.
 
 ---
 
+## 8 themes w repo (`themes/<name>/theme.css` + `theme.md`)
+
+| Theme | wrap-max | Wibe | Best for |
+|---|---|---|---|
+| `linen` ⭐ default | 880px | Warm cream + orange. Familjen Grotesk + Instrument Serif italic lead | Public reports, polished docs |
+| `folio` (noir) | 960px | Dark inverse Linen, ten sam orange | Dev-targeted, ADR, system specs |
+| `newsroom` | 720px | Source Serif Pro + czerwony accent. Editorial gravitas | Long-form research, formal reports |
+| `notebook` | 760px | Caveat handwritten + ruled-line bg + blue ink | Brainstorm, journal, sketchy thoughts |
+| `brutalist` | 920px | Helvetica 900 ALL CAPS + 6px drop shadows | Manifesto, hot takes |
+| `terminal` | 880px | JetBrains Mono everywhere + green-on-black | System docs, log analysis, debugging |
+| `pastel` | 820px | Plus Jakarta Sans rounded + peach/sage | Gentle communication |
+| `dossier` | 780px | Courier Prime + manila + CONFIDENTIAL stamp | Investigation, OSINT |
+
+**Te wrap-max są fair game do rewizji** — pain point #2 niżej. Na 1400px+ ekranie wąska kartka pośrodku może wyglądać niepotrzebnie obco. Opcja: wide chrome + narrow content column.
+
+---
+
 ## Materiały do przeczytania (w kolejności priorytetu)
 
 1. **Live app:** `http://127.0.0.1:4810/` — jak chodzi, otwórz, kliknij wszędzie, zauważ co siada
-2. **Aktualny kod viewera:** `~/Projects/Folio/src/viewer/render.ts` — to dyktuje obecny CSS i strukturę
-3. **Mockup themes:** `~/Projects/Folio/docs/mockup-themes.html` — 8 theme'ów jako wizualny styleguide (pokazuje brand DNA na różnych ekstremach)
-4. **Pre-rebrand mockupy** (referencja historyczna, NIE aktualny brand): `docs/plan-dzialania.html`, `docs/plan-implementacji.html`, `docs/mockup-viewer.html` — pokazują co kiedyś było zaplanowane przed pivotem brand. Możesz wyciągnąć patterny strukturalne, ALE kolory/fonty traktuj jako out-of-date.
-5. **Wordmark:** `~/.openclaw/workspace/folio-wordmarks-v5.html` (wersja 08)
-6. **SKILL stylebook** (jak agenty piszą HTML treści): `~/Projects/Folio/skills/folio/STYLEBOOK.md`
+2. **Aktualny kod viewera:** `src/viewer/render.ts` — to dyktuje obecny CSS i strukturę (tam jest `VIEWER_CSS` const)
+3. **Viewer routes:** `src/viewer/server.ts` — co user może hit'nąć
+4. **Mockup themes:** `docs/mockup-themes.html` — 8 theme'ów jako wizualny styleguide (porównaj DNA na różnych ekstremach)
+5. **Wordmark:** `docs/wordmark-v05.html` — 10 variations of `folio.` lockup, wersja 08 to inline lockup używany w top barze
+6. **Pre-rebrand mockupy** (referencja historyczna, NIE aktualny brand): `docs/plan-dzialania.html`, `docs/plan-implementacji.html`, `docs/mockup-viewer.html` — pokazują co kiedyś było zaplanowane przed pivotem brand. Możesz wyciągnąć patterny strukturalne, ALE kolory/fonty traktuj jako out-of-date.
+7. **SKILL stylebook** (jak agenty piszą HTML treści): `skills/folio/STYLEBOOK.md`
+8. **Theme.md per theme** — każdy theme ma `themes/<name>/theme.md` z opisem voice/structure/avoid
 
 ---
 
 ## Konkretne pain pointy (od użytkownika, real feedback)
 
-1. **„Lista nieczytelna"** — robiłem refactor (compact rows ~36px), poprawiło, ale wciąż nie ma research-grade typografii / hierarchii. Każdy element wygląda tak samo ważny.
+1. 🔴 **"Lista nieczytelna"** — robiłem refactor (compact rows ~36px), poprawiło, ale wciąż nie ma research-grade typografii / hierarchii. Każdy element wygląda tak samo ważny.
 
-2. **„Sztuczne zwężenie layoutu w themie"** — wraps 760-880px to ergonomiczne dla reading line length, ale on screen 1400px+ to wygląda jak ucięta kartka pośrodku ekranu. Może zostawić wide na chrome, narrow tylko na treść?
+2. 🔴 **"Sztuczne zwężenie layoutu w themie"** — wraps 720-960px to ergonomiczne dla reading line length, ale na screen 1400px+ wygląda jak ucięta kartka pośrodku ekranu. Może zostawić wide na chrome, narrow tylko na treść? Dotyczy zarówno `:root --vbg`/`--wrap-max` w viewer chrome, jak i `:root --wrap-max` per theme.
 
-3. **Sidebar w note view (`/n/:id`)** — 280px po lewej z metadanymi + akcjami. Ergonomicznie OK ale wizualnie ciężki. Akcje (Mark as final, Export) są ważne, ale teraz toną w metadanych.
+3. 🟡 **Sidebar w note view (`/n/:id`)** — 280px po lewej z metadanymi + akcjami. Ergonomicznie OK ale wizualnie ciężki. Akcje (Mark as final, Export) są ważne, ale teraz toną w metadanych.
 
-4. **Search results layout** — wyniki dzielą się na „Wątki" i „Notatki" w dwóch sekcjach, ale wizualnie wyglądają jak ten sam typ rzeczy. Brakuje hierarchii „tu są wątki (czyli grupy), tu są pojedyncze trafienia".
+4. 🟡 **Search results layout** — wyniki dzielą się na „Wątki" i „Notatki" w dwóch sekcjach, ale wizualnie wyglądają jak ten sam typ rzeczy. Brakuje hierarchii „tu są wątki (czyli grupy), tu są pojedyncze trafienia".
 
-5. **Brak motion / micro-interactions** — wszystko jest static. Hover'y są subtle ale nie ma poczucia *aliveness*. To narzędzie do *komunikacji*, powinno czuć żywe.
+5. 🟡 **Brak motion / micro-interactions** — wszystko jest static. Hover'y są subtle ale nie ma poczucia *aliveness*. To narzędzie do *komunikacji*, powinno czuć żywe.
 
-6. **Mobile responsive nieprzetestowany** — działa technicznie (`@media max-width: 720px`) ale nikt nie pomyślał o tym jak feels na phone.
+6. 🔴 **Mobile responsive nieprzetestowany** — działa technicznie (`@media max-width: 720px`) ale nikt nie pomyślał o tym jak feels na phone.
 
 ---
 
@@ -126,16 +149,16 @@ Live endpoints działają. Możesz `curl` żeby zobaczyć realne dane.
 
 W kolejności priorytetu (1 = must, 4 = nice):
 
-1. **4 statyczne mockupy HTML** w `~/Projects/Folio/docs/redesign/`:
+1. **4 statyczne mockupy HTML** w `docs/redesign/`:
    - `redesign-list.html` — `/`
    - `redesign-search.html` — `/search?q=foo`
    - `redesign-threads.html` — `/threads`
    - `redesign-note.html` — `/n/:id` (note + sidebar + iframe placeholder)
    Każdy = self-contained, na prawdziwych mockowych danych (3-5 notatek), działający w przeglądarce.
 
-2. **CSS extracted** — to co miałoby trafić do `src/viewer/render.ts` w `VIEWER_CSS` const. Idealnie jako osobny plik `redesign-viewer.css` żebym mógł diffować z obecnym.
+2. **CSS extracted** — to co miałoby trafić do `src/viewer/render.ts` w `VIEWER_CSS` const. Idealnie jako osobny plik `docs/redesign/viewer.css` żebym mógł diffować z obecnym.
 
-3. **Notki w README mockupu** — co się zmieniło i dlaczego (krótkie, 1-2 linijki per decyzja).
+3. **Notki w README mockupu** (`docs/redesign/README.md`) — co się zmieniło i dlaczego (krótkie, 1-2 linijki per decyzja).
 
 4. **Mobile responsive variant** dla każdego stanu — pokazany jako drugi viewport w mockupie, albo osobny plik.
 
@@ -188,7 +211,3 @@ Wiem że dobrze wyszło jeśli:
 - Note view (`/n/:id`) → akcja „Mark as final" jest oczywista i atrakcyjna do kliknięcia, sidebar nie zaprzecza treści po prawej
 - Mobile (phone) flow działa bez kombinowania
 - Wizualnie poczułbym że to *jest* narzędzie do komunikacji, nie kolejny SaaS dashboard
-
----
-
-**Wszystkie ścieżki absolute, repo w `~/Projects/Folio/`, live viewer na `127.0.0.1:4810`. Pytaj o klucz dostępu jeśli masz.**

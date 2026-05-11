@@ -150,11 +150,39 @@ Pełna spec w `STYLEBOOK.md` w tym samym folderze. W skrócie, używaj **klas ut
 
 **NIE:**
 - ❌ `style="..."` inline (poza wyjątkowymi przypadkami — bar width, custom accent)
-- ❌ `<style>`, `<script>`, `<html>`, `<head>`, `<body>`, `<title>`, `<meta>` — to template wraps your fragment
+- ❌ `<style>`, `<script>` (top-level), `<html>`, `<head>`, `<body>`, `<title>`, `<meta>` — to template wraps your fragment
 - ❌ `<font>`, `<center>`, deprecated HTML4 tagi
 - ❌ Surowe kolory hex w atrybutach — używaj klas
 
-**Sanitizer Folio drop'uje** nie-allowed tagi i `<script>`. Twoje czyste semantyczne HTML jest najlepsze.
+**Sanitizer Folio drop'uje** nie-allowed tagi i top-level `<script>`. Twoje czyste semantyczne HTML jest najlepsze.
+
+**TAK MOŻNA: `<iframe sandbox>`** — dla embedów z `<script>`-em w izolowanym kontekście. Use case: live demo (CodeSandbox), interactive chart (Observable), filtrowalna tabela 100 rekordów (srcdoc z własnym HTML+JS), video (YouTube), wizualizacja (D3 demo).
+
+```html
+<!-- External embed -->
+<iframe src="https://codesandbox.io/embed/abc"
+        sandbox="allow-scripts"
+        width="100%" height="400"
+        title="Live demo"></iframe>
+
+<!-- Inline interactive (srcdoc z własnym JS) -->
+<iframe sandbox="allow-scripts"
+        width="100%" height="500"
+        srcdoc='<!doctype html><body><script>...</script></body>'></iframe>
+```
+
+Sanitizer ENFORCED:
+- `src` tylko `https://` (NIE `data:`, NIE `javascript:`)
+- `sandbox` zawsze obecne; `allow-same-origin` ZAWSZE stripped (frame nie ma dostępu do parent origin)
+- Brak `sandbox` → automatycznie wpisuje `allow-scripts allow-popups allow-forms`
+- `on*` event handlery dropowane
+- `referrerpolicy="no-referrer"` forced
+
+**Kiedy iframe vs `<details>`:**
+- ✅ Wymaga JS (sortowanie, filtrowanie, animacja stanów, charts) → `<iframe sandbox srcdoc=...>`
+- ✅ Embed z third-party → `<iframe sandbox src=https://...>`
+- ✅ Większa wizualizacja albo demo → iframe
+- ❌ Akordeon, expandable section, „pokaż/ukryj" → użyj `<details><summary>...</summary>...</details>` (CSS-only, działa wszędzie)
 
 ---
 

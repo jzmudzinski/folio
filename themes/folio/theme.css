@@ -28,7 +28,7 @@
   --font-serif: 'Instrument Serif', Georgia, serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
   --leading: 1.6;
-  --wrap-max: 880px;
+  --wrap-max: 960px;
 }
 
 * { box-sizing: border-box; }

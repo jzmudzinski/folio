@@ -1,35 +1,38 @@
-# Folio MCP Server — setup dla agentów
+# Folio MCP Server — agent setup
 
-`folio-mcp` to stdio MCP server udostępniający 8 tools agentom: `folio.create`, `folio.get`, `folio.list`, `folio.search`, `folio.finalize`, `folio.suggest_thread`, `folio.list_expiring`, `folio.list_themes`.
+`folio-mcp` is a stdio MCP server exposing **10 tools** and **6 resources** to any MCP-capable agent: `folio.create`, `folio.get`, `folio.list`, `folio.search`, `folio.finalize`, `folio.unfinalize`, `folio.suggest_thread`, `folio.list_expiring`, `folio.list_themes`, `folio.export`.
 
-## Sprawdzenie smoke testem
+**Prerequisite:** install Folio so `folio-mcp` is on your `PATH` (see [`../README.md#install`](../README.md#install)). If you cloned the repo for development, use `bun /path/to/folio/bin/folio-mcp.ts` instead of `folio-mcp` below.
 
-```bash
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | bun /Users/jarek/Projects/Folio/bin/folio-mcp.ts
-```
+---
 
-Powinno zwrócić JSON-RPC response z listą 8 tools.
-
-## OpenClaw (Ryszard) — primary target
-
-mcporter:
+## Smoke test
 
 ```bash
-mcporter config add folio \
-  --command bun \
-  --arg /Users/jarek/Projects/Folio/bin/folio-mcp.ts \
-  --scope home
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | folio-mcp
 ```
 
-Skill do workspace'a (symlink → zmiany w repo idą od razu):
+Returns a JSON-RPC response listing all 10 tools.
+
+---
+
+## OpenClaw (mcporter)
 
 ```bash
-ln -s ~/Projects/Folio/skills/folio ~/.openclaw/workspace/skills/folio
+mcporter config add folio --command folio-mcp --scope home
 ```
 
-Po restarcie Ryszarda powinieneś widzieć folio.* w `mcporter list`.
+Then link the Skill so the agent knows when/how to call Folio:
 
-## Claude Desktop (alternative)
+```bash
+ln -s "$HOME/.local/folio/skills/folio" "$HOME/.openclaw/workspace/skills/folio"
+```
+
+After OpenClaw restart you should see `folio.*` tools in `mcporter list`.
+
+---
+
+## Claude Desktop
 
 `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
@@ -37,57 +40,81 @@ Po restarcie Ryszarda powinieneś widzieć folio.* w `mcporter list`.
 {
   "mcpServers": {
     "folio": {
-      "command": "bun",
-      "args": ["/Users/jarek/Projects/Folio/bin/folio-mcp.ts"],
+      "command": "folio-mcp",
       "env": {
-        "FOLIO_HOME": "/Users/jarek/Folio"
+        "FOLIO_HOME": "/Users/you/Folio"
       }
     }
   }
 }
 ```
 
-## Claude Code / inne MCP klienty
+`env.FOLIO_HOME` is optional (defaults to `~/Folio`).
+
+---
+
+## Claude Code
 
 ```bash
-claude mcp add folio bun /Users/jarek/Projects/Folio/bin/folio-mcp.ts
+claude mcp add folio folio-mcp
 ```
 
-Cursor / Continue / OpenCode: większość klientów MCP czyta podobny config. Komenda: `bun /Users/jarek/Projects/Folio/bin/folio-mcp.ts`, brak args, env opcjonalne (`FOLIO_HOME` default `~/Folio`).
+---
 
-## Konwencja odpowiedzi agenta
+## Cursor / Continue / OpenCode
 
-Po `folio.create` Folio zwraca pole `response_hint` sugerujące:
+Most MCP-capable editors accept the same shape: command `folio-mcp`, no args, optional `FOLIO_HOME` env var. Consult your client's MCP config docs.
+
+---
+
+## Response convention
+
+After `folio.create`, the tool returns a `response_hint` field suggesting the agent reply to the user with:
 
 ```
 MEDIA:http://127.0.0.1:4810/n/<id>
-<3-5 linijek TL;DR>
+<3-5 line TL;DR>
 ```
 
-User dostaje link do otwarcia w przeglądarce + krótkie streszczenie w czacie. To jest core UX pętli Folio.
+The user clicks the link, the local viewer renders the note. This is the core loop.
 
-## Recommended flow per agent prompt
+---
 
-1. **Dispatch decyzja:** czy to zadanie wymaga rich artefaktu (research, comparison, technical) czy short reply? Jeśli short → odpowiedz tekstem. Jeśli rich → Folio.
-2. **Pre-create:** `folio.suggest_thread({ title })` — jeśli matching thread istnieje, użyj jego `thread_id`. Jeśli nie, użyj proposed slug.
-3. **(Opcjonalnie) `folio.list_themes`** — jeśli kontekst sugeruje specyficzny theme (formal report → newsroom, system spec → terminal).
-4. **`folio.create`** z theme + thread_id + body_html zgodnym z stylebook'iem aktualnego theme'u.
-5. **Odpowiedź** z `MEDIA:<local_url>` + TL;DR.
-6. **Po `folio.publish`** (kiedyś, S6): `folio.list_expiring` żeby zaproponować finalizację innych not w threadzie. Tylko w Folio-related convo (ADR-019 gating).
+## Recommended flow
 
-## Bezpieczeństwo
+1. **Decide:** does this output deserve rich layout (research, comparison, technical) or is a short text reply enough?
+2. **Pre-create:** `folio.suggest_thread({ title })` — if a matching thread exists, use its `thread_id`; otherwise use the proposed slug.
+3. **Optional:** `folio.list_themes` if uncertain which theme fits the content.
+4. **Create:** `folio.create` with type + title + body_html + thread_id (+ theme if non-default).
+5. **Reply** with `MEDIA:<local_url>` + short TL;DR.
+6. **Iterate:** when the user asks for another angle, call `folio.create` again with the same `thread_id` (Folio is append-only; the previous version stays).
 
-- Stdio transport, lokalne IPC, no network.
-- Folio sanityzuje `body_html` allowlistem (sanitize-html) — `<script>` blocked.
-- Pliki HTML lądują w `$FOLIO_HOME` (default `~/Folio`). Sprawdź uprawnienia.
+---
+
+## Security model
+
+- Stdio transport, local IPC only. No network exposure.
+- Folio sanitizes agent-supplied `body_html` via a strict allowlist (`sanitize-html`). Top-level `<script>` is dropped.
+- `<iframe>` is allowed, but the sandbox is forced — `allow-same-origin` is always stripped, `src` is restricted to `https:`, `on*` handlers are dropped. Agents can embed interactive content (CodeSandbox, Observable, custom srcdoc) without escaping the iframe.
+- Files land in `$FOLIO_HOME` (default `~/Folio`). Check filesystem permissions there.
+
+---
 
 ## Debug
 
-Jeśli MCP nie startuje:
-
 ```bash
-bun /Users/jarek/Projects/Folio/bin/folio-mcp.ts 2>&1
-# Zobaczysz stderr; stdout jest dla JSON-RPC, nie loguj tam.
+folio-mcp 2>&1
 ```
 
-`FOLIO_DEBUG=1` włącza extra stack traces.
+stderr goes to terminal, stdout is reserved for JSON-RPC. Set `FOLIO_DEBUG=1` for stack traces.
+
+---
+
+## Bundled Skill
+
+`skills/folio/SKILL.md` + `skills/folio/STYLEBOOK.md` + few-shot examples ship in the install package at `~/.local/folio/skills/folio/` (or wherever `FOLIO_PREFIX` points). Symlink it into your agent client's skill directory so the agent learns:
+
+- When Folio is the right tool (triggers + anti-triggers)
+- Which note type and theme fit which content
+- How to structure HTML using the utility class contract
+- That `<iframe sandbox>` is the way to ship interactive content

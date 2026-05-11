@@ -212,7 +212,7 @@ Twoja notatka renderuje się w viewerze z wieloma helpers attached parent-side. 
 
 ## Tone — per theme
 
-Theme.md w `~/Projects/Folio/themes/<name>/theme.md` ma sekcję "Voice" i "Avoid" — przeczytaj **aktualnego theme'u prompt addendum** zanim generujesz. `folio.list_themes` zwraca pełny `prompt_addendum` field.
+Każdy theme ma `theme.md` z sekcjami "Voice" i "Avoid" — przeczytaj **aktualnego theme'u prompt addendum** zanim generujesz. Najprostszy sposób: `folio.list_themes` zwraca pełny `prompt_addendum` field dla każdego dostępnego theme'u.
 
 **Linen (default):** clear, measured, public-facing. Generous whitespace.
 **Folio:** precise, opinionated, snarky OK. Numbers > vague.

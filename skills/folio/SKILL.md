@@ -9,7 +9,7 @@ description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp)
 
 ## Quick reference
 
-- **Repo:** `~/Projects/Folio`
+- **Install root:** `~/.local/folio` (override via `$FOLIO_PREFIX`)
 - **Storage:** `$FOLIO_HOME` (default `~/Folio/`)
 - **MCP:** `folio-mcp` (zobacz `docs/mcp-setup.md`)
 - **Viewer:** `folio serve` → http://127.0.0.1:4810

@@ -6,6 +6,7 @@ import { statsCmd } from "./commands/stats";
 import { serve } from "./commands/serve";
 import { finalizeCmd } from "./commands/finalize";
 import { openCmd } from "./commands/open";
+import { cleanupCmd } from "./commands/cleanup";
 import { c, out } from "./io";
 
 interface ParsedArgs {
@@ -55,6 +56,7 @@ function help(): number {
   out(`  ${c.cyan("finalize <id>")}     Mark note as final (skip auto-cleanup)`);
   out(`  ${c.cyan("open <id|slug>")}    Open note in default browser (via viewer)`);
   out(`  ${c.cyan("stats")}             Show counts + analytics`);
+  out(`  ${c.cyan("cleanup")}           Auto-trash non-final notes past expiry (--dry-run, --grace-days N)`);
   out(`  ${c.cyan("serve")}             Start local viewer on http://127.0.0.1:4810`);
   out(`  ${c.cyan("help")}              This help`);
   out("");
@@ -126,6 +128,12 @@ export async function main(argv = process.argv): Promise<number> {
         return await openCmd(positional[0] ?? "");
       case "stats":
         return await statsCmd({ jsonOut: flagBool(flags.json) });
+      case "cleanup":
+        return await cleanupCmd({
+          dryRun: flagBool(flags["dry-run"]),
+          graceDays: flagInt(flags["grace-days"]),
+          jsonOut: flagBool(flags.json),
+        });
       case "serve":
         return await serve();
       case "help":

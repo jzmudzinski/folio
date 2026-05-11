@@ -252,6 +252,78 @@ export function finalize(id: string): boolean {
   return true;
 }
 
+export interface CleanupResult {
+  trashed: Array<{ id: string; title: string; path: string; age_days: number }>;
+  hard_deleted: Array<{ id: string; path: string }>;
+  dry_run: boolean;
+}
+
+/**
+ * Phase 1: non-final notes past `expires_at` → move to ~/Folio/.trash/<id>/.
+ * Phase 2: trash entries older than `trash_grace_days` → unlink files (and remove DB row).
+ *
+ * Returns counts and what was moved/deleted. `dry_run` skips filesystem changes
+ * but still reports what would happen.
+ */
+export async function cleanup(opts: { dry_run?: boolean; trash_grace_days?: number } = {}): Promise<CleanupResult> {
+  const { existsSync, mkdirSync, renameSync, unlinkSync, rmSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const root = folioRoot();
+  const trashRoot = join(root, ".trash");
+  const dry = opts.dry_run ?? false;
+  const trash_grace_days = opts.trash_grace_days ?? 7;
+
+  const d = db();
+  const trashed: CleanupResult["trashed"] = [];
+  const hard_deleted: CleanupResult["hard_deleted"] = [];
+
+  // Phase 1
+  const expired = d
+    .query<{ id: string; title: string; path: string; created: string }, []>(
+      `SELECT id, title, path, created FROM notes
+       WHERE status = 'active' AND is_final = 0 AND expires_at IS NOT NULL
+         AND expires_at < datetime('now')`
+    )
+    .all();
+
+  for (const row of expired) {
+    const ageDays = Math.floor((Date.now() - new Date(row.created).getTime()) / 86400000);
+    trashed.push({ id: row.id, title: row.title, path: row.path, age_days: ageDays });
+    if (dry) continue;
+    const fullPath = join(root, row.path);
+    if (existsSync(fullPath)) {
+      const trashDir = join(trashRoot, row.id);
+      mkdirSync(trashDir, { recursive: true });
+      try {
+        renameSync(fullPath, join(trashDir, "note.html"));
+      } catch {
+        // best-effort
+      }
+    }
+    d.run("UPDATE notes SET status = 'trashed', updated = ? WHERE id = ?", [new Date().toISOString(), row.id]);
+    logEvent("note_deleted", { reason: "auto", age_days: ageDays }, row.id);
+  }
+
+  // Phase 2: hard delete trash older than grace
+  // Find DB rows in 'trashed' status updated > N days ago
+  const stale = d
+    .query<{ id: string; path: string }, [number]>(
+      `SELECT id, path FROM notes
+       WHERE status = 'trashed' AND updated < datetime('now', '-' || ? || ' days')`
+    )
+    .all(trash_grace_days);
+  for (const row of stale) {
+    hard_deleted.push({ id: row.id, path: row.path });
+    if (dry) continue;
+    const trashFile = join(trashRoot, row.id);
+    try { rmSync(trashFile, { recursive: true, force: true }); } catch {}
+    d.run("DELETE FROM notes WHERE id = ?", [row.id]); // FK cascade removes tags
+    d.run("DELETE FROM notes_fts WHERE id = ?", [row.id]);
+  }
+
+  return { trashed, hard_deleted, dry_run: dry };
+}
+
 export function listThreads(): { thread_id: string; count: number; latest: string; final_count: number }[] {
   return db()
     .query<{ thread_id: string; count: number; latest: string; final_count: number }, []>(

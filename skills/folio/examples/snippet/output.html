@@ -1,0 +1,13 @@
+<span class="eyebrow">Snippet · SQLite</span>
+<h1>SQLite FTS5 + polskie diakrytyki</h1>
+
+<p><code>unicode61 remove_diacritics 2</code> jako tokenizer w FTS5 sprawia, że <strong>polskie diakrytyki normalizują się przed indeksowaniem</strong>. Skutek: query <code>swieze</code> matchuje <code>świeże</code> bez dodatkowej infrastruktury.</p>
+
+<pre><code>CREATE VIRTUAL TABLE notes_fts USING fts5(
+  title, headings, body, tags,
+  tokenize = 'unicode61 remove_diacritics 2'
+);</code></pre>
+
+<p>Domyślny <code>porter</code> stemmer to angielski — bezużyteczny dla PL. <code>unicode61</code> bez stemmera + diacritics removal to optymalny baseline. Dla pełnego stemming PL trzeba własnego tokenizera (post-MVP).</p>
+
+<p><strong>Gotcha:</strong> hyphen jest separatorem domyślnie. „Fine-Tuning" indeksuje się jako dwa tokeny: <code>fine</code> + <code>tuning</code>. Query musi to odzwierciedlać — dzielić na hyphenie też, nie tylko whitespace.</p>

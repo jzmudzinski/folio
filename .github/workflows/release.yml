@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: darwin-arm64
+          - os: ubuntu-latest
+            target: linux-x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install deps
+        run: bun install --frozen-lockfile
+
+      - name: Test
+        run: bun test
+
+      - name: Build folio binaries
+        run: |
+          mkdir -p dist
+          bun build --compile --minify --sourcemap bin/folio.ts     --outfile dist/folio
+          bun build --compile --minify --sourcemap bin/folio-mcp.ts --outfile dist/folio-mcp
+
+      - name: Package release tarball
+        run: |
+          cp -r themes templates skills dist/
+          cp README.md LICENSE dist/
+          mkdir -p dist/docs
+          cp docs/mcp-setup.md docs/wordmark-v05.html dist/docs/ 2>/dev/null || true
+          # Install script — sets up themes/templates next to binary so execPath
+          # fallback in config.ts picks them up.
+          cat > dist/install.sh << 'EOF'
+          #!/usr/bin/env bash
+          set -e
+          DEST="${FOLIO_PREFIX:-$HOME/.local/folio}"
+          mkdir -p "$DEST"
+          cp -r folio folio-mcp themes templates skills README.md LICENSE "$DEST/"
+          [ -d docs ] && cp -r docs "$DEST/"
+          chmod +x "$DEST/folio" "$DEST/folio-mcp"
+          echo "✓ Folio installed at $DEST"
+          echo
+          echo "Add to PATH (one of):"
+          echo "  export PATH=\"$DEST:\$PATH\""
+          echo "  ln -s $DEST/folio /usr/local/bin/folio"
+          echo "  ln -s $DEST/folio-mcp /usr/local/bin/folio-mcp"
+          echo
+          echo "Then: folio init && folio serve"
+          EOF
+          chmod +x dist/install.sh
+          tar czf folio-${{ matrix.target }}.tar.gz -C dist .
+          ls -lh folio-${{ matrix.target }}.tar.gz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: folio-${{ matrix.target }}
+          path: folio-${{ matrix.target }}.tar.gz
+          retention-days: 14
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lh artifacts/
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.tar.gz
+          generate_release_notes: true
+          draft: false
+          prerelease: false

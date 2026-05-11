@@ -3,14 +3,39 @@
 > Visual communication layer between AI agents and humans.
 > Markdown isn't enough. Folio = standalone HTML as the medium for current conversation with an agent. **Not a knowledge base — communication.**
 
+## Install
+
+**From a release** (recommended for end-users):
+
+```bash
+# Download latest darwin-arm64 (or linux-x64) tarball from
+#   https://github.com/jzmudzinski/folio/releases/latest
+curl -L https://github.com/jzmudzinski/folio/releases/latest/download/folio-darwin-arm64.tar.gz \
+  | tar xz -C /tmp/folio-install
+cd /tmp/folio-install
+./install.sh                  # installs to ~/.local/folio
+export PATH="$HOME/.local/folio:$PATH"
+folio init && folio serve
+```
+
+**From source** (development):
+
+```bash
+git clone https://github.com/jzmudzinski/folio.git
+cd folio
+bun install
+bun bin/folio.ts init
+bun bin/folio.ts serve
+```
+
 ## Quick start
 
 ```bash
 # 1. Bootstrap
-bun bin/folio.ts init
+folio init                        # or: bun bin/folio.ts init
 
 # 2. Create a note (HTML fragment, no <html>/<body> needed)
-bun bin/folio.ts new \
+folio new \
   --title "RAG vs Fine-Tuning" \
   --type research \
   --thread rag-vs-finetuning \
@@ -18,7 +43,7 @@ bun bin/folio.ts new \
   --html @sample.html
 
 # 3. Browse
-bun bin/folio.ts serve
+folio serve
 # → http://127.0.0.1:4810
 ```
 

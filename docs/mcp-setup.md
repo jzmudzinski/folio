@@ -10,7 +10,26 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | bun /Users/j
 
 Powinno zwrócić JSON-RPC response z listą 8 tools.
 
-## Claude Desktop
+## OpenClaw (Ryszard) — primary target
+
+mcporter:
+
+```bash
+mcporter config add folio \
+  --command bun \
+  --arg /Users/jarek/Projects/Folio/bin/folio-mcp.ts \
+  --scope home
+```
+
+Skill do workspace'a (symlink → zmiany w repo idą od razu):
+
+```bash
+ln -s ~/Projects/Folio/skills/folio ~/.openclaw/workspace/skills/folio
+```
+
+Po restarcie Ryszarda powinieneś widzieć folio.* w `mcporter list`.
+
+## Claude Desktop (alternative)
 
 `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
@@ -28,19 +47,13 @@ Powinno zwrócić JSON-RPC response z listą 8 tools.
 }
 ```
 
-Po restarcie Claude Desktop powinien widzieć `folio.*` tools.
-
-## OpenClaw / Claude Code
-
-Plugin `mcporter` lub natywna integracja:
+## Claude Code / inne MCP klienty
 
 ```bash
 claude mcp add folio bun /Users/jarek/Projects/Folio/bin/folio-mcp.ts
 ```
 
-## Cursor / Continue
-
-Większość klientów MCP czyta podobny config. Komenda: `bun /Users/jarek/Projects/Folio/bin/folio-mcp.ts`. Brak args. Env: `FOLIO_HOME` (opcjonalne, default `~/Folio`).
+Cursor / Continue / OpenCode: większość klientów MCP czyta podobny config. Komenda: `bun /Users/jarek/Projects/Folio/bin/folio-mcp.ts`, brak args, env opcjonalne (`FOLIO_HOME` default `~/Folio`).
 
 ## Konwencja odpowiedzi agenta
 

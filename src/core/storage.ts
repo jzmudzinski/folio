@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, renameSync, writeFileSync, readFileSync } from "
 import { join, relative } from "node:path";
 import { db, logEvent } from "./db";
 import { folioRoot, threadsDir, notesDir, loadConfig } from "./config";
-import { slugify, plNormalize } from "./slug";
+import { slugify, plNormalize, plStem } from "./slug";
 import { sanitize } from "./sanitize";
 import { extractText } from "./text";
 import { renderNote } from "./templates";
@@ -512,15 +512,18 @@ function rowToMeta(row: Record<string, any>): NoteMeta {
 }
 
 function escapeFtsQuery(q: string): string {
-  // Strip FTS5-special chars; AND tokens with prefix matching.
-  // Split on whitespace AND hyphens: unicode61 tokenizes "Fine-Tuning" as ["fine", "tuning"],
-  // so our query must mirror that to match.
-  // plNormalize handles Polish ł/Ł (FTS5 remove_diacritics doesn't touch non-combining codepoints).
+  // 1. Normalize PL (ł→l, ą→a, etc.) — symmetry with FTS insert
+  // 2. Split on whitespace AND hyphens (unicode61 splits "Fine-Tuning" → fine, tuning)
+  // 3. Strip non-word chars
+  // 4. Stem each token (PL suffix stripper) — only at query, NOT index, so:
+  //    - snippet still shows real words
+  //    - prefix-match catches more inflections ("wyboru" → "wybor*" matches "wybór")
   const tokens = plNormalize(q)
     .trim()
     .split(/[\s\-]+/)
-    .map((t) => t.replace(/[^\p{L}\p{N}_]/gu, ""))
-    .filter(Boolean);
+    .map((t) => t.replace(/[^\p{L}\p{N}_]/gu, "").toLowerCase())
+    .filter(Boolean)
+    .map(plStem);
   if (tokens.length === 0) return "";
   return tokens.map((t) => `${t}*`).join(" ");
 }

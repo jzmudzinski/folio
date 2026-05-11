@@ -8,6 +8,7 @@ import { finalizeCmd } from "./commands/finalize";
 import { openCmd } from "./commands/open";
 import { cleanupCmd } from "./commands/cleanup";
 import { reindexCmd } from "./commands/reindex";
+import { exportCmd } from "./commands/export";
 import { c, out } from "./io";
 
 interface ParsedArgs {
@@ -59,6 +60,7 @@ function help(): number {
   out(`  ${c.cyan("stats")}             Show counts + analytics`);
   out(`  ${c.cyan("cleanup")}           Auto-trash non-final notes past expiry (--dry-run, --grace-days N)`);
   out(`  ${c.cyan("reindex")}           Rebuild FTS index from HTML files on disk (after tokenizer changes)`);
+  out(`  ${c.cyan("export <id>")}       Export note as HTML (--standalone inlines theme CSS, --out path to file or stdout)`);
   out(`  ${c.cyan("serve")}             Start local viewer on http://127.0.0.1:4810`);
   out(`  ${c.cyan("help")}              This help`);
   out("");
@@ -138,6 +140,12 @@ export async function main(argv = process.argv): Promise<number> {
         });
       case "reindex":
         return await reindexCmd();
+      case "export":
+        return await exportCmd({
+          idOrSlug: positional[0] ?? "",
+          standalone: flagBool(flags.standalone),
+          out: flagStr(flags.out),
+        });
       case "serve":
         return await serve();
       case "help":

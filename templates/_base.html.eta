@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="<%= it.lang %>" data-folio-id="<%= it.id %>" data-folio-theme="<%= it.theme %>">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="folio:id" content="<%= it.id %>">
+<meta name="folio:type" content="<%= it.type %>">
+<meta name="folio:theme" content="<%= it.theme %>">
+<meta name="folio:thread" content="<%= it.thread_id %>">
+<meta name="folio:created" content="<%= it.created %>">
+<meta name="folio:updated" content="<%= it.updated %>">
+<meta name="folio:final" content="<%= it.is_final ? '1' : '0' %>">
+<meta name="folio:tags" content="<%= (it.tags || []).join(',') %>">
+<title><%= it.title %></title>
+<% if (it.inline_theme) { %>
+<style><%~ it.theme_css %></style>
+<% } else { %>
+<link rel="stylesheet" href="/themes/<%= it.theme %>/theme.css">
+<% } %>
+</head>
+<body>
+<main class="wrap">
+  <article data-folio-content>
+<%~ it.body_html %>
+  </article>
+</main>
+<script type="application/json" id="folio-metadata">
+<%~ JSON.stringify(it.metadata) %>
+</script>
+</body>
+</html>

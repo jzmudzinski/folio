@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="pl" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="folio:type" content="plan-implementation">
+<meta name="folio:created" content="2026-05-11">
+<meta name="folio:tags" content="folio,plan,implementacja,adr,sprints,blockers,pivot-v3.1">
+<title>Folio — Plan Implementacji</title>
+<style>
+:root{
+  --bg:#0b0d12;--bg-2:#11141c;--panel:#161a24;--panel-2:#1c2230;--border:#262d3d;
+  --text:#e7ecf3;--soft:#c9d2e3;--muted:#8a93a6;
+  --accent:#7c5cff;--accent-2:#1aaaff;--accent-3:#f59e0b;
+  --good:#34d399;--bad:#f87171;--mid:#fbbf24;
+  --font-sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Inter,system-ui,sans-serif;
+  --font-mono:"JetBrains Mono","SF Mono",ui-monospace,monospace;
+  --leading:1.6;
+}
+*{box-sizing:border-box}
+html,body{background:var(--bg);color:var(--text);font-family:var(--font-sans);line-height:var(--leading);margin:0;padding:0;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1240px;margin:0 auto;padding:clamp(28px,4vw,56px)}
+
+header.hero{margin-bottom:36px}
+.eyebrow{text-transform:uppercase;letter-spacing:0.18em;font-size:12px;color:var(--accent);font-weight:700;display:inline-block;margin-bottom:14px}
+h1{font-size:clamp(34px,4.5vw,52px);line-height:1.05;margin:0 0 16px;font-weight:800;letter-spacing:-0.025em;
+  background:linear-gradient(135deg,#fff 20%,var(--accent) 80%,var(--accent-2) 100%);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;max-width:920px}
+p.sub{font-size:17px;color:var(--muted);margin:0 0 22px;max-width:780px}
+
+h2{font-size:clamp(22px,2.6vw,28px);margin:64px 0 18px;font-weight:700;letter-spacing:-0.01em;display:flex;align-items:baseline;gap:14px}
+h2 .num{color:var(--accent);font-size:0.55em;font-weight:800;font-family:var(--font-mono)}
+h3{font-size:17px;margin:24px 0 10px;font-weight:700;color:var(--text)}
+p{color:var(--soft);margin:0 0 12px}
+strong{color:var(--text)}
+small{color:var(--muted);font-size:12.5px}
+
+.pill{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:600;background:var(--panel-2);color:var(--soft);border:1px solid var(--border);font-family:var(--font-mono);letter-spacing:0.02em;white-space:nowrap}
+.pill.good{color:var(--good);border-color:rgba(52,211,153,.3);background:rgba(52,211,153,.08)}
+.pill.bad{color:var(--bad);border-color:rgba(248,113,113,.3);background:rgba(248,113,113,.08)}
+.pill.mid{color:var(--mid);border-color:rgba(251,191,36,.3);background:rgba(251,191,36,.08)}
+.pill.info{color:var(--accent-2);border-color:rgba(26,170,255,.3);background:rgba(26,170,255,.08)}
+.pill.acc{color:var(--accent);border-color:rgba(124,92,255,.4);background:rgba(124,92,255,.1)}
+.pill.gray{color:var(--muted)}
+
+/* Dashboard stats */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:24px 0 8px}
+.stat{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px 20px;position:relative}
+.stat .num{font-size:32px;font-weight:800;letter-spacing:-0.02em;color:var(--text);font-family:var(--font-mono);line-height:1}
+.stat .num.acc{color:var(--accent)}.stat .num.good{color:var(--good)}.stat .num.mid{color:var(--mid)}.stat .num.bad{color:var(--bad)}
+.stat .lbl{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:0.1em;margin-top:8px;font-weight:600}
+
+/* Callouts */
+.callout{padding:16px 20px;border-radius:10px;margin:18px 0;border:1px solid;background:var(--panel)}
+.callout.warn{background:rgba(251,191,36,.05);border-color:rgba(251,191,36,.3)}
+.callout.bad{background:rgba(248,113,113,.05);border-color:rgba(248,113,113,.3)}
+.callout.good{background:rgba(52,211,153,.05);border-color:rgba(52,211,153,.3)}
+.callout.info{background:rgba(26,170,255,.05);border-color:rgba(26,170,255,.3)}
+.callout h3{margin:0 0 6px;font-size:15px}
+.callout p:last-child{margin:0}
+
+/* ADR grid */
+.adr-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin:18px 0}
+.adr{background:var(--panel);border:1px solid var(--border);border-radius:11px;padding:16px 18px;position:relative;transition:border-color .15s}
+.adr:hover{border-color:rgba(124,92,255,.3)}
+.adr.accepted{border-left:3px solid var(--good)}
+.adr.open{border-left:3px solid var(--mid)}
+.adr.superseded{border-left:3px solid var(--bad);opacity:.7}
+.adr.amended{border-left:3px solid var(--accent-2)}
+.adr-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px}
+.adr-head .id{font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--accent);letter-spacing:0.04em}
+.adr h3{margin:2px 0 6px;font-size:14.5px;line-height:1.3}
+.adr p{margin:0;font-size:13px;color:var(--muted);line-height:1.5}
+
+/* Sprint blocks */
+.sprint{background:var(--panel);border:1px solid var(--border);border-radius:13px;padding:22px 24px;margin:14px 0;position:relative}
+.sprint.current{border-color:rgba(251,191,36,.4)}
+.sprint.mvp{border-left:3px solid var(--accent)}
+.sprint-head{display:flex;justify-content:space-between;align-items:start;gap:16px;margin-bottom:14px;flex-wrap:wrap}
+.sprint-head .left{display:flex;flex-direction:column;gap:4px}
+.sprint-head h3{margin:0;font-size:18px;display:flex;gap:10px;align-items:baseline}
+.sprint-head .sid{font-family:var(--font-mono);color:var(--accent);font-weight:700;font-size:14px;letter-spacing:0.04em}
+.sprint-head .goal{font-size:13px;color:var(--muted);margin:0}
+.sprint-head .right{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.sprint-body ul{margin:6px 0 8px;padding-left:20px}
+.sprint-body li{font-size:13.5px;margin:4px 0;color:var(--soft)}
+.sprint-body li code{background:var(--panel-2);padding:1px 6px;border-radius:4px;font-family:var(--font-mono);color:var(--accent-3);font-size:12px}
+.sprint-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)}
+.sprint-meta strong{color:var(--text);font-size:12px;text-transform:uppercase;letter-spacing:0.08em;font-weight:600;display:block;margin-bottom:3px}
+
+/* Critical path diagram */
+.cpath{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:18px 0;padding:18px 20px;background:var(--panel);border:1px solid var(--border);border-radius:12px;overflow-x:auto}
+.cpath .node{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:90px;padding:10px 14px;background:var(--panel-2);border:1px solid var(--border);border-radius:10px;font-family:var(--font-mono);font-size:13px}
+.cpath .node.mvp{background:rgba(124,92,255,.12);border-color:rgba(124,92,255,.4);color:var(--accent)}
+.cpath .node.aside{background:rgba(26,170,255,.08);border-color:rgba(26,170,255,.3);color:var(--accent-2)}
+.cpath .arrow{color:var(--muted);font-size:18px;font-family:var(--font-mono)}
+.cpath .node .lbl{font-size:11px;color:var(--muted);font-family:var(--font-sans);text-transform:uppercase;letter-spacing:0.08em}
+
+/* Blockers list */
+.blockers{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;margin:18px 0}
+.blocker{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px 20px;border-left:3px solid var(--mid)}
+.blocker.crit{border-left-color:var(--bad)}
+.blocker.soft{border-left-color:var(--accent-2)}
+.blocker .label{font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted);font-weight:600;margin-bottom:4px}
+.blocker h3{margin:2px 0 8px;font-size:15px}
+.blocker p{font-size:13.5px;margin:6px 0;color:var(--soft)}
+.blocker .opts{display:flex;flex-direction:column;gap:6px;margin-top:10px;font-size:12.5px;color:var(--muted)}
+.blocker .opts code{background:var(--panel-2);padding:1px 6px;border-radius:4px;font-family:var(--font-mono);color:var(--accent-3);font-size:12px}
+.blocker .lean{margin-top:10px;font-size:12.5px;padding-top:10px;border-top:1px dashed var(--border);color:var(--soft)}
+.blocker .lean strong{color:var(--accent-2)}
+
+/* Risk table */
+.table-wrap{overflow-x:auto;margin:18px 0;border:1px solid var(--border);border-radius:12px;background:var(--panel)}
+table{width:100%;border-collapse:collapse}
+thead{background:var(--panel-2)}
+th,td{text-align:left;padding:12px 16px;border-bottom:1px solid var(--border);font-size:13.5px;vertical-align:top}
+th{color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.08em;font-size:11px;white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+td.risk-name{font-weight:600;color:var(--text);min-width:180px}
+td.where{font-family:var(--font-mono);font-size:12px;color:var(--muted);white-space:nowrap}
+.sev{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;font-family:var(--font-mono)}
+.sev.high{background:rgba(248,113,113,.15);color:var(--bad)}
+.sev.med{background:rgba(251,191,36,.15);color:var(--mid)}
+.sev.low{background:rgba(52,211,153,.15);color:var(--good)}
+
+footer{margin-top:80px;padding-top:28px;border-top:1px solid var(--border);color:var(--muted);font-size:13px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+footer code{background:var(--panel-2);padding:2px 7px;border-radius:4px;font-family:var(--font-mono);color:var(--accent-3);font-size:12px}
+
+@media (max-width:680px){
+  h2{margin:48px 0 16px}
+  .sprint-head{flex-direction:column}
+  .stat .num{font-size:26px}
+}
+</style>
+</head>
+<body>
+<main class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">⚙️ Folio · Plan Implementacji</div>
+  <h1>Co decydujemy, co budujemy, co blokuje</h1>
+  <p class="sub">Stan po pivocie v3.1 (2026-05-11). ADR-y już podjęte + decyzje wciąż otwarte + rozpis sprintów + mapa ryzyk.</p>
+  <div style="display:flex;flex-wrap:wrap;gap:8px">
+    <span class="pill mid">S0 in progress</span>
+    <span class="pill acc">MVP = S1+S2+S3+S4</span>
+    <span class="pill info">2026-05-11 · v3.1</span>
+  </div>
+</header>
+
+<section>
+<h2><span class="num">00</span> Status na dziś</h2>
+<div class="stats">
+  <div class="stat"><div class="num good">15</div><div class="lbl">ADR Accepted</div></div>
+  <div class="stat"><div class="num bad">2</div><div class="lbl">ADR Superseded</div></div>
+  <div class="stat"><div class="num mid">2</div><div class="lbl">ADR Open</div></div>
+  <div class="stat"><div class="num acc">8</div><div class="lbl">Sprintów</div></div>
+  <div class="stat"><div class="num mid">5</div><div class="lbl">Blocking decisions</div></div>
+  <div class="stat"><div class="num">~7</div><div class="lbl">Tygodni do MVP</div></div>
+</div>
+</section>
+
+<section>
+<h2><span class="num">01</span> Critical path</h2>
+<div class="cpath">
+  <div class="node mvp">S0<span class="lbl">Setup</span></div>
+  <div class="arrow">→</div>
+  <div class="node mvp">S1<span class="lbl">Storage</span></div>
+  <div class="arrow">→</div>
+  <div class="node mvp">S2<span class="lbl">Templates</span></div>
+  <div class="arrow">→</div>
+  <div class="node mvp">S3<span class="lbl">MCP</span></div>
+  <div class="arrow">→</div>
+  <div class="node mvp">S4<span class="lbl">Skill</span></div>
+  <div class="arrow">→</div>
+  <div class="node">S5<span class="lbl">Lifespan</span></div>
+  <div class="arrow">→</div>
+  <div class="node">S7<span class="lbl">Polish</span></div>
+</div>
+<div class="cpath">
+  <div class="node aside">S6<span class="lbl">Cloud (osobne repo)</span></div>
+  <div class="arrow">⇢</div>
+  <small style="color:var(--muted)">równolegle — nie blokuje MVP; zależy od S2 standalone profile</small>
+</div>
+<p><strong>Linia różowa</strong> = MVP komunikacji. <strong>Niebieska</strong> = cloud, osobny projekt. S5 może się robić równolegle z S3 (dotyka schemy, nie MCP surface). S7 = finalny polish.</p>
+</section>
+
+<section>
+<h2><span class="num">02</span> Podjęte decyzje (ADR)</h2>
+<p>Status: <span class="pill good">Accepted</span> — decyzja stoi · <span class="pill info">Amended</span> — modyfikowane w v3.1 · <span class="pill bad">Superseded</span> — wycofane · <span class="pill mid">Open</span> — wymaga decyzji</p>
+
+<div class="adr-grid">
+  <div class="adr accepted">
+    <div class="adr-head"><span class="id">ADR-001</span><span class="pill good">Accepted</span></div>
+    <h3>Bun + TypeScript jako runtime</h3>
+    <p>Single binary, ~10ms startup, native sqlite. Walidacja MCP SDK na Bun przed S3.</p>
+  </div>
+  <div class="adr accepted">
+    <div class="adr-head"><span class="id">ADR-002</span><span class="pill good">Accepted</span></div>
+    <h3>SQLite + FTS5 (rozwinięte w ADR-016)</h3>
+    <p>FTS5 dla search bez external deps. Lekki, single-user OK.</p>
+  </div>
+  <div class="adr accepted">
+    <div class="adr-head"><span class="id">ADR-003</span><span class="pill good">Accepted</span></div>
+    <h3>HTML jako primary format</h3>
+    <p>Standalone HTML files. Validated przez Thariq (Anthropic, 2026-05-08).</p>
+  </div>
+  <div class="adr accepted">
+    <div class="adr-head"><span class="id">ADR-004</span><span class="pill good">Accepted</span></div>
+    <h3>MCP server + OpenClaw Skill (oba)</h3>
+    <p>MCP = uniwersalny tooling. Skill = kiedy/jak używać.</p>
+  </div>
+  <div class="adr accepted">
+    <div class="adr-head"><span class="id">ADR-005</span><span class="pill good">Accepted</span></div>
+    <h3>Eta templates</h3>
+    <p>~6KB, EJS-like, async-friendly. Slot + inheritance.</p>
+  </div>
+  <div class="adr open">
+    <div class="adr-head"><span class="id">ADR-006</span><span class="pill mid">Open / Lean</span></div>
+    <h3>Folio osobno od Obsidian Vault</h3>
+    <p>Lean: osobno (default). Symlink jeśli ktoś chce. Decyzja: lock-in default.</p>
+  </div>
+  <div class="adr accepted">
+    <div class="adr-head"><span class="id">ADR-007</span><span class="pill good">Accepted</span></div>
+    <h3>HTML sanitization przy zapisie</h3>
+    <p>sanitize-html allowlist. Bez <code>&lt;script&gt;</code>. Style attribute OK na <code>div/span</code>.</p>
+  </div>
+  <div class="adr superseded">
+    <div class="adr-head"><span class="id">ADR-008</span><span class="pill bad">Superseded</span></div>
+    <h3>Wersjonowanie do .versions/</h3>
+    <p>Zastąpione przez append-only model (ADR-014). Nie ma edycji — nie ma wersji.</p>
+  </div>
+  <div class="adr accepted">
+    <div class="adr-head"><span class="id">ADR-009</span><span class="pill acc">PIVOT</span></div>
+    <h3>Folio = komunikacja, nie storage</h3>
+    <p>Po Thariqu i krytyce v1. KB features wycofane do backloga.</p>
+  </div>
+  <div class="adr superseded">
+    <div class="adr-head"><span class="id">ADR-010</span><span class="pill bad">Superseded</span></div>
+    <h3>Variants over history</h3>
+    <p>Zastąpione przez ADR-014 (niezależne dokumenty w thread folder).</p>
+  </div>
+  <div class="adr superseded">
+    <div class="adr-head"><span class="id">ADR-011</span><span class="pill bad">Superseded</span></div>
+    <h3>Selection bridge (viewer→agent)</h3>
+    <p>Out-of-scope MVP. Brak edit cycle — nie ma czego zaznaczać do poprawki.</p>
+  </div>
+  <div class="adr accepted">
+    <div class="adr-head"><span class="id">ADR-012</span><span class="pill good">Accepted</span></div>
+    <h3>Dwa profile renderu (standalone/hosted)</h3>
+    <p>Hosted: -50% tokenów via shared theme. Standalone: inline dla publish/share.</p>
+  </div>
+  <div class="adr open">
+    <div class="adr-head"><span class="id">ADR-013</span><span class="pill mid">Accepted, layout open</span></div>
+    <h3>Cloud publish — osobny projekt</h3>
+    <p>folio.app jako osobne repo. Path vs subdomain — open.</p>
+  </div>
+  <div class="adr amended">
+    <div class="adr-head"><span class="id">ADR-014</span><span class="pill info">Amended v3.1</span></div>
+    <h3>Append-only + thread folders</h3>
+    <p>Agenty CREATE only. <code>folio.suggest_thread</code> mandatory pre-create. Brak loose notes.</p>
+  </div>
+  <div class="adr amended">
+    <div class="adr-head"><span class="id">ADR-015</span><span class="pill info">Amended v3.1</span></div>
+    <h3>Lifespan 30d + auto-cleanup</h3>
+    <p>Non-final → .trash po 30d → delete po +7d. <strong>Implicit final on publish.</strong></p>
+  </div>
+  <div class="adr accepted">
+    <div class="adr-head"><span class="id">ADR-016</span><span class="pill good">Accepted</span></div>
+    <h3>FTS5 + plain text extraction</h3>
+    <p>Bun HTMLRewriter → text. BM25 z field weights (title ×5, headings ×3, body ×1, tags ×4). Tokenizer PL.</p>
+  </div>
+  <div class="adr accepted">
+    <div class="adr-head"><span class="id">ADR-017</span><span class="pill good">Accepted</span></div>
+    <h3>Analytics od dnia 1</h3>
+    <p>Tabela <code>events</code>. Mierzymy token count, class match rate, lifecycle. Walidacja 50% claim.</p>
+  </div>
+  <div class="adr accepted">
+    <div class="adr-head"><span class="id">ADR-018</span><span class="pill good">Accepted</span></div>
+    <h3>OG screenshot per publish</h3>
+    <p>Playwright na edge → 1200×630 PNG → og:image. Rich preview w Telegram/Slack/iMessage.</p>
+  </div>
+  <div class="adr accepted">
+    <div class="adr-head"><span class="id">ADR-019</span><span class="pill good">Accepted</span></div>
+    <h3>Proactive expiration surfacing (gated)</h3>
+    <p><code>folio.list_expiring</code> tool + Skill gating (anty-Clippy). Tylko w Folio-related konwersacji.</p>
+  </div>
+</div>
+</section>
+
+<section>
+<h2><span class="num">03</span> Blokujące decyzje (open)</h2>
+<p>Decyzje warto podjąć <em>przed</em> wejściem w odpowiedni sprint — żeby nie tracić iteracji.</p>
+
+<div class="blockers">
+  <div class="blocker crit">
+    <div class="label">🔴 Krytyczne · blokuje S0 → S3</div>
+    <h3>Bun + MCP SDK kompatybilność</h3>
+    <p><code>@modelcontextprotocol/sdk</code> jest TS, ale Bun ma własny module resolver. Niektóre paczki npm mają drobne incompat.</p>
+    <div class="opts">
+      <span>→ <code>bun add @modelcontextprotocol/sdk</code> + smoke test prostego stdio MCP servera w ~15 min</span>
+      <span>→ Jeśli fail: plan B = Node z bun-compatible CLI (TS bez build step, ale -50% szybkości startu)</span>
+    </div>
+    <div class="lean"><strong>Rekomendacja:</strong> walidacja w S0 — nie wchodzić w S3 bez pewności.</div>
+  </div>
+
+  <div class="blocker">
+    <div class="label">🟡 Średnie · blokuje S6 (cloud)</div>
+    <h3>Subdomain layout: path vs subdomain</h3>
+    <p>Adres publikacji jako <code>folio.app/&lt;user&gt;/&lt;slug&gt;</code> czy <code>&lt;user&gt;.folio.app/&lt;slug&gt;</code>?</p>
+    <div class="opts">
+      <span>→ <strong>Path-based:</strong> łatwiej z certyfikatami (jedno SSL), prostszy routing, gorsze branding.</span>
+      <span>→ <strong>Subdomain:</strong> mocniejsze poczucie „twojej przestrzeni", ale wildcard certs (Let's Encrypt OK, Cloudflare auto).</span>
+    </div>
+    <div class="lean"><strong>Rekomendacja:</strong> path-based na MVP. Subdomain jako power-user opcja w S7+.</div>
+  </div>
+
+  <div class="blocker">
+    <div class="label">🟡 Średnie · blokuje S6 (cloud)</div>
+    <h3>Auth strategia dla cloud</h3>
+    <p>Magic link, OAuth (GitHub/Google), Sign in with Vercel? Mieszanka?</p>
+    <div class="opts">
+      <span>→ <strong>GitHub OAuth</strong> dla creatorów (deweloperzy = target audience).</span>
+      <span>→ <strong>Magic link email</strong> dla viewerów (Magda/Łukasz, niedevs).</span>
+      <span>→ <strong>Sign in with Vercel</strong> jako bonus jeśli host = Vercel.</span>
+    </div>
+    <div class="lean"><strong>Rekomendacja:</strong> GitHub OAuth (creators) + magic link (audience). Sign in z Vercel = nice-to-have.</div>
+  </div>
+
+  <div class="blocker">
+    <div class="label">🟡 Średnie · blokuje S0 startup</div>
+    <h3>Nazwa finalna + dostępność domeny</h3>
+    <p>Folio? Codex? Vellum? Atelier? Coś innego? Domena musi być wolna.</p>
+    <div class="opts">
+      <span>→ Sprawdzić: <code>folio.app</code>, <code>folio.dev</code>, <code>getfolio.app</code>, <code>folio.io</code>.</span>
+      <span>→ Backup: <code>vellum.app</code>, <code>atelier.md</code>, <code>codex.dev</code>.</span>
+    </div>
+    <div class="lean"><strong>Rekomendacja:</strong> 30 min DNS lookup + finalna decyzja. Nie blokuje S1 (lokalnie nie istotne).</div>
+  </div>
+
+  <div class="blocker soft">
+    <div class="label">🔵 Miękkie · estetyka, nie blocker</div>
+    <h3>Folio vs Obsidian Vault relation (ADR-006)</h3>
+    <p>Lean: osobno (<code>~/Folio/</code>). Czy publish dodatkowo zapisuje stub <code>.md</code> do Obsidian Vault dla cross-linkowania z bazą wiedzy?</p>
+    <div class="opts">
+      <span>→ <strong>Osobno, no link:</strong> czyste, mniej confusion. Default.</span>
+      <span>→ <strong>Bridge opt-in:</strong> <code>folio config set obsidian.vault ~/Vault</code> + auto-stub <code>.md</code> dla każdego published.</span>
+    </div>
+    <div class="lean"><strong>Rekomendacja:</strong> default osobno, bridge w backlogu jeśli sam o nim wspomnisz po S5.</div>
+  </div>
+
+</div>
+</section>
+
+<section>
+<h2><span class="num">04</span> Sprinty — rozpis tasków</h2>
+
+<div class="sprint current mvp">
+  <div class="sprint-head">
+    <div class="left">
+      <h3><span class="sid">S0</span> Pivot decisions + repo init</h3>
+      <p class="goal">Domknąć blokery, init repo, walidacja MCP SDK</p>
+    </div>
+    <div class="right"><span class="pill mid">in progress</span><span class="pill gray">~ kilka dni</span></div>
+  </div>
+  <div class="sprint-body">
+    <ul>
+      <li>✅ Plan v1 → krytyka → pivot v2 → refinement v3 → amendment v3.1 (5 dokumentów w Obsidian)</li>
+      <li>⬜ Decyzja: nazwa finalna + domain check</li>
+      <li>⬜ Decyzja: subdomain layout (ADR-013) — można odłożyć do S6</li>
+      <li>⬜ <code>git init</code> + <code>bun init</code> w <code>~/Projects/Folio</code></li>
+      <li>⬜ Smoke test: <code>bun add @modelcontextprotocol/sdk</code> + minimalny stdio server (~15 min)</li>
+    </ul>
+    <div class="sprint-meta">
+      <div><strong>Exit criteria</strong>MCP SDK działa na Bun · repo gotowe · nazwa zdecydowana</div>
+      <div><strong>Blockers</strong>żadnych (decyzje mają domyślne fallbacki)</div>
+    </div>
+  </div>
+</div>
+
+<div class="sprint mvp">
+  <div class="sprint-head">
+    <div class="left">
+      <h3><span class="sid">S1</span> Storage + viewer + folio.create + FTS + analytics</h3>
+      <p class="goal">Pojedyncza komenda zapisuje notę. Viewer pokazuje URL. FTS indeksuje. Telemetria leci.</p>
+    </div>
+    <div class="right"><span class="pill acc">MVP</span><span class="pill gray">~ 2 tyg</span></div>
+  </div>
+  <div class="sprint-body">
+    <ul>
+      <li>Struktura repo: <code>src/</code>, <code>templates/</code>, <code>bin/</code>, <code>tests/</code></li>
+      <li>Storage layout: <code>~/Folio/threads/&lt;thread_id&gt;/&lt;id&gt;.html</code> + atomic write</li>
+      <li>SQLite tabela <code>notes</code>: id, slug, path, title, type, theme_profile, thread_id, is_final, created, updated, expires_at</li>
+      <li>FTS5: <code>notes_fts(id UNINDEXED, title, headings, body, tags)</code> z BM25 weights i tokenizerem PL</li>
+      <li>HTML→text extraction (Bun HTMLRewriter)</li>
+      <li>Tabela <code>events</code> + logi z każdego <code>folio.create</code> (token count, class count, inline_style count, sanitizer_drops)</li>
+      <li>Viewer (<code>folio serve</code>): <code>/</code>, <code>/n/:id</code>, <code>/t/:thread_id</code>, <code>/search</code>, SSE <code>/sse</code></li>
+      <li>CLI: <code>folio new</code>, <code>folio search</code>, <code>folio stats</code></li>
+    </ul>
+    <div class="sprint-meta">
+      <div><strong>Exit criteria</strong><code>folio new</code> → URL → otwarte w przeglądarce · <code>folio search "rag"</code> znajduje · <code>folio stats</code> pokazuje metryki</div>
+      <div><strong>Dependencies</strong>S0 done</div>
+    </div>
+  </div>
+</div>
+
+<div class="sprint mvp">
+  <div class="sprint-head">
+    <div class="left">
+      <h3><span class="sid">S2</span> Templates + theme + render profiles</h3>
+      <p class="goal">3 typy notatek w spójnym theme. Hosted vs standalone. Pomiar token delta.</p>
+    </div>
+    <div class="right"><span class="pill acc">MVP</span><span class="pill gray">~ 1-2 tyg</span></div>
+  </div>
+  <div class="sprint-body">
+    <ul>
+      <li><code>theme.css</code> — variables, utility classes (z tych dwóch HTML-i już zaczęliśmy budować referencję)</li>
+      <li><code>_base.html.eta</code> z conditional inline (standalone) vs <code>&lt;link&gt;</code> (hosted)</li>
+      <li>Templates: <code>research</code>, <code>comparison</code>, <code>technical</code></li>
+      <li>HTML sanitizer (<code>sanitize-html</code>) przy zapisie</li>
+      <li>CLI: <code>folio render &lt;id&gt; --profile=standalone</code> rebuild</li>
+      <li><strong>Metryka:</strong> token count per typ × profile. Wpis do <code>STYLEBOOK.md</code> jako benchmark.</li>
+    </ul>
+    <div class="sprint-meta">
+      <div><strong>Exit criteria</strong>te same noty działają w obu profilach · delta tokenów ≥ 40%</div>
+      <div><strong>Dependencies</strong>S1 storage + sanitizer</div>
+    </div>
+  </div>
+</div>
+
+<div class="sprint mvp">
+  <div class="sprint-head">
+    <div class="left">
+      <h3><span class="sid">S3</span> MCP server</h3>
+      <p class="goal">Wszystkie tools agentowe + thread suggest + list_expiring + finalize.</p>
+    </div>
+    <div class="right"><span class="pill acc">MVP</span><span class="pill gray">~ 1-2 tyg</span></div>
+  </div>
+  <div class="sprint-body">
+    <ul>
+      <li><code>bun add @modelcontextprotocol/sdk</code> + stdio transport <code>bin/folio-mcp</code></li>
+      <li>Tools z Zod schemami:
+        <code>folio.create</code> · <code>folio.get</code> · <code>folio.list</code> · <code>folio.search</code> ·
+        <code>folio.suggest_thread</code> · <code>folio.finalize</code> · <code>folio.list_expiring</code>
+      </li>
+      <li><strong>Brak</strong> <code>folio.update</code> / <code>folio.delete</code> — append-only (ADR-014)</li>
+      <li>Smoke testy z mock klientem (<code>bun test</code>)</li>
+      <li>Manifest dla Claude Desktop / OpenClaw config</li>
+    </ul>
+    <div class="sprint-meta">
+      <div><strong>Exit criteria</strong>Claude Desktop wywołuje <code>folio.suggest_thread → folio.create → folio.search</code> end-to-end</div>
+      <div><strong>Dependencies</strong>S1 (storage) · S2 (templates dla rendering)</div>
+    </div>
+  </div>
+</div>
+
+<div class="sprint mvp">
+  <div class="sprint-head">
+    <div class="left">
+      <h3><span class="sid">S4</span> OpenClaw Skill + flow examples</h3>
+      <p class="goal">Ryszard wie kiedy, jakim typem, którym threadem. Anty-Clippy gating.</p>
+    </div>
+    <div class="right"><span class="pill acc">MVP</span><span class="pill gray">~ 1 tydz</span></div>
+  </div>
+  <div class="sprint-body">
+    <ul>
+      <li><code>skills/folio/SKILL.md</code> — triggery, mapping prompt → template</li>
+      <li><code>STYLEBOOK.md</code> — kontrakt z theme.css, lista klas, „tak"/„nie" przykłady</li>
+      <li>5 przykładów <code>examples/&lt;typ&gt;/{prompt.md, output.html}</code> do few-shot</li>
+      <li><strong>Thread heuristic:</strong> „popraw / inna wersja" → ten sam thread; nowy temat → nowy slug; niepewność → <code>folio.suggest_thread</code></li>
+      <li><strong>Surfacing heuristic (ADR-019):</strong> tylko w Folio-related convo, max 5 not, skip id w 24h</li>
+      <li>Skill state cache: <code>~/.folio/skill_state.json</code> z <code>last_surfaced</code></li>
+      <li>Konwencja: <code>MEDIA:&lt;local_url&gt;</code> + TL;DR 3-5 linijek w odpowiedzi</li>
+    </ul>
+    <div class="sprint-meta">
+      <div><strong>Exit criteria</strong>„porównaj X i Y" → ląduje plik, URL w odpowiedzi · „inna wersja, krótsza" → ten sam thread</div>
+      <div><strong>Dependencies</strong>S3 MCP done</div>
+    </div>
+  </div>
+</div>
+
+<div class="sprint">
+  <div class="sprint-head">
+    <div class="left">
+      <h3><span class="sid">S5</span> Lifespan + auto-cleanup + final marker</h3>
+      <p class="goal">Stare niezaznaczone noty same się sprzątają. Final marker via viewer/CLI/MCP.</p>
+    </div>
+    <div class="right"><span class="pill info">post-MVP</span><span class="pill gray">~ 1 tydz</span></div>
+  </div>
+  <div class="sprint-body">
+    <ul>
+      <li>Schema: <code>is_final BOOLEAN</code>, <code>expires_at</code> (computed)</li>
+      <li>Cleanup daemon (cron albo lazy on viewer-start)
+        <br><small>Faza 1: <code>!is_final AND age &gt; 30d</code> → <code>.trash/</code> · Faza 2: <code>.trash/</code> &gt; 7d → delete</small></li>
+      <li>CLI: <code>folio finalize</code>, <code>folio unfinalize</code>, <code>folio cleanup --dry-run</code>, <code>folio trash list</code></li>
+      <li>Viewer: button „Mark as final" + banner „Auto-delete in N days"</li>
+      <li>MCP: <code>folio.finalize({ id })</code></li>
+      <li><strong>Implicit final on publish:</strong> <code>folio.publish</code> → auto <code>is_final=true</code></li>
+      <li>Config: <code>default_lifespan: 30d</code> w <code>folio.config.json</code></li>
+    </ul>
+    <div class="sprint-meta">
+      <div><strong>Exit criteria</strong>30+ dni nota !is_final → .trash · is_final=true → zostaje</div>
+      <div><strong>Dependencies</strong>S1 schema (parallel OK z S3)</div>
+    </div>
+  </div>
+</div>
+
+<div class="sprint">
+  <div class="sprint-head">
+    <div class="left">
+      <h3><span class="sid">S6</span> Cloud publish (folio.app) + OG screenshot</h3>
+      <p class="goal">Osobne repo, osobne ryzyko. Cloudflare/Vercel + auth + audience + Playwright screenshot.</p>
+    </div>
+    <div class="right"><span class="pill info">osobny projekt</span><span class="pill gray">~ 3-4 tyg</span></div>
+  </div>
+  <div class="sprint-body">
+    <ul>
+      <li>Osobne repo <code>folio-cloud</code> (Cloudflare Pages albo Vercel)</li>
+      <li>Auth: GitHub OAuth (creators) + magic link (audience)</li>
+      <li>DB: D1 / Postgres — tabela <code>publications</code></li>
+      <li>Storage: R2 / Vercel Blob dla HTML + OG PNG</li>
+      <li>Routing path-based: <code>folio.app/&lt;user&gt;/&lt;slug&gt;</code></li>
+      <li>CLI: <code>folio cloud login</code>, <code>folio publish &lt;id&gt;</code></li>
+      <li>MCP: <code>folio.publish({ id, audience? })</code> → <code>{ url, og_url }</code></li>
+      <li>OG screenshot pipeline: Playwright headless → 1200×630 PNG → R2 → og:image meta inject</li>
+      <li>Audience modes: <code>public</code>, <code>unlisted</code>, <code>invited:[emails]</code></li>
+      <li>Build: <code>hosted</code> → <code>standalone</code> rebuild przy publish (ADR-012)</li>
+    </ul>
+    <div class="sprint-meta">
+      <div><strong>Exit criteria</strong>publish → wklejony URL w Telegram = rich preview · magic link działa na phone</div>
+      <div><strong>Dependencies</strong>S2 standalone profile · auth strategy decided</div>
+    </div>
+  </div>
+</div>
+
+<div class="sprint">
+  <div class="sprint-head">
+    <div class="left">
+      <h3><span class="sid">S7</span> Polish + mobile + open source</h3>
+      <p class="goal">Responsive theme, reader mode, PDF eksport, dokumentacja, OS release.</p>
+    </div>
+    <div class="right"><span class="pill info">post-MVP</span><span class="pill gray">~ 2 tyg</span></div>
+  </div>
+  <div class="sprint-body">
+    <ul>
+      <li>Responsive theme (320-768px) na wszystkich templates</li>
+      <li>Reader mode (focused, bez sidebaru)</li>
+      <li>Dark/light auto z <code>prefers-color-scheme</code></li>
+      <li>PDF eksport via Puppeteer (<code>folio export --pdf</code>)</li>
+      <li>Onboarding wizard <code>folio init</code> z 3 demo notami</li>
+      <li>README + landing page na folio.app</li>
+      <li>Brand: logo, color, voice</li>
+      <li>OS release decision (license, contribution guide)</li>
+    </ul>
+    <div class="sprint-meta">
+      <div><strong>Exit criteria</strong>Folio działa na phone · publishowane noty czytelne na mobile · README done</div>
+      <div><strong>Dependencies</strong>S6 (jeśli chcesz landing zintegrowany)</div>
+    </div>
+  </div>
+</div>
+</section>
+
+<section>
+<h2><span class="num">05</span> Risk register</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Ryzyko</th><th>Severity</th><th>Gdzie</th><th>Mitigation</th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="risk-name">Bun + MCP SDK incompat</td>
+      <td><span class="sev high">HIGH</span></td>
+      <td class="where">S0 → S3</td>
+      <td>Smoke test w S0 (~15 min). Plan B: Node fallback.</td>
+    </tr>
+    <tr>
+      <td class="risk-name">50% token claim zawodzi</td>
+      <td><span class="sev med">MED</span></td>
+      <td class="where">S2 walidacja</td>
+      <td>Telemetria od S1 mierzy realny class_match_rate. Jeśli ~30% — refactor stylebooka, fewer-shot LLM.</td>
+    </tr>
+    <tr>
+      <td class="risk-name">LLM drift od stylebooka</td>
+      <td><span class="sev med">MED</span></td>
+      <td class="where">S4 Skill</td>
+      <td>Few-shot examples + Skill enforcement. Walidator HTML output post-create (auto-flag inline styles).</td>
+    </tr>
+    <tr>
+      <td class="risk-name">KB creep via ADR-019</td>
+      <td><span class="sev med">MED</span></td>
+      <td class="where">S4 Skill behavior</td>
+      <td>Gating jako reguła #1 w SKILL.md. Cap 5 not, 24h idem, only Folio convos.</td>
+    </tr>
+    <tr>
+      <td class="risk-name">OG screenshot pipeline fragility</td>
+      <td><span class="sev med">MED</span></td>
+      <td class="where">S6 cloud</td>
+      <td>Vendor Playwright / Cloudflare Browser Rendering API. Graceful degrade (text-only OG jeśli failure).</td>
+    </tr>
+    <tr>
+      <td class="risk-name">Multi-agent w jednym threadzie</td>
+      <td><span class="sev low">LOW</span></td>
+      <td class="where">post-MVP</td>
+      <td>Append-only = eventual consistency wystarczy. Test w S4 (Ryszard + Claude piszą równolegle).</td>
+    </tr>
+    <tr>
+      <td class="risk-name">PL stemming słaby w FTS5</td>
+      <td><span class="sev low">LOW</span></td>
+      <td class="where">S1 search</td>
+      <td>Prosty heurystyczny stemmer końcówek PL (~50 LOC) jeśli po 100 notach boli.</td>
+    </tr>
+    <tr>
+      <td class="risk-name">User nie markuje "final" — traci ważne</td>
+      <td><span class="sev low">LOW</span></td>
+      <td class="where">S5 lifespan</td>
+      <td>Implicit final on publish (ADR-015) pokrywa ~60%. ADR-019 surfacing pokrywa resztę.</td>
+    </tr>
+    <tr>
+      <td class="risk-name">Mobile selection / sharing UX słaby</td>
+      <td><span class="sev low">LOW</span></td>
+      <td class="where">S7</td>
+      <td>Responsive theme + testy na real device w S7.</td>
+    </tr>
+    <tr>
+      <td class="risk-name">SQLite w sync folder (iCloud/Dropbox)</td>
+      <td><span class="sev low">LOW</span></td>
+      <td class="where">S0 docs</td>
+      <td>Docs jasno: nie trzymaj <code>~/Folio/</code> w sync folder. WAL się rozjedzie.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+</section>
+
+<section>
+<h2><span class="num">06</span> Co teraz na biurku</h2>
+<div class="callout good">
+<h3>✅ Akcje od ręki (S0 closeout)</h3>
+<p>1. Domain check: <code>folio.app</code>, <code>folio.dev</code>, <code>getfolio.app</code>. Decyzja nazwa. Czas: 30 min.</p>
+<p>2. <code>git init</code> + <code>bun init</code> w <code>~/Projects/Folio</code>. Czas: 5 min.</p>
+<p>3. Smoke test <code>@modelcontextprotocol/sdk</code> na Bun: <code>bun add</code> + minimalny stdio server. Czas: 15 min.</p>
+</div>
+
+<div class="callout warn">
+<h3>⏸️ Można odłożyć</h3>
+<p>Decyzje S6 (subdomain layout, auth strategy) — w pełni decyzyjne dopiero jak będziesz wchodził w cloud sprint. Default rekomendacje w blockerach są bezpieczne.</p>
+</div>
+
+<div class="callout info">
+<h3>📈 Mierz od S1</h3>
+<p>Tabela <code>events</code> w SQLite od początku. <code>class_match_rate</code> walidują 50% token claim. Bez tego — żyjemy w vibe, nie faktach.</p>
+</div>
+</section>
+
+<footer>
+  <div>⚙️ <strong>Folio</strong> · Plan Implementacji · 2026-05-11 · v3.1</div>
+  <div>Powiązane: <code>Decisions.md</code> · <code>TODO.md</code> · <a href="plan-dzialania.html">plan-dzialania.html</a></div>
+</footer>
+
+</main>
+</body>
+</html>

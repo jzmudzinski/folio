@@ -1,0 +1,41 @@
+<span class="eyebrow">Research<% if (it.subcategory) { %> · <%= it.subcategory %><% } %></span>
+<h1><%= it.title %></h1>
+<% if (it.lead) { %>
+<p class="lead"><%= it.lead %></p>
+<% } %>
+
+<% if (it.tldr) { %>
+<h3>TL;DR</h3>
+<% if (Array.isArray(it.tldr)) { %>
+<ul>
+<% for (const b of it.tldr) { %>  <li><%= b %></li>
+<% } %></ul>
+<% } else { %>
+<p><%= it.tldr %></p>
+<% } %>
+<% } %>
+
+<% for (const sec of (it.sections || [])) { %>
+<h3><%= sec.heading %></h3>
+<% for (const p of (sec.paragraphs || [])) { %><p><%= p %></p>
+<% } %>
+<% if (sec.bullets) { %>
+<ul>
+<% for (const b of sec.bullets) { %>  <li><%= b %></li>
+<% } %></ul>
+<% } %>
+<% } %>
+
+<% if (it.sources && it.sources.length) { %>
+<h3>Źródła</h3>
+<ul>
+<% for (const s of it.sources) { %>  <li><a href="<%= s.url %>" target="_blank" rel="noreferrer"><%= s.title || s.url %></a></li>
+<% } %></ul>
+<% } %>
+
+<% if (it.open_questions && it.open_questions.length) { %>
+<h3>Open questions</h3>
+<ul>
+<% for (const q of it.open_questions) { %>  <li><%= q %></li>
+<% } %></ul>
+<% } %>

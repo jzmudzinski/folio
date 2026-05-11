@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="pl" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="folio:type" content="plan-strategy">
+<meta name="folio:created" content="2026-05-11">
+<meta name="folio:tags" content="folio,plan,strategia,pivot-v3.1">
+<title>Folio — Plan Działania</title>
+<style>
+:root{
+  --bg:#0b0d12;--bg-2:#11141c;--panel:#161a24;--panel-2:#1c2230;--border:#262d3d;
+  --text:#e7ecf3;--soft:#c9d2e3;--muted:#8a93a6;
+  --accent:#7c5cff;--accent-2:#1aaaff;--accent-3:#f59e0b;
+  --good:#34d399;--bad:#f87171;--mid:#fbbf24;
+  --font-sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Inter,system-ui,sans-serif;
+  --font-mono:"JetBrains Mono","SF Mono",ui-monospace,monospace;
+  --leading:1.6;
+}
+*{box-sizing:border-box}
+html,body{background:var(--bg);color:var(--text);font-family:var(--font-sans);line-height:var(--leading);margin:0;padding:0;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:clamp(28px,4vw,64px)}
+
+header.hero{margin-bottom:56px;position:relative}
+.glow{position:absolute;inset:auto;width:560px;height:560px;border-radius:50%;
+  background:radial-gradient(circle, rgba(124,92,255,0.18) 0%, transparent 70%);
+  top:-180px;right:-200px;pointer-events:none;z-index:0;filter:blur(20px)}
+.hero > *{position:relative;z-index:1}
+.eyebrow{text-transform:uppercase;letter-spacing:0.18em;font-size:12px;color:var(--accent);font-weight:700;display:inline-block;margin-bottom:14px}
+h1{font-size:clamp(40px,5.5vw,64px);line-height:1.02;margin:0 0 18px;font-weight:800;letter-spacing:-0.025em;
+  background:linear-gradient(135deg,#fff 10%,var(--accent) 75%,var(--accent-2) 100%);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  max-width:920px}
+p.sub{font-size:clamp(17px,1.6vw,20px);color:var(--muted);margin:0 0 24px;max-width:780px;line-height:1.5}
+.statusbar{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px}
+
+h2{font-size:clamp(24px,2.8vw,32px);margin:64px 0 20px;font-weight:700;letter-spacing:-0.01em;display:flex;align-items:baseline;gap:14px}
+h2 .num{color:var(--accent);font-size:0.55em;font-weight:800;font-family:var(--font-mono);letter-spacing:0.02em}
+h3{font-size:18px;margin:24px 0 10px;font-weight:700;color:var(--text)}
+p{color:var(--soft);margin:0 0 14px}
+strong{color:var(--text)}
+
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;font-size:12px;font-weight:600;background:var(--panel-2);color:var(--soft);border:1px solid var(--border);font-family:var(--font-mono);letter-spacing:0.02em}
+.pill.good{color:var(--good);border-color:rgba(52,211,153,.3);background:rgba(52,211,153,.08)}
+.pill.bad{color:var(--bad);border-color:rgba(248,113,113,.3);background:rgba(248,113,113,.08)}
+.pill.mid{color:var(--mid);border-color:rgba(251,191,36,.3);background:rgba(251,191,36,.08)}
+.pill.info{color:var(--accent-2);border-color:rgba(26,170,255,.3);background:rgba(26,170,255,.08)}
+.pill.acc{color:var(--accent);border-color:rgba(124,92,255,.4);background:rgba(124,92,255,.1)}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin:18px 0}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:22px;position:relative;transition:border-color .2s}
+.card:hover{border-color:rgba(124,92,255,.35)}
+.card .label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.14em;margin-bottom:10px;font-weight:600}
+.card h3{margin:0 0 8px}
+.card p{margin:0;color:var(--muted);font-size:14px;line-height:1.55}
+.card.problem{border-left:3px solid var(--bad)}
+.card.solution{border-left:3px solid var(--good)}
+
+.table-wrap{overflow-x:auto;margin:18px 0;border:1px solid var(--border);border-radius:12px;background:var(--panel)}
+table{width:100%;border-collapse:collapse}
+thead{background:var(--panel-2)}
+th,td{text-align:left;padding:13px 18px;border-bottom:1px solid var(--border);font-size:14px;vertical-align:middle}
+th{color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.08em;font-size:11px}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:rgba(124,92,255,.04)}
+td.col-name{font-weight:600;color:var(--text)}
+td.us{background:rgba(124,92,255,.06)}
+.check{color:var(--good);font-weight:700}
+.no{color:var(--bad);font-weight:700}
+.partial{color:var(--mid);font-weight:700}
+
+.verdict{border-left:3px solid var(--accent);padding:18px 22px;background:rgba(124,92,255,.06);border-radius:0 12px 12px 0;margin:28px 0}
+.verdict h3{margin-top:0;color:var(--accent)}
+
+.terminal{background:#06070b;border:1px solid var(--border);border-radius:12px;padding:0;margin:20px 0;overflow:hidden;font-family:var(--font-mono);font-size:13px;line-height:1.7}
+.terminal .tbar{background:#0d0f15;padding:10px 16px;border-bottom:1px solid var(--border);display:flex;gap:6px;align-items:center}
+.terminal .dot-bar{width:11px;height:11px;border-radius:50%;background:#3a3f4d}
+.terminal .dot-bar.r{background:#ff5f57}.terminal .dot-bar.y{background:#febc2e}.terminal .dot-bar.g{background:#28c840}
+.terminal .tbar .name{margin-left:14px;color:var(--muted);font-size:12px}
+.terminal pre{margin:0;padding:18px 22px;background:transparent;border:0;color:var(--soft);overflow-x:auto}
+.terminal pre .u{color:var(--accent-3)}
+.terminal pre .a{color:var(--accent-2)}
+.terminal pre .c{color:var(--muted)}
+.terminal pre .k{color:var(--accent)}
+
+.roadmap{list-style:none;padding:0;margin:24px 0;position:relative}
+.roadmap::before{content:"";position:absolute;left:13px;top:18px;bottom:18px;width:2px;background:linear-gradient(to bottom,var(--accent),var(--border) 40%)}
+.roadmap li{display:grid;grid-template-columns:32px 1fr auto;align-items:start;gap:18px;padding:14px 0;position:relative}
+.roadmap .dot{width:12px;height:12px;border-radius:50%;background:var(--panel-2);border:2px solid var(--border);margin-top:6px;margin-left:8px;z-index:1;position:relative}
+.roadmap li.current .dot{background:var(--mid);border-color:var(--mid);box-shadow:0 0 0 6px rgba(251,191,36,.12)}
+.roadmap li.next .dot{background:var(--accent);border-color:var(--accent);box-shadow:0 0 0 4px rgba(124,92,255,.18)}
+.roadmap .step .id{font-family:var(--font-mono);font-weight:700;color:var(--accent);font-size:13px;letter-spacing:0.04em}
+.roadmap .step h3{margin:0 0 2px;font-size:16px}
+.roadmap .step p{margin:0;color:var(--muted);font-size:13px}
+.roadmap .meta{font-size:12px;color:var(--muted);font-family:var(--font-mono);align-self:center;text-align:right}
+
+.principles{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin:20px 0}
+.principle{padding:18px 20px;background:var(--panel);border:1px solid var(--border);border-radius:12px}
+.principle .num{font-family:var(--font-mono);color:var(--accent);font-size:13px;font-weight:700;letter-spacing:0.04em}
+.principle h3{margin:6px 0 6px;font-size:16px}
+.principle p{margin:0;font-size:13.5px;color:var(--muted);line-height:1.55}
+
+.quote{background:var(--panel);border-left:3px solid var(--accent-3);padding:18px 22px;border-radius:0 10px 10px 0;margin:24px 0}
+.quote p{margin:0 0 8px;font-style:italic;color:var(--soft);font-size:16px}
+.quote .cite{font-size:12px;color:var(--muted);font-family:var(--font-mono)}
+
+ul,ol{padding-left:20px;margin:8px 0 18px}
+li{margin:5px 0;color:var(--soft)}
+li::marker{color:var(--accent)}
+
+footer{margin-top:88px;padding-top:32px;border-top:1px solid var(--border);color:var(--muted);font-size:13px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+footer code{background:var(--panel-2);padding:2px 7px;border-radius:4px;font-family:var(--font-mono);color:var(--accent-3);font-size:12px}
+@media (max-width:680px){
+  h2{margin:48px 0 16px}
+  .roadmap li{grid-template-columns:32px 1fr;gap:12px}
+  .roadmap .meta{display:none}
+}
+</style>
+</head>
+<body>
+<main class="wrap">
+
+<header class="hero">
+  <div class="glow"></div>
+  <div class="eyebrow">📄 Folio · Plan Działania</div>
+  <h1>Wizualna powierzchnia komunikacji między AI a człowiekiem</h1>
+  <p class="sub">Markdown nie unosi diagramów, scorecardów, color-codingu ani in-page nav. Folio = standalone HTML jako medium *bieżącej* rozmowy z agentem. Nie KB — komunikacja.</p>
+  <div class="statusbar">
+    <span class="pill mid">Status: Planning v3.1</span>
+    <span class="pill info">2026-05-11</span>
+    <span class="pill acc">MVP = S1+S2+S3+S4</span>
+    <span class="pill good">Validated by Thariq (Anthropic)</span>
+  </div>
+</header>
+
+<section>
+<h2><span class="num">01</span> Skrót</h2>
+<p>Agent (Claude/Cursor/Ryszard/GPT) ma ci coś przekazać — research, porównanie, raport. Dziś idzie markdownem do terminala. Folio wpina w pętlę: <strong>agent generuje wizualnie bogaty HTML → ląduje w lokalnym folderze → otwierasz w przeglądarce → opcjonalnie publikujesz</strong> na <code>folio.app/&lt;user&gt;/&lt;slug&gt;</code> dla wybranych odbiorców.</p>
+<p>Każdy klient MCP (Claude Desktop, Cursor, OpenClaw, Continue) pisze do tego samego Folio. Append-only — chcesz inną wersję, agent tworzy <em>nowy</em> dokument obok poprzedniego w tym samym threadzie. Stare nieoznaczone czyszczą się po 30 dniach. Publish auto-finalizuje.</p>
+
+<div class="verdict">
+<h3>🎯 W jednym zdaniu</h3>
+<p style="margin:0">Folio robi z formatu HTML medium komunikacyjne między agentami a człowiekiem — pierwszą warstwę gdzie agent może <em>pokazać</em>, nie tylko <em>opowiedzieć</em>.</p>
+</div>
+</section>
+
+<section>
+<h2><span class="num">02</span> Problem → Rozwiązanie</h2>
+<div class="cards">
+  <div class="card problem">
+    <div class="label">Problem</div>
+    <h3>Markdown jest flat</h3>
+    <p>Brak scorecardów, sidebarów, color-codingu, in-page nav, interactive widgets. Renderowanie zależy od narzędzia.</p>
+  </div>
+  <div class="card problem">
+    <div class="label">Problem</div>
+    <h3>Artifacts są zamknięte</h3>
+    <p>Claude Artifacts żyją w Claude UI — agent-locked. Notion AI = Notion-locked block format. Brak agent-agnostic medium.</p>
+  </div>
+  <div class="card problem">
+    <div class="label">Problem</div>
+    <h3>Share UX kuleje</h3>
+    <p>Markdown → renderer-of-the-day → screenshot do Telegrama. Brak pojedynczego linku z bogatym preview.</p>
+  </div>
+  <div class="card solution">
+    <div class="label">Rozwiązanie</div>
+    <h3>Standalone HTML</h3>
+    <p>Thariq pattern — self-contained pliki działają wszędzie. Theme.css inline, jeden dokument = jedna jednostka komunikacji.</p>
+  </div>
+  <div class="card solution">
+    <div class="label">Rozwiązanie</div>
+    <h3>MCP-native</h3>
+    <p>Każdy agent z MCP może pisać do Folio. Te same tools dla Claude'a, Cursora, Ryszarda, GPT. Local-first.</p>
+  </div>
+  <div class="card solution">
+    <div class="label">Rozwiązanie</div>
+    <h3>Publish + OG preview</h3>
+    <p>`folio.publish` → URL + auto-generowany screenshot jako OG image. Rich preview w Telegram/Slack/iMessage.</p>
+  </div>
+</div>
+</section>
+
+<section>
+<h2><span class="num">03</span> Pozycjonowanie</h2>
+<p>Folio nie konkuruje z bazą wiedzy. Persistent KB → Obsidian. Folio → <em>to o czym teraz rozmawiasz z agentem</em>.</p>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Cecha</th><th>Claude Artifacts</th><th>Notion AI</th><th>Loom</th><th>Obsidian</th><th>Folio</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="col-name">Medium</td>
+      <td>HTML w iframe</td><td>MD/blocks</td><td>Wideo</td><td>Markdown</td>
+      <td class="us"><strong>Standalone HTML</strong></td>
+    </tr>
+    <tr>
+      <td class="col-name">Agent-agnostic</td>
+      <td><span class="no">✗</span> Claude only</td>
+      <td><span class="no">✗</span> Notion only</td>
+      <td>—</td>
+      <td><span class="no">✗</span></td>
+      <td class="us"><span class="check">✓</span> Każdy MCP klient</td>
+    </tr>
+    <tr>
+      <td class="col-name">Local-first</td>
+      <td><span class="no">✗</span></td><td><span class="no">✗</span></td><td><span class="no">✗</span></td>
+      <td><span class="check">✓</span></td>
+      <td class="us"><span class="check">✓</span></td>
+    </tr>
+    <tr>
+      <td class="col-name">Share via URL</td>
+      <td><span class="no">✗</span> export only</td>
+      <td><span class="check">✓</span></td>
+      <td><span class="check">✓</span></td>
+      <td><span class="no">✗</span></td>
+      <td class="us"><span class="check">✓</span> opt-in + OG</td>
+    </tr>
+    <tr>
+      <td class="col-name">Wizualna jakość</td>
+      <td>⭐⭐⭐⭐</td><td>⭐⭐⭐</td><td>⭐⭐⭐⭐⭐</td><td>⭐⭐</td>
+      <td class="us">⭐⭐⭐⭐</td>
+    </tr>
+    <tr>
+      <td class="col-name">Edit cycle</td>
+      <td>replace whole</td><td>block edit</td><td>—</td><td>manual</td>
+      <td class="us"><strong>append-only</strong></td>
+    </tr>
+    <tr>
+      <td class="col-name">Auto cleanup</td>
+      <td><span class="no">✗</span></td><td><span class="no">✗</span></td><td><span class="no">✗</span></td><td><span class="no">✗</span></td>
+      <td class="us"><span class="check">✓</span> 30d non-final</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+</section>
+
+<section>
+<h2><span class="num">04</span> Demo flow</h2>
+<div class="terminal">
+  <div class="tbar">
+    <span class="dot-bar r"></span><span class="dot-bar y"></span><span class="dot-bar g"></span>
+    <span class="name">folio · agent loop</span>
+  </div>
+<pre><span class="c"># 1. User prosi agenta o research</span>
+<span class="u">USER ›</span> Przygotuj research o RAG vs fine-tuning
+
+<span class="c"># 2. Agent zna stylebook i MCP, wybiera istniejący thread (lub tworzy)</span>
+<span class="a">AGENT ›</span> <span class="k">folio.suggest_thread</span>({ title: "RAG vs Fine-Tuning" })
+       → []   <span class="c"># nic podobnego, nowy thread</span>
+<span class="a">AGENT ›</span> <span class="k">folio.create</span>({
+         type: "research",
+         title: "RAG vs Fine-Tuning",
+         body_html: "&lt;article&gt;...&lt;/article&gt;",
+         thread_id: "rag-vs-finetuning",
+         theme_profile: "hosted"          <span class="c"># -50% tokenów</span>
+       })
+       → { id: "01HN...", local_url: "http://localhost:4810/n/01HN..." }
+
+<span class="c"># 3. User otwiera link, czyta, prosi o iterację</span>
+<span class="u">USER ›</span> Cost analysis za płytkie. Konkretne ceny + case studies.
+
+<span class="c"># 4. Agent NIE edytuje. Tworzy nowy dokument w tym samym threadzie.</span>
+<span class="a">AGENT ›</span> <span class="k">folio.create</span>({ ...thread_id: "rag-vs-finetuning" })
+       → { id: "01HP...", thread_siblings: ["01HN..."] }
+
+<span class="c"># 5. User wybiera v2, klika "Mark as final" w viewerze</span>
+<span class="c"># 6. User publikuje — auto-final, OG screenshot generowany w tle</span>
+<span class="u">USER ›</span> Wyślij Magdzie i Łukaszowi
+
+<span class="a">AGENT ›</span> <span class="k">folio.publish</span>({ id: "01HP...", audience: ["magda@…","lukasz@…"] })
+       → { url: "https://folio.app/jarek/rag-vs-finetuning-deep" }
+
+<span class="c"># 7. Magda dostaje magic link → Telegram pokazuje rich preview z OG image</span></pre>
+</div>
+</section>
+
+<section>
+<h2><span class="num">05</span> Filary projektu</h2>
+<div class="principles">
+  <div class="principle">
+    <span class="num">P-01</span>
+    <h3>Append-only</h3>
+    <p>Agenty tylko CREATE — nigdy nie edytują. Inna wersja = nowy dokument w tym samym thread folder. (ADR-014)</p>
+  </div>
+  <div class="principle">
+    <span class="num">P-02</span>
+    <h3>Local-first, cloud opt-in</h3>
+    <p>Wszystko żyje w <code>~/Folio/</code>. Cloud (<code>folio.app</code>) to osobny projekt, nie blokuje MVP. (ADR-013)</p>
+  </div>
+  <div class="principle">
+    <span class="num">P-03</span>
+    <h3>Auto-cleanup ~30d</h3>
+    <p>Nieoznaczone noty znikają po 30 dniach. Publish auto-finalizuje. Folio nie staje się cmentarzyskiem slopu. (ADR-015, ADR-019)</p>
+  </div>
+  <div class="principle">
+    <span class="num">P-04</span>
+    <h3>Token-aware</h3>
+    <p>Dwa profile renderu: hosted (-50% tokenów via shared theme) i standalone (do publish/share). (ADR-012)</p>
+  </div>
+  <div class="principle">
+    <span class="num">P-05</span>
+    <h3>Anti-Clippy gating</h3>
+    <p>Skill surface'uje wygasające noty TYLKO w Folio-related kontekście. Hard rules. (ADR-019)</p>
+  </div>
+  <div class="principle">
+    <span class="num">P-06</span>
+    <h3>Pomiar od dnia 1</h3>
+    <p>Token count, class match rate, lifecycle metrics w SQLite od S1. Walidujemy 50% token claim, nie wierzymy. (ADR-017)</p>
+  </div>
+</div>
+</section>
+
+<section>
+<h2><span class="num">06</span> Walidacja zewnętrzna</h2>
+<div class="quote">
+  <p>"HTML is the new markdown. I've stopped writing markdown files for almost everything and switched to using Claude Code to generate HTML for me."</p>
+  <div class="cite">— Thariq Shihipar, Claude Code @ Anthropic · 2026-05-08</div>
+</div>
+<p>Folio NIE jest contrarianem. Wewnątrz Anthropic to już default workflow dla planów, code reviews, design systemów, raportów. Thariq opublikował 20 standalone HTML-i jako proof. Folio formalizuje ten pattern: dodaje strukturę folderów, viewer, search, share. Pivot z 2026-05-11 koryguje wcześniejsze założenie „long-term KB" na właściwe „medium komunikacji".</p>
+</section>
+
+<section>
+<h2><span class="num">07</span> Roadmap</h2>
+<ol class="roadmap">
+  <li class="step current">
+    <div class="dot"></div>
+    <div><span class="id">S0</span><h3>Pivot decisions + repo init</h3><p>Domain check, nazwa finalna, repo, walidacja MCP SDK na Bun</p></div>
+    <span class="meta">🟡 in progress</span>
+  </li>
+  <li class="step next">
+    <div class="dot"></div>
+    <div><span class="id">S1 · MVP core</span><h3>Storage + viewer + folio.create + FTS + analytics</h3><p>Plik na dysk, viewer pokazuje URL, FTS indeksuje, telemetria działa</p></div>
+    <span class="meta">~ 2 tyg</span>
+  </li>
+  <li class="step">
+    <div class="dot"></div>
+    <div><span class="id">S2 · MVP core</span><h3>Templates + theme + dwa profile renderu</h3><p>3 typy notatek (research/comparison/technical), pomiar token delta</p></div>
+    <span class="meta">~ 1-2 tyg</span>
+  </li>
+  <li class="step">
+    <div class="dot"></div>
+    <div><span class="id">S3 · MVP core</span><h3>MCP server</h3><p>create/get/list/search/finalize/suggest_thread/list_expiring</p></div>
+    <span class="meta">~ 1-2 tyg</span>
+  </li>
+  <li class="step">
+    <div class="dot"></div>
+    <div><span class="id">S4 · MVP core</span><h3>OpenClaw Skill + thread heuristics</h3><p>Stylebook, examples, surface gating, MEDIA convention</p></div>
+    <span class="meta">~ 1 tydz</span>
+  </li>
+  <li class="step">
+    <div class="dot"></div>
+    <div><span class="id">S5</span><h3>Lifespan + cleanup + final marker</h3><p>30d default, .trash, viewer banner, implicit final on publish</p></div>
+    <span class="meta">~ 1 tydz</span>
+  </li>
+  <li class="step">
+    <div class="dot"></div>
+    <div><span class="id">S6 · osobny projekt</span><h3>Cloud publish (folio.app) + OG screenshot</h3><p>Cloudflare/Vercel, auth, audience, Playwright screenshot pipeline</p></div>
+    <span class="meta">~ 3-4 tyg</span>
+  </li>
+  <li class="step">
+    <div class="dot"></div>
+    <div><span class="id">S7</span><h3>Polish + mobile + open source</h3><p>Responsive, reader mode, PDF, onboarding wizard, OS release</p></div>
+    <span class="meta">~ 2 tyg</span>
+  </li>
+</ol>
+
+<div class="verdict">
+<h3>MVP scope</h3>
+<p style="margin:0"><strong>S1 + S2 + S3 + S4</strong> = ~5-7 tygodni solo. Wszystko poniżej to dorzucanie, nie blokuje sprawdzenia tezy. S6 (cloud) celowo wydzielone — działa Folio bez niego.</p>
+</div>
+</section>
+
+<section>
+<h2><span class="num">08</span> Wątpliwości warto trzymać w głowie</h2>
+<ul>
+  <li><strong>50% token claim wymaga pomiaru.</strong> Hosted profile redukuje tokeny tylko jeśli LLM konsekwentnie używa klas z theme.css, nie inline <code>style=""</code>. Walidujemy w S2 telemetrią.</li>
+  <li><strong>KB creep przez ADR-019.</strong> Skill ze stanem cross-session lekko zaprzecza „nie KB". Gating jako reguła #1 w SKILL.md — pierwsze co retro'wujesz, jeśli pojawi się Clippy.</li>
+  <li><strong>Bun + MCP SDK compatibility.</strong> Smoke test w S0 przed S3. Plan B: Node z bun-compatible CLI.</li>
+  <li><strong>Mobile selection / sharing UX.</strong> Real users dostają linki na phone, czytają na phone. Responsive nie jest miłym dodatkiem.</li>
+  <li><strong>Multi-agent w tym samym Folio.</strong> Dwa agenty piszą równolegle do tego samego threadu — eventual consistency wystarczy w append-only, ale warto przetestować.</li>
+</ul>
+</section>
+
+<section>
+<h2><span class="num">09</span> Co dalej (najbliższe godziny)</h2>
+<ol>
+  <li>Domena check: <code>folio.app</code>, <code>folio.dev</code>, <code>getfolio.app</code> — kiedy decydujemy nazwę finalną.</li>
+  <li>Repo init w <code>~/Projects/Folio</code> + <code>git init</code> + <code>bun init</code>.</li>
+  <li>Smoke test <code>@modelcontextprotocol/sdk</code> na Bun (15-min validation przed S3).</li>
+  <li>Otwarcie S1 — pierwszy <code>folio new --html @file.html</code> kierunek robi się przy stoliku, nie planowaniem.</li>
+</ol>
+<p>Detal taskowy → <a href="plan-implementacji.html">Plan Implementacji</a>.</p>
+</section>
+
+<footer>
+  <div>📄 <strong>Folio</strong> · Plan Działania · 2026-05-11 · v3.1</div>
+  <div>Powiązane: <code>Folio.md</code> · <code>Decisions.md</code> · <code>TODO.md</code> · <code>plan-implementacji.html</code></div>
+</footer>
+
+</main>
+</body>
+</html>

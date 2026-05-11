@@ -662,6 +662,8 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
   const noteScript = `<script>(function(){
     var iframe = document.querySelector('.note-iframe');
     var sel = document.querySelector('.theme-switch');
+
+    // Theme preview switcher
     if (sel && iframe) {
       sel.addEventListener('change', function(){
         var t = sel.value;
@@ -669,19 +671,94 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
         iframe.src = '/raw/' + sel.dataset.noteid + (t !== orig ? '?theme=' + encodeURIComponent(t) : '');
       });
     }
-    function attachLightbox(){
-      if (!iframe) return;
-      var doc; try { doc = iframe.contentDocument; } catch(e) { return; }
-      if (!doc) return;
+
+    // Viewer-injected helpers: lightbox, copy-code, heading anchors, external link target
+    function slugify(s){
+      return (s || '').toLowerCase()
+        .normalize('NFKD')
+        .replace(/[\\u0300-\\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 60);
+    }
+    function injectStyles(doc){
+      if (doc.getElementById('folio-helpers-css')) return;
+      var s = doc.createElement('style');
+      s.id = 'folio-helpers-css';
+      s.textContent = [
+        'pre { position: relative; }',
+        '.folio-copy-btn { position: absolute; top: 6px; right: 6px; font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 10px; padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(127,127,127,0.25); background: rgba(255,255,255,0.6); color: rgba(0,0,0,0.55); cursor: pointer; opacity: 0; transition: opacity .12s, color .12s, border-color .12s; }',
+        'pre:hover .folio-copy-btn { opacity: 1; }',
+        '.folio-copy-btn:hover { color: #ff5a1f; border-color: #ff5a1f; }',
+        '.folio-copy-btn.copied { color: #2f9050; border-color: #2f9050; opacity: 1; }',
+        'h1, h2, h3, h4, h5, h6 { position: relative; }',
+        '.folio-anchor { display: inline-block; margin-left: 0.4em; font-size: 0.7em; opacity: 0; color: #ff5a1f; cursor: pointer; font-weight: 400; text-decoration: none; vertical-align: middle; transition: opacity .12s; user-select: none; }',
+        'h1:hover .folio-anchor, h2:hover .folio-anchor, h3:hover .folio-anchor, h4:hover .folio-anchor, h5:hover .folio-anchor, h6:hover .folio-anchor { opacity: 0.7; }',
+        '.folio-anchor:hover { opacity: 1 !important; }',
+        '.folio-anchor.copied::after { content: " copied"; font-size: 0.8em; color: #2f9050; }',
+        'img { cursor: zoom-in; }'
+      ].join('\\n');
+      doc.head.appendChild(s);
+    }
+    function attachLightbox(doc){
       var imgs = doc.querySelectorAll('article img, [data-folio-content] img');
       imgs.forEach(function(img){
         if (img.dataset.lbBound) return;
         img.dataset.lbBound = '1';
-        img.style.cursor = 'zoom-in';
         img.addEventListener('click', function(e){
           e.preventDefault();
           openLightbox(img.currentSrc || img.src, img.alt || '');
         });
+      });
+    }
+    function attachCopyCode(doc){
+      doc.querySelectorAll('pre').forEach(function(pre){
+        if (pre.dataset.ccBound) return;
+        pre.dataset.ccBound = '1';
+        var btn = doc.createElement('button');
+        btn.className = 'folio-copy-btn';
+        btn.type = 'button';
+        btn.textContent = 'copy';
+        btn.addEventListener('click', function(e){
+          e.preventDefault();
+          var code = pre.querySelector('code') || pre;
+          var text = code.textContent || '';
+          navigator.clipboard.writeText(text).then(function(){
+            btn.textContent = '✓ copied';
+            btn.classList.add('copied');
+            setTimeout(function(){ btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1400);
+          });
+        });
+        pre.appendChild(btn);
+      });
+    }
+    function attachAnchors(doc){
+      doc.querySelectorAll('article h1, article h2, article h3, article h4, [data-folio-content] h1, [data-folio-content] h2, [data-folio-content] h3, [data-folio-content] h4').forEach(function(h){
+        if (h.dataset.anchorBound) return;
+        h.dataset.anchorBound = '1';
+        if (!h.id) h.id = slugify(h.textContent);
+        var a = doc.createElement('a');
+        a.className = 'folio-anchor';
+        a.href = '#' + h.id;
+        a.textContent = '¶';
+        a.title = 'Klik = skopiuj link do tej sekcji';
+        a.addEventListener('click', function(e){
+          e.preventDefault();
+          var url = window.location.origin + window.location.pathname + '#' + h.id;
+          navigator.clipboard.writeText(url).then(function(){
+            a.classList.add('copied');
+            setTimeout(function(){ a.classList.remove('copied'); }, 1200);
+          });
+        });
+        h.appendChild(a);
+      });
+    }
+    function attachExternalLinks(doc){
+      doc.querySelectorAll('a[href^="http"], a[href^="//"]').forEach(function(a){
+        if (a.dataset.extBound) return;
+        a.dataset.extBound = '1';
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noreferrer noopener');
       });
     }
     function openLightbox(src, alt){
@@ -702,9 +779,18 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
       document.addEventListener('keydown', esc);
       document.body.appendChild(ov);
     }
+    function onIframeLoad(){
+      var doc; try { doc = iframe.contentDocument; } catch(e) { return; }
+      if (!doc) return;
+      injectStyles(doc);
+      attachLightbox(doc);
+      attachCopyCode(doc);
+      attachAnchors(doc);
+      attachExternalLinks(doc);
+    }
     if (iframe) {
-      iframe.addEventListener('load', attachLightbox);
-      if (iframe.contentDocument && iframe.contentDocument.readyState === 'complete') attachLightbox();
+      iframe.addEventListener('load', onIframeLoad);
+      if (iframe.contentDocument && iframe.contentDocument.readyState === 'complete') onIframeLoad();
     }
   })();</script>`;
 

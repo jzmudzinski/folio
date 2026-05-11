@@ -18,8 +18,13 @@ jobs:
         include:
           - os: macos-14
             target: darwin-arm64
+            bun_target: ''
           - os: ubuntu-latest
             target: linux-x64
+            bun_target: ''
+          - os: ubuntu-latest
+            target: linux-arm64
+            bun_target: 'bun-linux-arm64'
     steps:
       - uses: actions/checkout@v4
 
@@ -31,13 +36,20 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Test
+        # Cross-compile target (linux-arm64 na ubuntu-latest) — skip testów na
+        # x64 hoście, runtime tested w produkcji (NotiBox Jetson Orin Nano).
+        if: matrix.bun_target == ''
         run: bun test
 
       - name: Build folio binaries
         run: |
           mkdir -p dist
-          bun build --compile --minify --sourcemap bin/folio.ts     --outfile dist/folio
-          bun build --compile --minify --sourcemap bin/folio-mcp.ts --outfile dist/folio-mcp
+          TARGET_FLAG=""
+          if [ -n "${{ matrix.bun_target }}" ]; then
+            TARGET_FLAG="--target=${{ matrix.bun_target }}"
+          fi
+          bun build --compile --minify --sourcemap $TARGET_FLAG bin/folio.ts     --outfile dist/folio
+          bun build --compile --minify --sourcemap $TARGET_FLAG bin/folio-mcp.ts --outfile dist/folio-mcp
 
       - name: Package release tarball
         run: |

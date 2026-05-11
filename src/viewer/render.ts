@@ -94,29 +94,74 @@ a:hover { text-decoration: underline; }
 .fp .count { margin-left: 5px; opacity: 0.7; font-weight: 500; }
 .divider { width: 1px; height: 18px; background: var(--vborder); margin: 0 6px; }
 
-.v-list { padding: 24px; max-width: 1100px; margin: 0 auto; }
-.date-group { margin-bottom: 28px; }
-.date-group .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--vmuted); margin: 0 0 12px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.v-list { padding: 16px 24px 32px; max-width: 1100px; margin: 0 auto; }
+.date-group { margin-bottom: 22px; }
+.date-group .lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--vmuted-light); margin: 0 0 4px; font-weight: 600; font-family: var(--vmono); display: flex; align-items: center; gap: 10px; padding: 0 2px; }
 .date-group .lbl .line { flex: 1; height: 1px; background: var(--vborder); }
 
-.note-card { background: var(--vpanel); border: 1px solid var(--vborder); border-radius: 11px; padding: 14px 18px; margin-bottom: 8px; display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: start; text-decoration: none; color: var(--vtext); transition: border-color 0.15s, transform 0.15s; }
-.note-card:hover { border-color: var(--vaccent); transform: translateY(-1px); text-decoration: none; }
-.note-card .type { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; padding: 4px 9px; border-radius: 6px; font-weight: 700; font-family: var(--vmono); align-self: start; margin-top: 2px; white-space: nowrap; }
+/* Compact row layout — one note = one ~36px row */
+.note-rows { display: flex; flex-direction: column; }
+.note-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto auto;
+  gap: 14px;
+  padding: 8px 8px 8px 8px;
+  border-bottom: 1px solid var(--vborder);
+  align-items: center;
+  text-decoration: none;
+  color: var(--vtext);
+  border-radius: 4px;
+  transition: background 0.1s;
+}
+.note-row:hover { background: var(--vbg-2); text-decoration: none; }
+.note-row .type {
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.1em;
+  padding: 2px 7px; border-radius: 4px; font-weight: 700; font-family: var(--vmono);
+  text-align: center; justify-self: start;
+}
 .type-research { background: rgba(255,90,31,0.10); color: var(--vaccent); }
 .type-comparison { background: rgba(212,165,116,0.18); color: #8b6535; }
 .type-technical { background: rgba(74,108,247,0.10); color: #2c4ad9; }
 .type-journal { background: rgba(47,144,80,0.10); color: var(--vgood); }
 .type-snippet { background: var(--vbg-2); color: var(--vmuted); }
-.note-body .title { font-weight: 600; font-size: 14.5px; line-height: 1.35; margin-bottom: 5px; color: var(--vtext); }
-.note-body .meta { font-size: 12px; color: var(--vmuted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
-.note-body .meta .sep { opacity: 0.4; }
-.note-body .meta .thread { color: var(--vaccent); font-family: var(--vmono); font-size: 11.5px; }
-.note-body .snippet { font-size: 13px; color: var(--vmuted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
-.note-body .snippet mark { background: rgba(201,142,45,0.22); color: var(--vtext); padding: 1px 3px; border-radius: 3px; }
-.note-status { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; font-family: var(--vmono); font-size: 11px; white-space: nowrap; }
-.note-status .final { color: var(--vgood); }
-.note-status .expiring { color: var(--vmid); }
-.note-status .score { color: var(--vaccent-2); }
+.note-row .body { min-width: 0; display: flex; align-items: baseline; gap: 12px; }
+.note-row .title { font-weight: 600; font-size: 14px; line-height: 1.3; color: var(--vtext); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.note-row .thread { color: var(--vmuted); font-family: var(--vmono); font-size: 11px; white-space: nowrap; }
+.note-row .thread:hover { color: var(--vaccent); }
+.note-row .age { color: var(--vmuted-light); font-family: var(--vmono); font-size: 11px; white-space: nowrap; }
+.note-row .status { display: flex; align-items: center; gap: 6px; font-family: var(--vmono); font-size: 11px; white-space: nowrap; }
+.note-row .status .final { color: var(--vgood); }
+.note-row .status .expiring { color: var(--vmid); }
+.note-row .status .score { color: var(--vaccent-2); }
+
+/* Search results need an extra row for snippet — same compact pattern */
+.note-row.with-snippet { grid-template-columns: 92px minmax(0, 1fr) auto auto; padding: 10px 8px; align-items: start; }
+.note-row.with-snippet .body { flex-direction: column; align-items: flex-start; gap: 3px; }
+.note-row.with-snippet .snippet { font-size: 12.5px; color: var(--vmuted); line-height: 1.5; max-width: 100%; }
+.note-row.with-snippet .snippet mark { background: rgba(255,90,31,0.18); color: var(--vtext); padding: 1px 3px; border-radius: 2px; font-weight: 500; }
+.note-row.with-snippet .row-meta { display: flex; gap: 10px; font-size: 11px; color: var(--vmuted-light); font-family: var(--vmono); }
+.note-row.with-snippet .row-meta .thread { color: var(--vmuted); }
+
+/* Threads page */
+.thread-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 16px;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--vborder);
+  align-items: center;
+  text-decoration: none;
+  color: var(--vtext);
+  border-radius: 4px;
+  transition: background 0.1s;
+}
+.thread-row:hover { background: var(--vbg-2); text-decoration: none; }
+.thread-row .tid { font-family: var(--vmono); font-size: 13px; color: var(--vaccent); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.thread-row .latest { color: var(--vmuted-light); font-size: 11.5px; font-family: var(--vmono); white-space: nowrap; }
+.thread-row .count { color: var(--vmuted); font-size: 11.5px; font-family: var(--vmono); white-space: nowrap; }
+.thread-row .marker { font-family: var(--vmono); font-size: 11px; white-space: nowrap; min-width: 28px; text-align: right; }
+.thread-row .marker.final { color: var(--vgood); }
+.thread-row .marker.expiring { color: var(--vmid); }
 
 .empty { text-align: center; padding: 60px 20px; color: var(--vmuted); }
 .empty h2 { color: var(--vtext); font-family: var(--vhead); font-weight: 500; font-size: 28px; letter-spacing: -0.02em; margin-bottom: 10px; }
@@ -161,7 +206,8 @@ a:hover { text-decoration: underline; }
 }
 `;
 
-function topbar(query = ""): string {
+function topbar(query = "", active?: "notes" | "threads" | "stats"): string {
+  const a = (k: string) => (active === k ? ' style="color:var(--vtext);background:var(--vbg-2)"' : "");
   return `
 <div class="v-top">
   <a href="/" class="v-logo">
@@ -171,9 +217,13 @@ function topbar(query = ""): string {
   </a>
   <form class="v-search" action="/search" method="get">
     <span>🔍</span>
-    <input type="search" name="q" placeholder="Szukaj…" value="${esc(query)}" autocomplete="off">
+    <input type="search" name="q" placeholder="Szukaj notatek i wątków…" value="${esc(query)}" autocomplete="off">
   </form>
-  <div class="v-actions"><a href="/stats">stats</a></div>
+  <div class="v-actions">
+    <a href="/"${a("notes")}>noty</a>
+    <a href="/threads"${a("threads")}>wątki</a>
+    <a href="/stats"${a("stats")}>stats</a>
+  </div>
 </div>`;
 }
 
@@ -192,27 +242,22 @@ function filterBar(activeType?: string, activeStatus?: string, counts?: { all: n
 </div>`;
 }
 
-function noteCard(n: NoteMeta): string {
+function noteRow(n: NoteMeta): string {
   const expiring = !n.is_final ? daysUntil(n.expires_at) : null;
   const status = n.is_final
-    ? `<span class="final">⭐ final</span>`
+    ? `<span class="final">⭐</span>`
     : expiring
     ? `<span class="expiring">⏱ ${expiring}</span>`
     : "";
   return `
-<a class="note-card" href="/n/${n.id}">
+<a class="note-row" href="/n/${n.id}">
   <span class="type type-${n.type}">${n.type}</span>
-  <div class="note-body">
-    <div class="title">${esc(n.title)}</div>
-    <div class="meta">
-      <span class="thread">📂 <a href="/t/${esc(n.thread_id)}" style="color:inherit">${esc(n.thread_id)}</a></span>
-      <span class="sep">·</span>
-      <span>${ago(n.created)}</span>
-      ${n.tags.length ? `<span class="sep">·</span><span>${n.tags.slice(0,3).map(esc).join(", ")}</span>` : ""}
-    </div>
-    <div class="snippet">${esc(n.summary ?? "")}</div>
+  <div class="body">
+    <span class="title">${esc(n.title)}</span>
+    <span class="thread">📂 ${esc(n.thread_id)}</span>
   </div>
-  <div class="note-status">${status}</div>
+  <span class="age">${ago(n.created)}</span>
+  <span class="status">${status}</span>
 </a>`;
 }
 
@@ -226,64 +271,110 @@ export function pageList(notes: NoteMeta[], counts: { all: number; final: number
     groups.set(g, arr);
   }
   const groupHtml = Array.from(groups.entries())
-    .map(([label, items]) => `<div class="date-group"><div class="lbl">${label} <span class="line"></span></div>${items.map(noteCard).join("")}</div>`)
+    .map(([label, items]) => `<div class="date-group"><div class="lbl">${label} <span class="line"></span></div><div class="note-rows">${items.map(noteRow).join("")}</div></div>`)
     .join("");
 
   const body = notes.length === 0
     ? `<div class="empty"><h2>Pusto.</h2><p>Stwórz pierwszą notatkę: <code>folio new --title "..." --html @file.html</code></p></div>`
     : `<div class="v-list">${groupHtml}</div>`;
 
-  return shell("Folio", `${topbar()}${filterBar(activeType, activeStatus, counts)}${body}`);
+  return shell("Folio", `${topbar("", "notes")}${filterBar(activeType, activeStatus, counts)}${body}`);
 }
 
-export function pageSearch(query: string, hits: SearchHit[], counts: { all: number; final: number; expiring: number; byType: Record<string, number> }, durationMs: number): string {
-  const body = hits.length === 0
-    ? `<div class="empty"><h2>Brak wyników</h2><p>Spróbuj innych słów.</p></div>`
-    : `<div class="v-list">${hits.map(searchCard).join("")}</div>`;
-  return shell(`Szukaj: ${query}`, `${topbar(query)}<div class="search-bar"><div><span class="count">${hits.length} wynik${hits.length === 1 ? "" : "ów"}</span> dla <span class="query">"${esc(query)}"</span> · ${durationMs}ms</div></div>${filterBar(undefined, undefined, counts)}${body}`);
+export interface ThreadHit {
+  thread_id: string;
+  count: number;
+  latest: string;
+  final_count: number;
 }
 
-function searchCard(h: SearchHit): string {
-  // snippet contains <mark> from FTS5; we keep it raw
+export function pageSearch(
+  query: string,
+  hits: SearchHit[],
+  threadHits: ThreadHit[],
+  counts: { all: number; final: number; expiring: number; byType: Record<string, number> },
+  durationMs: number
+): string {
+  const empty = hits.length === 0 && threadHits.length === 0;
+  const body = empty
+    ? `<div class="empty"><h2>Brak wyników</h2><p>Spróbuj innych słów lub zobacz <a href="/threads">wszystkie wątki</a>.</p></div>`
+    : `<div class="v-list">
+         ${threadHits.length ? `<div class="date-group"><div class="lbl">Wątki <span class="line"></span></div><div class="note-rows">${threadHits.map(threadRow).join("")}</div></div>` : ""}
+         ${hits.length ? `<div class="date-group"><div class="lbl">Notatki <span class="line"></span></div><div class="note-rows">${hits.map(searchRow).join("")}</div></div>` : ""}
+       </div>`;
+  return shell(
+    `Szukaj: ${query}`,
+    `${topbar(query, "notes")}<div class="search-bar"><div><span class="count">${hits.length} not${hits.length === 1 ? "a" : "atek"}</span>${threadHits.length ? ` + <span class="count">${threadHits.length} wątek${threadHits.length === 1 ? "" : "ów"}</span>` : ""} dla <span class="query">"${esc(query)}"</span> · ${durationMs}ms</div></div>${filterBar(undefined, undefined, counts)}${body}`
+  );
+}
+
+function searchRow(h: SearchHit): string {
   return `
-<a class="note-card" href="/n/${h.id}">
+<a class="note-row with-snippet" href="/n/${h.id}">
   <span class="type type-${h.type}">${h.type}</span>
-  <div class="note-body">
-    <div class="title">${esc(h.title)}</div>
-    <div class="meta">
+  <div class="body">
+    <span class="title">${esc(h.title)}</span>
+    <div class="snippet">${h.snippet}</div>
+    <div class="row-meta">
       <span class="thread">📂 ${esc(h.thread_id)}</span>
-      <span class="sep">·</span>
       <span>${ago(h.created)}</span>
     </div>
-    <div class="snippet">${h.snippet}</div>
   </div>
-  <div class="note-status">
-    ${h.is_final ? `<span class="final">⭐ final</span>` : ""}
-    <span class="score">★ ${(-h.score).toFixed(2)}</span>
-  </div>
+  <span class="age">${ago(h.created)}</span>
+  <span class="status">
+    ${h.is_final ? `<span class="final">⭐</span>` : ""}
+    <span class="score">★${(-h.score).toFixed(1)}</span>
+  </span>
 </a>`;
+}
+
+function threadRow(t: ThreadHit): string {
+  const finalMarker = t.final_count > 0 ? `<span class="marker final">⭐ ${t.final_count}</span>` : "";
+  return `
+<a class="thread-row" href="/t/${esc(t.thread_id)}">
+  <span class="tid">📂 ${esc(t.thread_id)}</span>
+  <span class="count">${t.count} not${t.count === 1 ? "a" : "atek"}</span>
+  <span class="latest">${ago(t.latest)}</span>
+  ${finalMarker || `<span class="marker">·</span>`}
+</a>`;
+}
+
+export function pageThreads(threads: ThreadHit[], query?: string): string {
+  const body = threads.length === 0
+    ? `<div class="empty"><h2>Brak wątków</h2><p>${query ? `Brak dopasowań dla "${esc(query)}".` : "Stwórz notatkę z thread_id, żeby zacząć."}</p></div>`
+    : `<div class="v-list"><div class="note-rows">${threads.map(threadRow).join("")}</div></div>`;
+  const sub = query ? `<div class="search-bar"><div><span class="count">${threads.length} wątek${threads.length === 1 ? "" : "ów"}</span> dla <span class="query">"${esc(query)}"</span></div></div>` : "";
+  return shell("Wątki", `${topbar(query ?? "", "threads")}${sub}${body}`);
 }
 
 export function pageThread(threadId: string, notes: NoteMeta[]): string {
   const sorted = [...notes].sort((a, b) => a.created.localeCompare(b.created));
+  const latest = sorted[sorted.length - 1]?.created ?? "";
   const body = `
 <div class="thread-head">
-  <div class="crumb"><a href="/">← Wszystkie noty</a> / 📂 thread</div>
-  <h2>${esc(threadId)}</h2>
+  <div class="crumb"><a href="/threads">← Wszystkie wątki</a></div>
+  <h2>📂 ${esc(threadId)}</h2>
   <div class="summary">
-    <span><strong>${notes.length}</strong> not</span>
+    <span><strong>${notes.length}</strong> not${notes.length === 1 ? "a" : "atek"}</span>
     <span>·</span>
-    <span>Najnowsza: <strong>${ago(sorted[sorted.length - 1]?.created ?? "")}</strong></span>
-    ${notes.some((n) => n.is_final) ? `<span>·</span><span style="color:var(--vgood)"><strong>⭐ final w threadzie</strong></span>` : ""}
+    <span>Najnowsza: <strong>${ago(latest)}</strong></span>
+    ${notes.some((n) => n.is_final) ? `<span>·</span><span style="color:var(--vgood)"><strong>⭐ final w wątku</strong></span>` : ""}
   </div>
 </div>
-<div class="v-list">
-${sorted.map((n, i) => `<div style="display:flex;align-items:center;gap:14px;margin-bottom:8px">
-  <div style="font-family:var(--vmono);color:var(--vmuted);font-size:11px;min-width:30px">v${i + 1}</div>
-  <div style="flex:1">${noteCard(n)}</div>
-</div>`).join("")}
-</div>`;
-  return shell(`Thread: ${threadId}`, `${topbar()}${body}`);
+<div class="v-list"><div class="note-rows">
+${sorted.map((n, i) => {
+  const expiring = !n.is_final ? daysUntil(n.expires_at) : null;
+  const status = n.is_final ? `<span class="final">⭐</span>` : expiring ? `<span class="expiring">⏱ ${expiring}</span>` : "";
+  return `
+<a class="note-row" href="/n/${n.id}">
+  <span class="type type-${n.type}" style="min-width:78px">v${i + 1} · ${n.type}</span>
+  <div class="body"><span class="title">${esc(n.title)}</span></div>
+  <span class="age">${ago(n.created)}</span>
+  <span class="status">${status}</span>
+</a>`;
+}).join("")}
+</div></div>`;
+  return shell(`Thread: ${threadId}`, `${topbar("", "threads")}${body}`);
 }
 
 export function pageNote(note: NoteMeta, themeName: string): string {
@@ -319,7 +410,7 @@ export function pageNote(note: NoteMeta, themeName: string): string {
 }
 
 export function pageStats(s: any): string {
-  return shell("Stats", `${topbar()}
+  return shell("Stats", `${topbar("", "stats")}
 <div class="v-list">
   <h1 style="margin:0 0 24px;font-size:32px;font-family:var(--vhead);font-weight:500;letter-spacing:-0.02em">Statystyki</h1>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:32px">

@@ -389,13 +389,49 @@ export async function cleanup(opts: { dry_run?: boolean; trash_grace_days?: numb
   return { trashed, hard_deleted, dry_run: dry };
 }
 
-export function listThreads(): { thread_id: string; count: number; latest: string; final_count: number }[] {
+export function listThreads(query?: string, limit = 200): { thread_id: string; count: number; latest: string; final_count: number }[] {
+  if (!query?.trim()) {
+    return db()
+      .query<{ thread_id: string; count: number; latest: string; final_count: number }, [number]>(
+        `SELECT thread_id, COUNT(*) AS count, MAX(created) AS latest, SUM(is_final) AS final_count
+         FROM notes WHERE status = 'active' GROUP BY thread_id ORDER BY latest DESC LIMIT ?`
+      )
+      .all(limit);
+  }
+  // Match against either thread_id (slug substring) OR any note title in the thread (FTS).
+  const norm = plNormalize(query).toLowerCase().trim();
+  const ftsQuery = escapeFtsQuery(query);
+  const slugLike = `%${norm.replace(/\s+/g, "%")}%`;
+  if (!ftsQuery) {
+    return db()
+      .query<{ thread_id: string; count: number; latest: string; final_count: number }, [string, number]>(
+        `SELECT thread_id, COUNT(*) AS count, MAX(created) AS latest, SUM(is_final) AS final_count
+         FROM notes WHERE status = 'active' AND lower(thread_id) LIKE ?
+         GROUP BY thread_id ORDER BY latest DESC LIMIT ?`
+      )
+      .all(slugLike, limit);
+  }
+  // Threads where slug matches OR any note title matches FTS.
+  const scoped = ftsQuery.split(" ").map((t) => `title:${t}`).join(" ");
   return db()
-    .query<{ thread_id: string; count: number; latest: string; final_count: number }, []>(
-      `SELECT thread_id, COUNT(*) AS count, MAX(created) AS latest, SUM(is_final) AS final_count
-       FROM notes WHERE status = 'active' GROUP BY thread_id ORDER BY latest DESC`
+    .query<{ thread_id: string; count: number; latest: string; final_count: number }, [string, string, number]>(
+      `WITH matched_ids AS (
+         SELECT id FROM notes_fts WHERE notes_fts MATCH ?
+       )
+       SELECT n.thread_id,
+              COUNT(*) AS count,
+              MAX(n.created) AS latest,
+              SUM(n.is_final) AS final_count
+       FROM notes n
+       WHERE n.status = 'active'
+         AND (lower(n.thread_id) LIKE ? OR n.thread_id IN (
+             SELECT DISTINCT n2.thread_id FROM notes n2 JOIN matched_ids m ON m.id = n2.id WHERE n2.status = 'active'
+         ))
+       GROUP BY n.thread_id
+       ORDER BY latest DESC
+       LIMIT ?`
     )
-    .all();
+    .all(scoped, slugLike, limit);
 }
 
 export function suggestThread(title: string, limit = 5): { thread_id: string; example_title: string; count: number }[] {

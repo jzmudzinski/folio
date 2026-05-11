@@ -1,9 +1,9 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig, folioRoot, bundledThemesDir, themesDir } from "../core/config";
-import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize } from "../core/storage";
+import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, listThreads } from "../core/storage";
 import { db, logEvent } from "../core/db";
-import { pageList, pageSearch, pageThread, pageNote, pageStats, pageError } from "./render";
+import { pageList, pageSearch, pageThread, pageThreads, pageNote, pageStats, pageError } from "./render";
 import type { NoteType } from "../core/types";
 
 function htmlResp(body: string, status = 200): Response {
@@ -65,7 +65,15 @@ export async function startServer(): Promise<void> {
           if (!q.trim()) return Response.redirect("/", 302);
           const t0 = Date.now();
           const hits = searchNotes({ query: q, limit: 30 });
-          return htmlResp(pageSearch(q, hits, countSummary(), Date.now() - t0));
+          const threadHits = listThreads(q, 20);
+          return htmlResp(pageSearch(q, hits, threadHits, countSummary(), Date.now() - t0));
+        }
+
+        // GET /threads — list all threads, optional ?q= filter
+        if (req.method === "GET" && path === "/threads") {
+          const q = url.searchParams.get("q") ?? "";
+          const threads = listThreads(q || undefined, 500);
+          return htmlResp(pageThreads(threads, q || undefined));
         }
 
         // GET /t/:thread_id
@@ -135,6 +143,12 @@ export async function startServer(): Promise<void> {
         // GET /api/stats
         if (req.method === "GET" && path === "/api/stats") {
           return jsonResp(stats());
+        }
+
+        // GET /api/threads
+        if (req.method === "GET" && path === "/api/threads") {
+          const q = url.searchParams.get("q") ?? "";
+          return jsonResp(listThreads(q || undefined, 500));
         }
 
         // GET /health

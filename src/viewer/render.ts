@@ -1017,7 +1017,7 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
   <main class="note-main">
     ${banner}
     <div class="note-iframe-wrap">
-      <iframe class="note-iframe" src="/raw/${note.id}" title="${esc(note.title)}" sandbox="allow-same-origin"></iframe>
+      <iframe class="note-iframe" src="/raw/${note.id}" title="${esc(note.title)}" sandbox="allow-same-origin allow-scripts allow-popups allow-forms"></iframe>
     </div>
   </main>
 </div>${noteScript}`);

@@ -264,16 +264,24 @@ export function listThreads(): { thread_id: string; count: number; latest: strin
 export function suggestThread(title: string, limit = 5): { thread_id: string; example_title: string; count: number }[] {
   const ftsQuery = escapeFtsQuery(title);
   if (!ftsQuery) return [];
+  // Scope match to title column via FTS5 column filter. Order by recency of the
+  // most recent matching note in each thread; bm25 isn't reliable under aggregation
+  // here so we keep the SQL simple and robust.
+  const scoped = ftsQuery.split(" ").map((t) => `title:${t}`).join(" ");
   return db()
     .query<{ thread_id: string; example_title: string; count: number }, [string, number]>(
-      `SELECT notes.thread_id, notes.title AS example_title, COUNT(*) OVER (PARTITION BY notes.thread_id) AS count
+      `SELECT notes.thread_id,
+              (SELECT n2.title FROM notes n2
+                 WHERE n2.thread_id = notes.thread_id AND n2.status='active'
+                 ORDER BY n2.created DESC LIMIT 1) AS example_title,
+              COUNT(*) AS count
        FROM notes_fts JOIN notes ON notes.id = notes_fts.id
-       WHERE notes_fts.title MATCH ? AND notes.status = 'active'
+       WHERE notes_fts MATCH ? AND notes.status = 'active'
        GROUP BY notes.thread_id
-       ORDER BY bm25(notes_fts)
+       ORDER BY MAX(notes.created) DESC
        LIMIT ?`
     )
-    .all(ftsQuery, limit);
+    .all(scoped, limit);
 }
 
 export function stats(): Record<string, any> {
@@ -332,9 +340,11 @@ function rowToMeta(row: Record<string, any>): NoteMeta {
 
 function escapeFtsQuery(q: string): string {
   // Strip FTS5-special chars; AND tokens with prefix matching.
+  // Split on whitespace AND hyphens: unicode61 tokenizes "Fine-Tuning" as ["fine", "tuning"],
+  // so our query must mirror that to match.
   const tokens = q
     .trim()
-    .split(/\s+/)
+    .split(/[\s\-]+/)
     .map((t) => t.replace(/[^\p{L}\p{N}_]/gu, ""))
     .filter(Boolean);
   if (tokens.length === 0) return "";

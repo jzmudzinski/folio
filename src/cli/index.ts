@@ -5,6 +5,7 @@ import { search } from "./commands/search";
 import { statsCmd } from "./commands/stats";
 import { serve } from "./commands/serve";
 import { finalizeCmd } from "./commands/finalize";
+import { openCmd } from "./commands/open";
 import { c, out } from "./io";
 
 interface ParsedArgs {
@@ -52,6 +53,7 @@ function help(): number {
   out(`  ${c.cyan("list")}              List recent notes (--type, --thread, --final, --limit, --json)`);
   out(`  ${c.cyan("search <query>")}    Full-text search (--type, --limit, --json)`);
   out(`  ${c.cyan("finalize <id>")}     Mark note as final (skip auto-cleanup)`);
+  out(`  ${c.cyan("open <id|slug>")}    Open note in default browser (via viewer)`);
   out(`  ${c.cyan("stats")}             Show counts + analytics`);
   out(`  ${c.cyan("serve")}             Start local viewer on http://127.0.0.1:4810`);
   out(`  ${c.cyan("help")}              This help`);
@@ -120,6 +122,8 @@ export async function main(argv = process.argv): Promise<number> {
         });
       case "finalize":
         return await finalizeCmd(positional[0] ?? "");
+      case "open":
+        return await openCmd(positional[0] ?? "");
       case "stats":
         return await statsCmd({ jsonOut: flagBool(flags.json) });
       case "serve":

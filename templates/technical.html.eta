@@ -1,0 +1,44 @@
+<span class="eyebrow"><%= it.kind || 'Technical' %><% if (it.status) { %> · <%= it.status %><% } %></span>
+<h1><%= it.title %></h1>
+<% if (it.lead) { %><p class="lead"><%= it.lead %></p><% } %>
+
+<% if (it.context) { %>
+<h3>Kontekst</h3>
+<% if (typeof it.context === 'string') { %><p><%= it.context %></p>
+<% } else { %><% for (const p of it.context) { %><p><%= p %></p><% } %><% } %>
+<% } %>
+
+<% if (it.decision) { %>
+<h3>Decyzja</h3>
+<% if (typeof it.decision === 'string') { %><p><%= it.decision %></p>
+<% } else { %><% for (const p of it.decision) { %><p><%= p %></p><% } %><% } %>
+<% } %>
+
+<% if (it.sections && it.sections.length) { %>
+<% for (const sec of it.sections) { %>
+<h3><%= sec.heading %></h3>
+<% for (const p of (sec.paragraphs || [])) { %><p><%= p %></p>
+<% } %>
+<% if (sec.code) { %><pre><code><%= sec.code %></code></pre>
+<% } %>
+<% if (sec.bullets && sec.bullets.length) { %>
+<ul><% for (const b of sec.bullets) { %><li><%= b %></li><% } %></ul>
+<% } %>
+<% } %>
+<% } %>
+
+<% if (it.tradeoffs && it.tradeoffs.length) { %>
+<h3>Tradeoffy</h3>
+<ul><% for (const t of it.tradeoffs) { %><li><%= t %></li><% } %></ul>
+<% } %>
+
+<% if (it.alternatives && it.alternatives.length) { %>
+<h3>Alternatywy odrzucone</h3>
+<ul><% for (const a of it.alternatives) { %><li><%= a %></li><% } %></ul>
+<% } %>
+
+<% if (it.consequences) { %>
+<h3>Konsekwencje</h3>
+<% if (typeof it.consequences === 'string') { %><p><%= it.consequences %></p>
+<% } else { %><% for (const p of it.consequences) { %><p><%= p %></p><% } %><% } %>
+<% } %>

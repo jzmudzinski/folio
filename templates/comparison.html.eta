@@ -1,0 +1,60 @@
+<span class="eyebrow">Comparison<% if (it.subcategory) { %> · <%= it.subcategory %><% } %></span>
+<h1><%= it.title %></h1>
+<% if (it.lead) { %><p class="lead"><%= it.lead %></p><% } %>
+
+<% if (it.cards && it.cards.length) { %>
+<div class="cards">
+<% for (const card of it.cards) { %>
+<div class="card">
+  <% if (card.tag) { %><span class="pill <%= card.tag_variant || '' %>"><%= card.tag %></span><% } %>
+  <h3><%= card.name %></h3>
+  <% if (card.desc) { %><p><%= card.desc %></p><% } %>
+</div>
+<% } %>
+</div>
+<% } %>
+
+<% if (it.criteria && it.options) { %>
+<h3>Scorecard</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Cecha</th>
+<% for (const opt of it.options) { %>      <th><%= opt %></th>
+<% } %>    </tr>
+  </thead>
+  <tbody>
+<% for (const row of it.criteria) { %>    <tr>
+      <td><strong><%= row.name %></strong></td>
+<% for (const v of row.values) { %>      <td><%= v %></td>
+<% } %>    </tr>
+<% } %>  </tbody>
+</table>
+<% } %>
+
+<% if (it.pros_cons) { %>
+<h3>Plusy i minusy</h3>
+<div class="cards">
+<% for (const pc of it.pros_cons) { %>
+<div class="card">
+  <h3><%= pc.name %></h3>
+  <% if (pc.pros && pc.pros.length) { %>
+  <p><strong>+</strong></p>
+  <ul><% for (const p of pc.pros) { %><li><%= p %></li><% } %></ul>
+  <% } %>
+  <% if (pc.cons && pc.cons.length) { %>
+  <p><strong>−</strong></p>
+  <ul><% for (const co of pc.cons) { %><li><%= co %></li><% } %></ul>
+  <% } %>
+</div>
+<% } %>
+</div>
+<% } %>
+
+<% if (it.verdict) { %>
+<div class="verdict">
+<h3>Werdykt</h3>
+<% if (typeof it.verdict === 'string') { %><p><%= it.verdict %></p>
+<% } else { %><% for (const v of it.verdict) { %><p><%= v %></p><% } %><% } %>
+</div>
+<% } %>

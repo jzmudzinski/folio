@@ -1,7 +1,22 @@
 import type { NoteMeta, SearchHit } from "../core/types";
 import { db } from "../core/db";
 import { listThemes } from "../core/themes";
+import { panelIframeSrcdoc, LIVE_CHROME_JS } from "./live-panel";
+import { ENTRIES_CSS } from "./entries-css";
+import { themesDir, bundledThemesDir } from "../core/config";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import pkg from "../../package.json" with { type: "json" };
+
+/** Sync theme.css read. Mirrors viewer/server.ts resolveTheme without
+ *  creating a circular import (render.ts is imported by server.ts). */
+function loadThemeCss(name: string): string | null {
+  for (const root of [themesDir(), bundledThemesDir()]) {
+    const p = join(root, name, "theme.css");
+    if (existsSync(p)) return readFileSync(p, "utf-8");
+  }
+  return null;
+}
 
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -251,6 +266,11 @@ a { color: inherit; text-decoration: none; }
 .thread-card .latest .final-marker { display: inline-block; color: var(--vorange); font-weight: 600; margin-top: 4px; }
 
 .note-shell { display: grid; grid-template-columns: 360px 1fr; min-height: calc(100vh - 60px); }
+.note-shell.has-live { grid-template-columns: 360px minmax(0, 1fr) minmax(340px, 26vw); }
+@media (max-width: 1180px) { .note-shell.has-live { grid-template-columns: 360px 1fr; } .note-shell.has-live .live-panel { grid-column: 1 / -1; max-height: 60vh; } }
+@media (max-width: 720px) { .note-shell, .note-shell.has-live { grid-template-columns: 1fr; } }
+.live-panel { background: var(--vbg-2); border-left: 1px solid var(--vline); display: flex; flex-direction: column; height: calc(100vh - 60px); min-width: 0; }
+.live-panel-iframe { flex: 1; width: 100%; border: 0; min-height: 0; display: block; background: var(--vpanel); }
 .note-side { border-right: 1px solid var(--vline); padding: 24px 22px 22px; display: flex; flex-direction: column; gap: 0; background: var(--vbg); position: sticky; top: 60px; align-self: start; max-height: calc(100vh - 60px); overflow-y: auto; overflow-x: hidden; min-width: 0; }
 .note-side .back { font-family: var(--vmono); font-size: 11px; color: var(--vmuted); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 22px; transition: color .12s; }
 .note-side .back:hover { color: var(--vorange); }
@@ -1135,9 +1155,27 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
     });
   })();</script>`;
 
+  // Live notes: inject a side panel iframe with the compiled feed plus
+  // a chrome-side EventSource subscriber. Panel iframe is sandboxed and
+  // null-origin (no allow-same-origin); chrome and panel talk via
+  // postMessage. Body iframe is unchanged — its CSP stays connect-src:'none'.
+  const isLive = note.live && !note.is_final;
+  let livePanelHtml = "";
+  let liveScript = "";
+  if (isLive) {
+    const themeCss = loadThemeCss(note.theme) ?? "";
+    const srcdoc = panelIframeSrcdoc({ theme_css: themeCss, entries_css: ENTRIES_CSS });
+    livePanelHtml = `
+  <aside class="live-panel" aria-label="Live entries feed">
+    <iframe class="live-panel-iframe" title="Live feed" sandbox="allow-scripts" srcdoc="${esc(srcdoc)}"></iframe>
+  </aside>`;
+    liveScript = `<script>window.__folioLiveNoteId = ${JSON.stringify(note.id)};</script>${LIVE_CHROME_JS}`;
+  }
+  const shellClass = isLive ? "note-shell has-live" : "note-shell";
+
   return shell(note.title, `${topbar()}
 <div class="reading-progress"><div class="reading-progress-fill"></div></div>
-<div class="note-shell">
+<div class="${shellClass}">
   <aside class="note-side">
     <a href="/" class="back">← Back to list</a>
     <span class="type-pill ${note.type}">${note.type}</span>
@@ -1167,8 +1205,8 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
     <div class="note-iframe-wrap">
       <iframe class="note-iframe" src="/raw/${note.id}" title="${esc(note.title)}" sandbox="allow-scripts allow-popups allow-forms"></iframe>
     </div>
-  </main>
-</div>${noteScript}`);
+  </main>${livePanelHtml}
+</div>${noteScript}${liveScript}`);
 }
 
 export function pageStats(s: any): string {

@@ -170,6 +170,31 @@ Assets uploaded via `attach_asset` (see SKILL.md) return a stable URL. Reference
 
 Set `width` / `height` on `<img>` to prevent layout shift while the asset loads. The viewer's lightbox helper (see below) auto-attaches to every `<img>`, so users can zoom — assume the original is full-resolution.
 
+## Live note entries (since v0.9.0)
+
+A live note (`create` with `live: true`) accumulates entries via `append_entry`. Each entry's `content_html` is a small article fragment. Canonical shape:
+
+```html
+<article class="entry">
+  <time datetime="2026-05-12T08:00:00Z">12 May 08:00</time>
+  <h4>Morning sync — agreed on the architecture</h4>
+  <p>Quick notes on what we decided. Names and numbers, not narrative.</p>
+</article>
+```
+
+You generate ONLY the inner content_html — the `<article class="entry">` wrapper plus the tag pills and decoration are added by Folio at render time, based on the entry's tags (`state:*`, `view:pinned`). Don't write your own `class="entry"` wrapper inside content_html.
+
+**Specifically:**
+- `<time datetime="...">` is fine and encouraged for human-readable date (sanitizer allows it since v0.9.0). Otherwise the rendered timestamp comes from the entry's `ts` field.
+- `<h4>` for the entry headline — already styled per theme.
+- `<p>` for body text. Multiple paragraphs OK.
+- `<img src="<asset-url>">` works the same as in a regular note — use `attach_asset` first to get a stable URL.
+- Same tag rules apply: no `<script>` inside an entry's content_html (sanitizer will keep it but it'll be inert because the panel iframe is null-origin sandboxed without `allow-same-origin`).
+
+**Pinned + state decoration is automatic.** Set `tags: ["view:pinned"]` to pin (use `set_pinned` for diffed updates). Set `tags: ["state:done"]` to render strikethrough. You write the same content_html either way — Folio handles the wrapper class.
+
+**Empty content_html is allowed** for pure tag-mutation entries (used by `set_pinned` internally). They affect compiled tags of their `refs` target but don't render in the feed. Use them sparingly — usually a follow-up entry with real content reads better.
+
 ## Inline scripts (since v0.3)
 
 `<script>` at body level **runs**. The note is served from `/raw/:id` into a null-origin sandboxed iframe with CSP `connect-src 'none'`, so a script can build DOM and attach handlers but cannot reach the parent window, cookies, localStorage, or any network endpoint. **This is the default pattern for interactivity — not iframe srcdoc.**

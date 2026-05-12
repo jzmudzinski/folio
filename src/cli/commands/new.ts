@@ -14,6 +14,7 @@ interface NewOpts {
   themeProfile?: "hosted" | "standalone";
   tags?: string[];
   isFinal?: boolean;
+  live?: boolean;
   jsonOut?: boolean;
 }
 
@@ -38,22 +39,33 @@ export async function newNote(opts: NewOpts): Promise<number> {
     body_html = readFileSync(opts.htmlFile, "utf-8");
   } else if (opts.htmlInline) {
     body_html = opts.htmlInline;
+  } else if (opts.live) {
+    // Live notes start with empty body — feed becomes the content.
+    // Check --live BEFORE the stdin fallback: in a non-TTY shell (CI,
+    // scripts, `bun run … | …`) stdin.isTTY is false even though the
+    // user didn't intend to pipe anything, and reading from stdin would
+    // block forever.
+    body_html = "";
   } else if (!process.stdin.isTTY) {
     const chunks: Uint8Array[] = [];
     for await (const chunk of process.stdin) chunks.push(chunk as Uint8Array);
     body_html = Buffer.concat(chunks).toString("utf-8");
   } else {
-    process.stderr.write(c.err("✗ no body — pass --html @file, --html-inline 'string', or pipe stdin\n"));
+    process.stderr.write(c.err("✗ no body — pass --html @file, --html-inline 'string', --live, or pipe stdin\n"));
     return 3;
   }
-  if (!body_html.trim()) {
-    process.stderr.write(c.err("✗ empty body\n"));
+  if (!opts.live && !body_html.trim()) {
+    process.stderr.write(c.err("✗ empty body (use --live for an append-only note)\n"));
     return 3;
   }
 
+  // Default --type when --live is set: journal (matches spec intent — live
+  // notes are chronological feeds by default; user can override with --type).
+  const effectiveType = opts.type ?? (opts.live ? "journal" : undefined);
+
   const cfg = await loadConfig();
   const input: CreateNoteInput = {
-    type: validType(opts.type),
+    type: validType(effectiveType),
     title: opts.title,
     body_html,
     thread_id: opts.thread,
@@ -61,6 +73,7 @@ export async function newNote(opts: NewOpts): Promise<number> {
     theme_profile: opts.themeProfile ?? "hosted",
     tags: opts.tags,
     is_final: opts.isFinal,
+    live: opts.live,
   };
 
   const note = await createNote(input);

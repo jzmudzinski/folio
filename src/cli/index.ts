@@ -14,6 +14,8 @@ import { versionCmd } from "./commands/version";
 import { installCmd } from "./commands/install";
 import { uninstallCmd } from "./commands/uninstall";
 import { doctorCmd } from "./commands/doctor";
+import { appendCmd } from "./commands/append";
+import { tailCmd } from "./commands/tail";
 import { c, out } from "./io";
 
 interface ParsedArgs {
@@ -57,10 +59,12 @@ function help(): number {
   out("");
   out(c.bold("Commands:"));
   out(`  ${c.cyan("init")}              Initialize ~/Folio (create dirs, config, db)`);
-  out(`  ${c.cyan("new")}               Create a new note (--title, --html, --type, --thread, --theme)`);
+  out(`  ${c.cyan("new")}               Create a new note (--title, --html, --type, --thread, --theme, --live)`);
   out(`  ${c.cyan("list")}              List recent notes (--type, --thread, --final, --limit, --json)`);
   out(`  ${c.cyan("search <query>")}    Full-text search (--type, --limit, --json)`);
-  out(`  ${c.cyan("finalize <id>")}     Mark note as final (skip auto-cleanup)`);
+  out(`  ${c.cyan("append <id>")}       Append entry to a live note (--content @file, --tags, --refs, --importance, --source-ref, --occurred-at)`);
+  out(`  ${c.cyan("tail <id>")}         Stream live entries from /n/:id/stream — needs folio serve (--json)`);
+  out(`  ${c.cyan("finalize <id>")}     Mark note as final (skip auto-cleanup); for live notes compiles entries into body`);
   out(`  ${c.cyan("open <id|slug>")}    Open note in default browser (via viewer)`);
   out(`  ${c.cyan("stats")}             Show counts + analytics`);
   out(`  ${c.cyan("cleanup")}           Auto-trash non-final notes past expiry (--dry-run, --grace-days N)`);
@@ -118,9 +122,33 @@ export async function main(argv = process.argv): Promise<number> {
           themeProfile: flagStr(flags["theme-profile"]) as any,
           tags: flagStr(flags.tags)?.split(",").map((s) => s.trim()).filter(Boolean),
           isFinal: flagBool(flags.final),
+          live: flagBool(flags.live),
           jsonOut: flagBool(flags.json),
         });
       }
+      case "append": {
+        const contentFile = (() => {
+          const v = flagStr(flags.content);
+          if (v && v.startsWith("@")) return v.slice(1);
+          return undefined;
+        })();
+        return await appendCmd({
+          id: positional[0] ?? flagStr(flags.id) ?? "",
+          contentFile,
+          contentInline: !contentFile ? flagStr(flags.content) : undefined,
+          tags: flagStr(flags.tags)?.split(",").map((s) => s.trim()).filter(Boolean),
+          refs: flagStr(flags.refs)?.split(",").map((s) => s.trim()).filter(Boolean),
+          importance: flagInt(flags.importance),
+          sourceRef: flagStr(flags["source-ref"]),
+          occurredAt: flagStr(flags["occurred-at"]),
+          jsonOut: flagBool(flags.json),
+        });
+      }
+      case "tail":
+        return await tailCmd({
+          id: positional[0] ?? flagStr(flags.id) ?? "",
+          jsonOut: flagBool(flags.json),
+        });
       case "list":
         return await list({
           type: flagStr(flags.type),

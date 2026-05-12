@@ -774,11 +774,19 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
     .join("");
   const themeDd = `<dd><select class="theme-switch" data-noteid="${note.id}" data-original="${esc(note.theme)}">${themeOptions}</select></dd>`;
 
+  // Parent-side viewer chrome. The note lives in a null-origin iframe (since
+  // v0.3+) so we cannot reach .contentDocument; instead the note's bootstrap
+  // script publishes TOC / scroll / heading-spy events via postMessage and we
+  // request content (plain/markdown) the same way for copy buttons.
   const noteScript = `<script>(function(){
     var iframe = document.querySelector('.note-iframe');
     var sel = document.querySelector('.theme-switch');
+    var progressFill = document.querySelector('.reading-progress-fill');
+    var toc = document.getElementById('folio-toc');
+    var tocList = toc ? toc.querySelector('.toc-list') : null;
+    var tocItems = []; // [{ id, li }]
 
-    // Theme preview switcher
+    // Theme preview switcher — purely parent-side, no iframe content access
     if (sel && iframe) {
       sel.addEventListener('change', function(){
         var t = sel.value;
@@ -787,277 +795,104 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
       });
     }
 
-    // Viewer-injected helpers: lightbox, copy-code, heading anchors, external link target
-    function slugify(s){
-      return (s || '').toLowerCase()
-        .normalize('NFKD')
-        .replace(/[\\u0300-\\u036f]/g, '')
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '')
-        .slice(0, 60);
-    }
-    function injectStyles(doc){
-      if (doc.getElementById('folio-helpers-css')) return;
-      var s = doc.createElement('style');
-      s.id = 'folio-helpers-css';
-      s.textContent = [
-        'pre { position: relative; }',
-        '.folio-copy-btn { position: absolute; top: 6px; right: 6px; font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 10px; padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(127,127,127,0.25); background: rgba(255,255,255,0.6); color: rgba(0,0,0,0.55); cursor: pointer; opacity: 0; transition: opacity .12s, color .12s, border-color .12s; }',
-        'pre:hover .folio-copy-btn { opacity: 1; }',
-        '.folio-copy-btn:hover { color: #ff5a1f; border-color: #ff5a1f; }',
-        '.folio-copy-btn.copied { color: #2f9050; border-color: #2f9050; opacity: 1; }',
-        'h1, h2, h3, h4, h5, h6 { position: relative; }',
-        '.folio-anchor { display: inline-block; margin-left: 0.4em; font-size: 0.7em; opacity: 0; color: #ff5a1f; cursor: pointer; font-weight: 400; text-decoration: none; vertical-align: middle; transition: opacity .12s; user-select: none; }',
-        'h1:hover .folio-anchor, h2:hover .folio-anchor, h3:hover .folio-anchor, h4:hover .folio-anchor, h5:hover .folio-anchor, h6:hover .folio-anchor { opacity: 0.7; }',
-        '.folio-anchor:hover { opacity: 1 !important; }',
-        '.folio-anchor.copied::after { content: " copied"; font-size: 0.8em; color: #2f9050; }',
-        'img { cursor: zoom-in; }'
-      ].join('\\n');
-      doc.head.appendChild(s);
-    }
-    function attachLightbox(doc){
-      var imgs = doc.querySelectorAll('article img, [data-folio-content] img');
-      imgs.forEach(function(img){
-        if (img.dataset.lbBound) return;
-        img.dataset.lbBound = '1';
-        img.addEventListener('click', function(e){
-          e.preventDefault();
-          openLightbox(img.currentSrc || img.src, img.alt || '');
-        });
-      });
-    }
-    function attachCopyCode(doc){
-      doc.querySelectorAll('pre').forEach(function(pre){
-        if (pre.dataset.ccBound) return;
-        pre.dataset.ccBound = '1';
-        var btn = doc.createElement('button');
-        btn.className = 'folio-copy-btn';
-        btn.type = 'button';
-        btn.textContent = 'copy';
-        btn.addEventListener('click', function(e){
-          e.preventDefault();
-          var code = pre.querySelector('code') || pre;
-          var text = code.textContent || '';
-          navigator.clipboard.writeText(text).then(function(){
-            btn.textContent = '✓ copied';
-            btn.classList.add('copied');
-            setTimeout(function(){ btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1400);
-          });
-        });
-        pre.appendChild(btn);
-      });
-    }
-    function attachAnchors(doc){
-      doc.querySelectorAll('article h1, article h2, article h3, article h4, [data-folio-content] h1, [data-folio-content] h2, [data-folio-content] h3, [data-folio-content] h4').forEach(function(h){
-        if (h.dataset.anchorBound) return;
-        h.dataset.anchorBound = '1';
-        if (!h.id) h.id = slugify(h.textContent);
-        var a = doc.createElement('a');
-        a.className = 'folio-anchor';
-        a.href = '#' + h.id;
-        a.textContent = '¶';
-        a.title = 'Klik = skopiuj link do tej sekcji';
-        a.addEventListener('click', function(e){
-          e.preventDefault();
-          var url = window.location.origin + window.location.pathname + '#' + h.id;
-          navigator.clipboard.writeText(url).then(function(){
-            a.classList.add('copied');
-            setTimeout(function(){ a.classList.remove('copied'); }, 1200);
-          });
-        });
-        h.appendChild(a);
-      });
-    }
-    function attachExternalLinks(doc){
-      doc.querySelectorAll('a[href^="http"], a[href^="//"]').forEach(function(a){
-        if (a.dataset.extBound) return;
-        a.dataset.extBound = '1';
-        a.setAttribute('target', '_blank');
-        a.setAttribute('rel', 'noreferrer noopener');
-      });
-    }
-    function openLightbox(src, alt){
-      var ov = document.createElement('div');
-      ov.className = 'lightbox';
-      var im = document.createElement('img');
-      im.src = src; im.alt = alt;
-      var cx = document.createElement('div');
-      cx.className = 'lb-close';
-      cx.textContent = '✕ esc';
-      ov.appendChild(im); ov.appendChild(cx);
-      function close(){
-        ov.remove();
-        document.removeEventListener('keydown', esc);
-      }
-      function esc(e){ if (e.key === 'Escape') close(); }
-      ov.addEventListener('click', close);
-      document.addEventListener('keydown', esc);
-      document.body.appendChild(ov);
-    }
-    // Reading progress bar — listens to iframe scroll, updates fill width
-    var progressFill = document.querySelector('.reading-progress-fill');
-    function updateProgress(){
-      if (!iframe || !iframe.contentWindow || !progressFill) return;
-      var win = iframe.contentWindow;
-      var docEl = win.document.documentElement;
-      var total = docEl.scrollHeight - win.innerHeight;
-      var pct = total <= 0 ? 0 : Math.min(100, Math.max(0, (win.scrollY / total) * 100));
-      progressFill.style.width = pct + '%';
-    }
-
-    // TOC builder — only shows if 3+ headings; scroll spy highlights active
-    function buildToc(doc){
-      var toc = document.getElementById('folio-toc');
-      var list = toc ? toc.querySelector('.toc-list') : null;
-      if (!toc || !list) return;
-      var headings = doc.querySelectorAll('article h2, article h3, [data-folio-content] h2, [data-folio-content] h3');
-      if (headings.length < 3) { toc.hidden = true; return; }
-      list.innerHTML = '';
-      var items = [];
-      headings.forEach(function(h){
-        if (!h.id) h.id = slugify(h.textContent);
+    function buildToc(items){
+      if (!toc || !tocList) return;
+      var visible = items.filter(function(i){ return i.level === 'h2' || i.level === 'h3'; });
+      if (visible.length < 3) { toc.hidden = true; return; }
+      tocList.innerHTML = '';
+      tocItems = [];
+      visible.forEach(function(it){
         var li = document.createElement('li');
-        li.className = h.tagName.toLowerCase();
-        li.dataset.targetId = h.id;
+        li.className = it.level;
+        li.dataset.targetId = it.id;
         var a = document.createElement('a');
-        a.textContent = (h.textContent || '').replace(/¶$/, '').trim();
+        a.textContent = it.text;
         a.addEventListener('click', function(e){
           e.preventDefault();
-          h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          postToIframe({ type: 'scroll-to', id: it.id });
         });
         li.appendChild(a);
-        list.appendChild(li);
-        items.push({ el: h, li: li });
+        tocList.appendChild(li);
+        tocItems.push({ id: it.id, li: li });
       });
       toc.hidden = false;
-      // Scroll spy via IntersectionObserver in iframe context
-      try {
-        var io = new (iframe.contentWindow.IntersectionObserver || IntersectionObserver)(function(entries){
-          entries.forEach(function(en){
-            var item = items.find(function(i){ return i.el === en.target; });
-            if (!item) return;
-            if (en.isIntersecting) {
-              items.forEach(function(i){ i.li.classList.remove('active'); });
-              item.li.classList.add('active');
-            }
-          });
-        }, { root: null, rootMargin: '-30% 0px -55% 0px', threshold: 0 });
-        items.forEach(function(i){ io.observe(i.el); });
-      } catch (e) { /* IO unavailable — skip scroll spy */ }
     }
 
-    // HTML → Markdown conversion (basic, handles common Folio body shapes)
-    function htmlToMd(node){
-      function walk(n){
-        var out = '';
-        n.childNodes.forEach(function(c){
-          if (c.nodeType === 3) {
-            out += c.textContent;
-          } else if (c.nodeType === 1) {
-            var tag = c.tagName.toLowerCase();
-            var inner = walk(c).trim();
-            switch (tag) {
-              case 'h1': out += '\\n# ' + inner + '\\n\\n'; break;
-              case 'h2': out += '\\n## ' + inner + '\\n\\n'; break;
-              case 'h3': out += '\\n### ' + inner + '\\n\\n'; break;
-              case 'h4': out += '\\n#### ' + inner + '\\n\\n'; break;
-              case 'p':  out += inner + '\\n\\n'; break;
-              case 'strong': case 'b': out += '**' + inner + '**'; break;
-              case 'em': case 'i': out += '*' + inner + '*'; break;
-              case 'code':
-                if (c.parentNode && c.parentNode.tagName === 'PRE') out += inner;
-                else out += '\`' + inner + '\`';
-                break;
-              case 'pre': out += '\\n\`\`\`\\n' + inner + '\\n\`\`\`\\n\\n'; break;
-              case 'ul': case 'ol': {
-                var i = 1;
-                c.querySelectorAll(':scope > li').forEach(function(li){
-                  var lt = walk(li).trim();
-                  out += (tag === 'ol' ? (i++) + '. ' : '- ') + lt + '\\n';
-                });
-                out += '\\n';
-                break;
-              }
-              case 'li': out += inner; break;
-              case 'a': {
-                var href = c.getAttribute('href') || '';
-                out += '[' + inner + '](' + href + ')';
-                break;
-              }
-              case 'br': out += '  \\n'; break;
-              case 'hr': out += '\\n---\\n\\n'; break;
-              case 'blockquote':
-                out += inner.split('\\n').map(function(l){ return '> ' + l; }).join('\\n') + '\\n\\n';
-                break;
-              case 'img':
-                out += '![' + (c.getAttribute('alt') || '') + '](' + (c.getAttribute('src') || '') + ')';
-                break;
-              case 'table': out += tableToMd(c) + '\\n'; break;
-              case 'script': case 'style': case 'iframe': break;
-              default: out += inner;
-            }
-          }
-        });
-        return out;
-      }
-      function tableToMd(t){
-        var rows = [];
-        t.querySelectorAll('tr').forEach(function(tr){
-          var cells = [];
-          tr.querySelectorAll('th, td').forEach(function(c){
-            cells.push((c.textContent || '').trim().replace(/\\|/g, '\\\\|'));
-          });
-          rows.push('| ' + cells.join(' | ') + ' |');
-        });
-        if (rows.length > 1) {
-          var firstRow = rows[0];
-          var cols = (firstRow.match(/\\|/g) || []).length - 1;
-          rows.splice(1, 0, '| ' + Array(cols).fill('---').join(' | ') + ' |');
+    function setActiveHeading(id){
+      tocItems.forEach(function(it){
+        if (it.id === id) it.li.classList.add('active');
+        else it.li.classList.remove('active');
+      });
+    }
+
+    function postToIframe(msg){
+      try { iframe && iframe.contentWindow && iframe.contentWindow.postMessage(Object.assign({ ns: 'folio' }, msg), '*'); } catch(_){}
+    }
+
+    // Pending copy requests: requestId -> { resolve, reject, timer }
+    var pending = new Map();
+    var nextReqId = 1;
+    function requestContent(){
+      var id = String(nextReqId++);
+      return new Promise(function(resolve, reject){
+        var timer = setTimeout(function(){
+          pending.delete(id);
+          reject(new Error('content-timeout'));
+        }, 2000);
+        pending.set(id, { resolve: resolve, reject: reject, timer: timer });
+        postToIframe({ type: 'request-content', requestId: id });
+      });
+    }
+    // Receive messages from the note's bootstrap (runs inside the iframe)
+    window.addEventListener('message', function(e){
+      var d = e.data; if (!d || d.ns !== 'folio') return;
+      // Optional source check: only accept from our iframe's window
+      if (iframe && e.source && e.source !== iframe.contentWindow) return;
+      switch (d.type) {
+        case 'ready':
+          // Tell the note our parent URL so anchor-copy builds a clipboard URL
+          // that opens the viewer page (with the hash) rather than /raw/.
+          postToIframe({ type: 'set-parent-url', url: window.location.href });
+          break;
+        case 'toc':
+          buildToc(Array.isArray(d.items) ? d.items : []);
+          break;
+        case 'heading':
+          if (d.id) setActiveHeading(String(d.id));
+          break;
+        case 'scroll':
+          if (progressFill) progressFill.style.width = Math.max(0, Math.min(100, Number(d.pct) || 0)) + '%';
+          break;
+        case 'content': {
+          var p = pending.get(String(d.requestId));
+          if (!p) return;
+          clearTimeout(p.timer);
+          pending.delete(String(d.requestId));
+          p.resolve({ plain: String(d.plain || ''), markdown: String(d.markdown || '') });
+          break;
         }
-        return rows.join('\\n');
       }
-      return walk(node).replace(/\\n{3,}/g, '\\n\\n').trim();
-    }
+    });
 
-    // Copy buttons (plain text + markdown)
+    // Copy buttons — ask the iframe over postMessage instead of reading its DOM
     document.querySelectorAll('[data-copy]').forEach(function(btn){
       btn.addEventListener('click', function(e){
         e.preventDefault();
-        var doc; try { doc = iframe.contentDocument; } catch(_){ return; }
-        if (!doc) return;
-        var article = doc.querySelector('article, [data-folio-content]');
-        if (!article) return;
         var mode = btn.dataset.copy;
-        var text = mode === 'markdown'
-          ? htmlToMd(article)
-          : (article.textContent || '').replace(/\\n{3,}/g, '\\n\\n').trim();
-        navigator.clipboard.writeText(text).then(function(){
-          var orig = btn.dataset.label;
+        var orig = btn.dataset.label;
+        requestContent().then(function(content){
+          var text = mode === 'markdown' ? content.markdown : content.plain;
+          return navigator.clipboard.writeText(text);
+        }).then(function(){
           btn.textContent = '✓ skopiowane';
           btn.classList.add('copied');
           setTimeout(function(){ btn.textContent = orig; btn.classList.remove('copied'); }, 1500);
+        }).catch(function(){
+          btn.textContent = '✗ błąd';
+          setTimeout(function(){ btn.textContent = orig; }, 1500);
         });
       });
     });
-
-    function onIframeLoad(){
-      var doc; try { doc = iframe.contentDocument; } catch(e) { return; }
-      if (!doc) return;
-      injectStyles(doc);
-      attachLightbox(doc);
-      attachCopyCode(doc);
-      attachAnchors(doc);
-      attachExternalLinks(doc);
-      buildToc(doc);
-      if (iframe.contentWindow) {
-        iframe.contentWindow.addEventListener('scroll', updateProgress, { passive: true });
-      }
-      updateProgress();
-    }
-    if (iframe) {
-      iframe.addEventListener('load', onIframeLoad);
-      if (iframe.contentDocument && iframe.contentDocument.readyState === 'complete') onIframeLoad();
-    }
   })();</script>`;
 
   return shell(note.title, `${topbar()}
@@ -1090,7 +925,7 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
   <main class="note-main">
     ${banner}
     <div class="note-iframe-wrap">
-      <iframe class="note-iframe" src="/raw/${note.id}" title="${esc(note.title)}" sandbox="allow-same-origin allow-scripts allow-popups allow-forms"></iframe>
+      <iframe class="note-iframe" src="/raw/${note.id}" title="${esc(note.title)}" sandbox="allow-scripts allow-popups allow-forms"></iframe>
     </div>
   </main>
 </div>${noteScript}`);

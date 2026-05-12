@@ -7,9 +7,9 @@
 //   - Targets currently supported: "claude-code". Cursor + Claude Desktop are
 //     follow-ups (see `folio install --target` in CLI help).
 
-export type InstallTarget = "claude-code";
+export type InstallTarget = "claude-code" | "openclaw";
 
-export const ALL_TARGETS: InstallTarget[] = ["claude-code"];
+export const ALL_TARGETS: InstallTarget[] = ["claude-code", "openclaw"];
 
 export interface InstallOptions {
   /** Which client to install for. */

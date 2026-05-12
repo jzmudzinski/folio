@@ -199,12 +199,15 @@ export function planUninstall(opts: UninstallOptions, paths = claudeCodePaths())
 }
 
 // ───── APPLY ───────────────────────────────────────────────────────────────
+//
+// Target-agnostic: parent dirs are inferred from each action's path. The
+// optional `paths` parameter is kept for back-compat (some callers pass
+// claudeCodePaths() but it's no longer consulted; openclaw and any future
+// target benefit equally).
 
-export function applyPlan(plan: InstallPlan, paths = claudeCodePaths()): ApplyReport {
+export function applyPlan(plan: InstallPlan, _paths?: unknown): ApplyReport {
+  void _paths;
   const report: ApplyReport = { target: plan.target, applied: [], skipped: [], errors: [] };
-
-  ensureDir(paths.claudeDir);
-  ensureDir(paths.skillsDir);
 
   for (const a of plan.actions) {
     try {
@@ -213,6 +216,7 @@ export function applyPlan(plan: InstallPlan, paths = claudeCodePaths()): ApplyRe
           report.skipped.push(a);
           break;
         case "symlink":
+          ensureDir(dirname(a.dst));
           symlinkSync(a.src, a.dst);
           report.applied.push(a);
           break;
@@ -221,12 +225,14 @@ export function applyPlan(plan: InstallPlan, paths = claudeCodePaths()): ApplyRe
           report.applied.push(a);
           break;
         case "writeJson":
+          ensureDir(dirname(a.file));
           mutateJsonConfig(a.file, (cfg: any) => {
             setByPointer(cfg, a.jsonPointer, a.after);
           });
           report.applied.push(a);
           break;
         case "deleteJson":
+          ensureDir(dirname(a.file));
           mutateJsonConfig(a.file, (cfg: any) => {
             deleteByPointer(cfg, a.jsonPointer);
           });

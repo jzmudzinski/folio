@@ -146,17 +146,22 @@ export async function updateCmd(opts: UpdateOptions = {}): Promise<number> {
     if (!opts.jsonOut) out(c.dim("  install.sh"));
     await runCmd("bash", [installSh], { cwd: tmp });
 
-    // Post-update refresh: if the user previously ran `folio install --target
-    // claude-code`, the MCP command path in ~/.claude.json may now point at
-    // the old binary location. Refresh idempotently — noop if nothing was
-    // ever installed.
+    // Post-update refresh: if the user previously ran `folio install`, the
+    // MCP command path may now point at the old binary location. Refresh
+    // both targets idempotently — each noop's if nothing was ever installed
+    // there.
     let refreshed = 0;
     try {
-      const { refreshAfterUpdate } = await import("../install/claude-code");
-      const r = refreshAfterUpdate();
-      refreshed = r.refreshed;
+      const { refreshAfterUpdate: refreshCc } = await import("../install/claude-code");
+      refreshed += refreshCc().refreshed;
     } catch (e: any) {
-      if (!opts.jsonOut) err(c.warn(`! Post-update install refresh failed: ${e?.message ?? e}`));
+      if (!opts.jsonOut) err(c.warn(`! Claude Code refresh failed: ${e?.message ?? e}`));
+    }
+    try {
+      const { refreshAfterUpdate: refreshOc } = await import("../install/openclaw");
+      refreshed += refreshOc().refreshed;
+    } catch (e: any) {
+      if (!opts.jsonOut) err(c.warn(`! OpenClaw refresh failed: ${e?.message ?? e}`));
     }
 
     if (opts.jsonOut) {

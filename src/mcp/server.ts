@@ -8,7 +8,7 @@ import {
   type Tool,
   type Resource,
 } from "@modelcontextprotocol/sdk/types.js";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import pkg from "../../package.json" with { type: "json" };
 
@@ -23,7 +23,7 @@ import {
   suggestThread,
   stats,
 } from "../core/storage";
-import { loadConfig, folioRoot, bundledThemesDir, themesDir, viewerLocalBaseUrl, viewerPublicBaseUrl } from "../core/config";
+import { loadConfig, folioRoot, bundledThemesDir, themesDir, viewerLocalBaseUrl, viewerPublicBaseUrl, threadAssetsDir, isSafeAssetFilename } from "../core/config";
 import { listThemes, getTheme } from "../core/themes";
 import { db } from "../core/db";
 import type { NoteType, RenderProfile } from "../core/types";
@@ -152,6 +152,20 @@ const tools: Tool[] = [
     name: "version",
     description: "Return Folio version + system info: storage root, viewer URL, default theme. Useful when the agent wants to confirm which Folio installation it's talking to (e.g. before bulk operations, or when the user asks 'what version are we on?').",
     inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "attach_asset",
+    description: "Attach a binary asset (image, PDF, video) to a thread. Stores to threads/<thread_id>/assets/<filename> and returns a stable URL the agent can reference in body_html (e.g. <img src='<url>'>). One of content_base64 or source_path is required. Filename must be ^[a-zA-Z0-9._-]+$ (no path separators); extensions allowed: jpg/jpeg/png/webp/gif/svg/pdf/mp4. Append-only: re-attaching the same filename overwrites. URL uses the configured viewer_public_url when set so it works for relayed contexts (Telegram, email).",
+    inputSchema: {
+      type: "object",
+      required: ["thread_id", "filename"],
+      properties: {
+        thread_id: { type: "string", description: "Thread slug to attach into. The directory is created on first attach." },
+        filename: { type: "string", description: "Asset filename. ASCII alphanumeric + '.' '_' '-' only, max 200 chars, no leading/trailing dot, no '..'." },
+        content_base64: { type: "string", description: "Base64-encoded file contents. Mutually exclusive with source_path." },
+        source_path: { type: "string", description: "Absolute path to read the file from (server-side). Useful when content is already on disk; mutually exclusive with content_base64." },
+      },
+    },
   },
 ];
 
@@ -379,6 +393,52 @@ export async function buildServer(): Promise<Server> {
             public_url: viewerPublicBaseUrl(cfg),
             default_theme: cfg.theme,
             default_lifespan_days: cfg.default_lifespan_days,
+          });
+        }
+
+        case "attach_asset": {
+          const thread_id = String(args.thread_id ?? "");
+          const filename = String(args.filename ?? "");
+          if (!thread_id) return errContent("Missing thread_id");
+          if (!isSafeAssetFilename(filename)) {
+            return errContent("Invalid filename. Must match ^[a-zA-Z0-9._-]+$, ≤200 chars, no leading/trailing dot, no '..'.");
+          }
+          const allowedExt = /\.(jpe?g|png|webp|gif|svg|pdf|mp4)$/i;
+          if (!allowedExt.test(filename)) {
+            return errContent("Unsupported extension. Allowed: jpg, jpeg, png, webp, gif, svg, pdf, mp4.");
+          }
+          const hasB64 = typeof args.content_base64 === "string" && args.content_base64.length > 0;
+          const hasSrc = typeof args.source_path === "string" && args.source_path.length > 0;
+          if (hasB64 === hasSrc) {
+            return errContent("Provide exactly one of: content_base64, source_path.");
+          }
+          let bytes: Uint8Array;
+          try {
+            if (hasB64) {
+              bytes = Uint8Array.from(Buffer.from(String(args.content_base64), "base64"));
+            } else {
+              const src = String(args.source_path);
+              if (!existsSync(src)) return errContent(`source_path does not exist: ${src}`);
+              bytes = new Uint8Array(readFileSync(src));
+            }
+          } catch (e: any) {
+            return errContent(`Failed to read asset: ${e?.message ?? e}`);
+          }
+          const dir = threadAssetsDir(thread_id);
+          mkdirSync(dir, { recursive: true });
+          const dest = join(dir, filename);
+          writeFileSync(dest, bytes);
+          const size_bytes = statSync(dest).size;
+          const cfg = await loadConfig();
+          const url = `${viewerPublicBaseUrl(cfg)}/t/${encodeURIComponent(thread_id)}/asset/${encodeURIComponent(filename)}`;
+          const local_url = `${viewerLocalBaseUrl(cfg)}/t/${encodeURIComponent(thread_id)}/asset/${encodeURIComponent(filename)}`;
+          return jsonContent({
+            thread_id,
+            filename,
+            path: dest,
+            url,
+            local_url,
+            size_bytes,
           });
         }
 

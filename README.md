@@ -143,6 +143,40 @@ Folio binds to `127.0.0.1:4810` by default. When you reverse-proxy the viewer to
 
 Effect: `folio.create` returns `public_url` + a `response_hint` (the `MEDIA:` line) that uses it; `local_url` stays for in-process tooling. Notes' internal links are relative (`/n/<id>`), so existing notes render unchanged behind either base — no migration needed.
 
+### Attaching assets to notes
+
+`folio.attach_asset` lets an agent (or bot) drop an image, PDF, or video into a thread and reference it from `body_html`. Files live next to the thread's `*.html` notes under `threads/<thread_id>/assets/`, so a single `tar` of `~/Folio/` covers them automatically.
+
+```jsonc
+// MCP call
+{
+  "tool": "attach_asset",
+  "args": {
+    "thread_id": "morning-ride-2026-05-12",
+    "filename": "speed-chart.png",
+    "content_base64": "iVBORw0KGgo…"     // or: "source_path": "/tmp/chart.png"
+  }
+}
+// Response
+{
+  "thread_id": "morning-ride-2026-05-12",
+  "filename": "speed-chart.png",
+  "path":  "~/Folio/threads/morning-ride-2026-05-12/assets/speed-chart.png",
+  "url":   "https://zeszyt.notibox.local/t/morning-ride-2026-05-12/asset/speed-chart.png",
+  "local_url": "http://127.0.0.1:4810/t/…/asset/speed-chart.png",
+  "size_bytes": 23184
+}
+```
+
+Hardened by design:
+
+- Filename must match `^[a-zA-Z0-9._-]+$`, ≤200 chars, no leading/trailing dot, no `..`. Path separators are rejected.
+- Extension whitelist: `jpg` / `jpeg` / `png` / `webp` / `gif` / `svg` / `pdf` / `mp4`. Anything else → `415` on GET.
+- Served with `Content-Type` sniffed from extension, `X-Content-Type-Options: nosniff`, `Cache-Control: public, max-age=86400`.
+- No implicit URL rewrite in `body_html` — the agent embeds the absolute or relative URL it received. Predictable contract, no surprise edits to the note.
+
+Re-attaching the same filename overwrites in place (idempotent uploads). Notes themselves are still append-only.
+
 ---
 
 ## Themes

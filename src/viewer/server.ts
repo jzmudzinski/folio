@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { loadConfig, folioRoot, bundledThemesDir, themesDir, viewerPublicBaseUrl } from "../core/config";
+import { loadConfig, folioRoot, bundledThemesDir, themesDir, viewerPublicBaseUrl, threadAssetsDir, isSafeAssetFilename } from "../core/config";
 import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, listThreads, listPopularTags, listNotesByTag } from "../core/storage";
 import { db, logEvent } from "../core/db";
 import { pageList, pageSearch, pageThread, pageThreads, pageNote, pageStats, pageError, pageTag } from "./render";
@@ -46,6 +46,29 @@ function rawNoteHeaders(): Record<string, string> {
     "X-Frame-Options": "SAMEORIGIN",
     "Referrer-Policy": "no-referrer",
   };
+}
+
+// Whitelist of asset extensions the viewer will serve from
+// threads/<id>/assets/. Everything else gets 415. Keep this list small —
+// each new entry expands the trust surface for what an agent (or bot) can
+// drop into a user's Folio. Binary formats only; markdown/HTML go in the
+// note body, not as assets.
+const ASSET_MIME: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+  svg: "image/svg+xml",
+  pdf: "application/pdf",
+  mp4: "video/mp4",
+};
+
+export function assetMimeForExt(filename: string): string | null {
+  const dot = filename.lastIndexOf(".");
+  if (dot < 0) return null;
+  const ext = filename.slice(dot + 1).toLowerCase();
+  return ASSET_MIME[ext] ?? null;
 }
 
 function resolveTheme(name: string): string | null {
@@ -100,6 +123,43 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
           const q = url.searchParams.get("q") ?? "";
           const threads = listThreads(q || undefined, 500);
           return htmlResp(pageThreads(threads, q || undefined));
+        }
+
+        // GET /t/:thread_id/asset/:filename  (per-thread binary asset)
+        //
+        // Must come BEFORE the bare /t/:thread_id handler — that one would
+        // otherwise consume any path under /t/ and try to look it up as a
+        // thread. Filename is validated against isSafeAssetFilename after
+        // URL-decoding to prevent path traversal; MIME is sniffed from the
+        // extension against a strict whitelist (jpg/png/webp/gif/svg/pdf/mp4);
+        // anything else gets 415. Assets are append-only in convention so we
+        // cache aggressively (1 day).
+        {
+          const m = path.match(/^\/t\/([^/]+)\/asset\/(.+)$/);
+          if (req.method === "GET" && m) {
+            const threadId = decodeURIComponent(m[1]!);
+            const filename = decodeURIComponent(m[2]!);
+            if (!isSafeAssetFilename(filename)) {
+              return new Response("invalid filename", { status: 400 });
+            }
+            const mime = assetMimeForExt(filename);
+            if (!mime) {
+              return new Response("unsupported asset type", { status: 415 });
+            }
+            const filePath = join(threadAssetsDir(threadId), filename);
+            if (!existsSync(filePath)) {
+              return new Response("not found", { status: 404 });
+            }
+            const buf = readFileSync(filePath);
+            return new Response(new Uint8Array(buf), {
+              headers: {
+                "Content-Type": mime,
+                "Content-Length": String(buf.length),
+                "Cache-Control": "public, max-age=86400",
+                "X-Content-Type-Options": "nosniff",
+              },
+            });
+          }
         }
 
         // GET /t/:thread_id

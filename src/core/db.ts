@@ -1,7 +1,12 @@
 import { Database } from "bun:sqlite";
 import { dbPath } from "./config";
+import { runMigrations, HEAD_VERSION } from "./migrations";
 
-const SCHEMA_V1 = `
+// Greenfield schema. Runs on every connection via CREATE TABLE IF NOT EXISTS,
+// so it must always reflect the LATEST schema shape. For existing dbs that
+// predate a column addition, see src/core/migrations.ts — that module
+// handles version-driven ALTERs that SQLite can't gate with IF NOT EXISTS.
+const BASE_SCHEMA = `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
@@ -25,12 +30,15 @@ CREATE TABLE IF NOT EXISTS notes (
   expires_at TEXT,
   word_count INTEGER NOT NULL DEFAULT 0,
   summary TEXT,
-  status TEXT NOT NULL DEFAULT 'active'
+  status TEXT NOT NULL DEFAULT 'active',
+  live INTEGER NOT NULL DEFAULT 0,
+  last_entry_at TEXT
 );
 CREATE INDEX IF NOT EXISTS notes_by_type ON notes(type, created DESC);
 CREATE INDEX IF NOT EXISTS notes_by_thread ON notes(thread_id, created DESC);
 CREATE INDEX IF NOT EXISTS notes_by_created ON notes(created DESC);
 CREATE INDEX IF NOT EXISTS notes_by_expires ON notes(expires_at) WHERE expires_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS notes_by_live ON notes(live, last_entry_at) WHERE live = 1;
 
 CREATE TABLE IF NOT EXISTS tags (
   note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
@@ -65,23 +73,25 @@ let _db: Database | null = null;
 export function db(): Database {
   if (_db) return _db;
   _db = new Database(dbPath(), { create: true });
-  applyMigrations(_db);
+  // Order matters: BASE_SCHEMA first (greenfield install has full latest
+  // shape immediately), then migrations to handle pre-existing dbs that
+  // were created before a column existed.
+  _db.exec(BASE_SCHEMA);
+  // Greenfield dbs have no schema_version row yet; pin them to HEAD so the
+  // migration loop is a no-op. Pre-existing dbs hit the runMigrations path.
+  const row = _db
+    .query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'schema_version'")
+    .get();
+  if (!row) {
+    _db.run("INSERT INTO meta (key, value) VALUES ('schema_version', ?)", [HEAD_VERSION]);
+  }
+  runMigrations(_db);
   return _db;
 }
 
 export function closeDb(): void {
   _db?.close();
   _db = null;
-}
-
-function applyMigrations(d: Database): void {
-  d.exec(SCHEMA_V1);
-  const row = d.query<{ value: string }, []>(
-    "SELECT value FROM meta WHERE key = 'schema_version'"
-  ).get();
-  if (!row) {
-    d.run("INSERT INTO meta (key, value) VALUES ('schema_version', '1')");
-  }
 }
 
 export function logEvent(

@@ -33,7 +33,7 @@ const ALLOWED_TAGS = [
   "a", "img", "figure", "figcaption", "picture", "source",
   "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption", "colgroup", "col",
   "hr", "br", "div", "span",
-  "details", "summary", "mark", "kbd", "var", "samp",
+  "details", "summary", "mark", "kbd", "var", "samp", "time",
   "svg", "g", "path", "circle", "rect", "line", "polyline", "polygon", "text", "tspan",
   "iframe",
   "script",
@@ -52,6 +52,7 @@ const ALLOWED_ATTRIBUTES: Record<string, string[]> = {
   rect: ["x", "y", "width", "height", "fill", "stroke", "rx", "ry"],
   line: ["x1", "y1", "x2", "y2", "stroke"],
   iframe: ["src", "srcdoc", "sandbox", "width", "height", "title", "allow", "loading", "name", "referrerpolicy", "allowfullscreen"],
+  time: ["datetime"],
   script: ["src", "type", "async", "defer", "crossorigin", "integrity", "nomodule", "referrerpolicy"],
 };
 

@@ -88,3 +88,10 @@ test("normalizes empty sandbox to default flags", () => {
   const r = sanitize(`<iframe src="https://x.com" sandbox=""></iframe>`);
   expect(r.html).toMatch(/sandbox="[^"]+"/);
 });
+
+test("preserves <time datetime> for live note entries (v0.9.0)", () => {
+  const r = sanitize(`<article class="entry"><time datetime="2026-05-12T08:00:00Z">12 May 08:00</time><h4>Morning sync</h4></article>`);
+  expect(r.html).toContain("<time");
+  expect(r.html).toContain('datetime="2026-05-12T08:00:00Z"');
+  expect(r.html).toContain("12 May 08:00");
+});

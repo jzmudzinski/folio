@@ -13,7 +13,7 @@ description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp)
 - **Storage:** `$FOLIO_HOME` (default `~/Folio/`)
 - **MCP:** `folio-mcp` (see `docs/mcp-setup.md`)
 - **Viewer:** `folio serve` → http://127.0.0.1:4810
-- **Tools:** `create`, `get`, `list`, `search`, `finalize`, `unfinalize`, `suggest_thread`, `list_expiring`, `list_themes`, `export`, `attach_asset`, `version` (MCP server name `folio` → mcporter syntax: `folio.create`, `folio.search`, …)
+- **Tools:** `create`, `get`, `list`, `search`, `finalize`, `unfinalize`, `suggest_thread`, `list_expiring`, `list_themes`, `export`, `attach_asset`, `append_entry`, `list_entries`, `set_pinned`, `version` (MCP server name `folio` → mcporter syntax: `folio.create`, `folio.search`, …)
 - **Stylebook:** `skills/folio/STYLEBOOK.md` (class contract with theme.css)
 - **Examples:** `skills/folio/examples/<type>/`
 
@@ -56,10 +56,14 @@ description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp)
 4.  Generate body_html consistent with STYLEBOOK.md for the chosen theme.
     Reference any asset URLs from step 3 as <img src="<url>" alt="...">,
     <video src="<url>" controls>, or <a href="<url>"> for PDFs.
+    For LIVE notes: body_html may be empty/minimal chrome — the feed
+    becomes the content via append_entry.
 
-5.  create({ type, title, body_html, thread_id, theme?, tags? })
+5.  create({ type, title, body_html, thread_id, theme?, tags?, live? })
     ↳ Theme from user config (default linen) unless you override deliberately.
     ↳ Leave theme_profile at its default ("hosted").
+    ↳ live: true → returns stream_url + local_stream_url; type defaults
+      to journal in the CLI, but in MCP you must pass type explicitly.
 
 6.  Respond to the user with:
 
@@ -76,6 +80,73 @@ description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp)
 ```
 
 ---
+
+## Live notes (v0.9.0+)
+
+Some notes grow over time — a journal that gets a new entry every morning, a todo list whose items change state, an ops feed an agent appends to all day. Create them with `live: true`. The note's body_html stays minimal (or empty) at create time; entries land in a sidecar `<slug>.entries.jsonl` via `append_entry`. The viewer chrome streams them into a panel beside the body iframe. When the user (or you, when explicitly asked) calls `finalize`, Folio compiles the feed back into the note's body_html and the live behavior shuts off — it becomes indistinguishable from any other final note.
+
+**When to use `live: true`:**
+- ✅ Long-running observation (daily journal, weekly retro, project ops log)
+- ✅ Todo list / inbox / capture target — items appear, mutate, get resolved
+- ✅ Agent watches an external source and posts what arrives (CI, Slack, Linear, sensor data)
+- ✅ Multi-session context — you want to be able to append more entries hours/days later
+
+**When NOT to use:**
+- ❌ One-off note (regular `create` is the right call)
+- ❌ Anything that's already finished thinking — just write it as body_html
+
+**Tool surface for live notes:**
+
+```
+create({ ..., live: true })          → returns stream_url + local_stream_url
+append_entry({ note_id, content_html, tags, refs?, importance?, source_ref? })
+list_entries({ note_id, since?, tag?, limit? })   → for context resume
+set_pinned({ note_id, entry_ids[] })  → ≤ 5; full target list, diff is computed
+finalize({ id })                      → compiles entries into body_html, archives jsonl
+```
+
+**Chain-of-entries — how you "edit" tags:**
+
+Entries are append-only. To change an entry's state, append a new entry that references it via `refs:[<entry-id>]` with the new tags. Folio compiles tag sets on read: namespaced tags (`ns:value`) use last-write-wins, non-namespaced tags accumulate. Worked example:
+
+```
+# 1. Append a todo
+append_entry({ note_id: N, content_html: "<p>Ship v0.9</p>", tags: ["state:open", "project:folio"] })
+  → entry_id = "p02merb8na"
+
+# 2. Append a follow-up that marks it done (the follow-up itself may
+#    have content OR be empty — empty entries don't render but their
+#    tags still compile onto the refs target).
+append_entry({ note_id: N, content_html: "<p>Merged and tagged.</p>", tags: ["state:done"], refs: ["p02merb8na"] })
+  → entry_id = "kq3z8rkfx2"
+
+# 3. list_entries now shows entry p02merb8na with compiled_tags ["state:done", "project:folio"]
+#    and state="done" — viewer renders it strikethrough.
+```
+
+## Tag conventions for live notes
+
+Folio doesn't validate tag values at the schema level. It does have **exactly two rendering opinions**:
+
+| Namespace / tag | Folio renders | Meaning |
+|---|---|---|
+| `state:open` | default (no decoration) | not yet done |
+| `state:done` | strikethrough + dimmed | completed |
+| `state:cancelled` | dimmed (no strikethrough) | abandoned |
+| `state:snoozed` | amber "snoozed" pill | deferred |
+| `view:pinned` | pulled to "Worth noticing" rail at top of feed panel | high salience |
+
+Everything else is convention space. Recommended namespaces:
+
+- `priority:1` … `priority:5` (1 = highest)
+- `source:slack` / `source:ci` / `source:linear` / etc. — origin of the data
+- `project:<slug>` / `topic:<slug>` / `client:<slug>` — same convention as note-level tags
+- `kind:bug` / `kind:idea` / `kind:question` — discriminator within a single note
+- Free-form `#tag` style (no namespace) — accumulates, no override
+
+These render as generic pills + show up as auto-facets in the panel sidebar. Pick a namespace pack at the start of a thread and stick with it.
+
+**`view:pinned` → use `set_pinned` instead of raw appends.** The `set_pinned` tool takes the COMPLETE target list of pinned entry ids (≤ 5), diffs against current pinned state, and appends the minimal pin/unpin entries to reach the target. Don't manually append `view:pinned` and `view:unpinned` chains unless you know exactly what you're doing.
 
 ## Choosing `type`
 

@@ -25,7 +25,7 @@ import {
 } from "../core/storage";
 import { loadConfig, folioRoot, bundledThemesDir, themesDir, viewerLocalBaseUrl, viewerPublicBaseUrl, threadAssetsDir, isSafeAssetFilename } from "../core/config";
 import { listThemes, getTheme } from "../core/themes";
-import { db } from "../core/db";
+import { db, logEvent } from "../core/db";
 import type { NoteType, RenderProfile } from "../core/types";
 
 const ALLOWED_TYPES: NoteType[] = ["research", "comparison", "technical", "journal", "snippet"];
@@ -48,6 +48,7 @@ const tools: Tool[] = [
         theme_profile: { type: "string", enum: ALLOWED_PROFILES, description: "'hosted' (default, links theme.css, ~50% less tokens) or 'standalone' (inline CSS, share-ready)." },
         tags: { type: "array", items: { type: "string" }, description: "Free-form tags." },
         is_final: { type: "boolean", description: "Mark as final (no auto-cleanup). User typically does this from viewer; agent only when explicitly asked." },
+        live: { type: "boolean", description: "Create as a live note (append-only journal/log/feed). body_html may be empty/minimal chrome. Use append_entry to add entries over time; viewer streams them via SSE. Finalize compiles the feed back into body_html." },
       },
     },
   },
@@ -149,6 +150,49 @@ const tools: Tool[] = [
     },
   },
   {
+    name: "append_entry",
+    description: "Append a new entry to a live note's feed. Note must be live (created with live:true) and not yet finalized. Entry's content_html is sanitized (same allowlist as create) and stored in <slug>.entries.jsonl alongside the note. Returns the new entry id and total entry count. Tags drive Folio's two rendering opinions: state:* (decoration) and view:pinned (top rail). To 'change' an existing entry's tags, append a new entry with refs:[<entry-id>] and the new tags (chain-of-entries — namespace last-write-wins). For empty content_html (pure tag mutation) the entry affects compiled tags but doesn't render in the feed.",
+    inputSchema: {
+      type: "object",
+      required: ["note_id", "content_html"],
+      properties: {
+        note_id: { type: "string", description: "Target live note id." },
+        content_html: { type: "string", description: "HTML for the entry body (article fragment). Sanitized server-side; max 32KB after sanitize. May be empty/whitespace for pure tag-mutation entries used in conjunction with refs+tags." },
+        tags: { type: "array", items: { type: "string" }, description: "Free-form tags. Namespaces with ':' delimiter — state:*, view:pinned, priority:*, source:*, project:*, topic:*, kind:*. Folio renders state:* and view:pinned specially; all others are generic pills + auto-facets." },
+        refs: { type: "array", items: { type: "string" }, description: "Optional entry ids to reference (used for chain-of-entries mutation). Each ref must point to an existing entry on the same note." },
+        importance: { type: "number", description: "Optional importance hint 1-5 (1=highest)." },
+        source_ref: { type: "string", description: "Optional external reference: URL, ticket id, log line, etc." },
+        occurred_at: { type: "string", description: "Optional ISO timestamp of when the event actually happened (vs ts which is when this entry was appended)." },
+      },
+    },
+  },
+  {
+    name: "list_entries",
+    description: "List entries on a live note. Use for agent context loading on session resume (e.g. reading the last hour's entries before deciding what to append). Returns entries + each entry's compiled tag set. The `since` filter is an ISO timestamp; the `tag` filter matches compiled (post-merge) tag set, not raw.",
+    inputSchema: {
+      type: "object",
+      required: ["note_id"],
+      properties: {
+        note_id: { type: "string" },
+        since: { type: "string", description: "Optional ISO timestamp; returns entries with ts > since." },
+        tag: { type: "string", description: "Optional tag to filter by (matches compiled tag set)." },
+        limit: { type: "number", description: "Default 100, max 500." },
+      },
+    },
+  },
+  {
+    name: "set_pinned",
+    description: "Set the pinned entry set for a live note (top rail in the viewer feed). Pass the complete target list of entry ids that should be pinned; the tool diffs against current state and appends the minimal pin/unpin entries to reach the target. Max 5 entries pinned at a time — passing more returns an error.",
+    inputSchema: {
+      type: "object",
+      required: ["note_id", "entry_ids"],
+      properties: {
+        note_id: { type: "string" },
+        entry_ids: { type: "array", items: { type: "string" }, description: "Complete target list of entry ids to be pinned (≤ 5)." },
+      },
+    },
+  },
+  {
     name: "version",
     description: "Return Folio version + system info: storage root, viewer URL, default theme. Useful when the agent wants to confirm which Folio installation it's talking to (e.g. before bulk operations, or when the user asks 'what version are we on?').",
     inputSchema: { type: "object", properties: {} },
@@ -196,11 +240,17 @@ export async function buildServer(): Promise<Server> {
     try {
       switch (name) {
         case "create": {
-          if (!args.type || !args.title || !args.body_html) {
+          if (!args.type || !args.title || args.body_html === undefined) {
             return errContent("Missing required: type, title, body_html");
           }
           if (!ALLOWED_TYPES.includes(args.type)) {
             return errContent(`Invalid type. One of: ${ALLOWED_TYPES.join(", ")}`);
+          }
+          // body_html may be empty string for live notes (the feed becomes
+          // the content; body is just chrome scaffolding until finalize).
+          const live = typeof args.live === "boolean" ? args.live : false;
+          if (!live && !String(args.body_html).trim()) {
+            return errContent("body_html cannot be empty unless live:true (live notes start with chrome only).");
           }
           const note = await createNote({
             type: args.type,
@@ -211,11 +261,12 @@ export async function buildServer(): Promise<Server> {
             theme_profile: args.theme_profile ? (String(args.theme_profile) as RenderProfile) : undefined,
             tags: Array.isArray(args.tags) ? args.tags.map(String) : undefined,
             is_final: typeof args.is_final === "boolean" ? args.is_final : undefined,
+            live,
           });
           const cfg = await loadConfig();
           const localUrl = `${viewerLocalBaseUrl(cfg)}/n/${note.id}`;
           const publicUrl = `${viewerPublicBaseUrl(cfg)}/n/${note.id}`;
-          return jsonContent({
+          const response: Record<string, unknown> = {
             id: note.id,
             slug: note.slug,
             path: note.path,
@@ -228,10 +279,16 @@ export async function buildServer(): Promise<Server> {
             theme: note.theme,
             theme_profile: note.theme_profile,
             expires_at: note.expires_at,
+            live: note.live,
             // Hint to agent: include in MEDIA: response convention. Uses public_url
             // so relays (Telegram, email, Slack) don't paste localhost URLs.
             response_hint: `Respond to user with: "MEDIA:${publicUrl}" + 3-5 line TL;DR.`,
-          });
+          };
+          if (note.live) {
+            response.local_stream_url = `${viewerLocalBaseUrl(cfg)}/n/${note.id}/stream`;
+            response.stream_url = `${viewerPublicBaseUrl(cfg)}/n/${note.id}/stream`;
+          }
+          return jsonContent(response);
         }
 
         case "get": {
@@ -381,6 +438,152 @@ export async function buildServer(): Promise<Server> {
             [new Date().toISOString(), "note_unfinalized", id, note.thread_id, JSON.stringify({ via: "mcp" })]
           );
           return jsonContent({ ok: true, id, expires_at_reset_to: `created + ${cfg.default_lifespan_days} days` });
+        }
+
+        case "append_entry": {
+          const note_id = String(args.note_id ?? "");
+          if (!note_id) return errContent("Missing note_id");
+          const note = getNoteMeta(note_id);
+          if (!note) return errContent(`Not found: ${note_id}`);
+          if (!note.live) return errContent(`Note ${note_id} is not a live note (create with live:true to enable append_entry).`);
+          if (note.is_final) return errContent(`Note ${note_id} is final; cannot append.`);
+
+          // Validate refs (if any) point at existing entries on this note.
+          const refs = Array.isArray(args.refs) ? args.refs.map(String) : undefined;
+          const live = await import("../core/live");
+          const jsonl = live.entriesPath(join(folioRoot(), note.path));
+          if (refs && refs.length > 0) {
+            const existing = new Set(live.readEntries(jsonl).map((e) => e.id));
+            const bad = refs.filter((r) => !existing.has(r));
+            if (bad.length > 0) return errContent(`refs reference unknown entry id(s): ${bad.join(", ")}`);
+          }
+
+          let result;
+          try {
+            result = live.appendEntry(jsonl, {
+              content_html: String(args.content_html ?? ""),
+              tags: Array.isArray(args.tags) ? args.tags.map(String) : undefined,
+              refs,
+              importance: args.importance as 1 | 2 | 3 | 4 | 5 | undefined,
+              source_ref: args.source_ref ? String(args.source_ref) : undefined,
+              occurred_at: args.occurred_at ? String(args.occurred_at) : undefined,
+            });
+          } catch (e: any) {
+            return errContent(e?.message ?? String(e));
+          }
+
+          const storage = await import("../core/storage");
+          storage.updateLastEntryAt(note_id, result.entry.ts);
+          // Fast-path SSE: notify the hub directly so subscribers don't wait
+          // on fs.watch (which on macOS is sometimes coalesced/dropped under
+          // load). Out-of-process appends still get picked up via fs.watch.
+          const sseHub = await import("../core/sse-hub");
+          sseHub.publish(note_id, jsonl);
+          const entries = live.readEntries(jsonl);
+
+          logEvent(
+            "live_entry_appended",
+            {
+              entry_id: result.entry.id,
+              tags_count: result.entry.tags.length,
+              refs_count: result.entry.refs?.length ?? 0,
+              content_size_bytes: Buffer.byteLength(result.entry.content_html, "utf-8"),
+              rendered: result.entry.content_html.trim().length > 0,
+              sanitizer_drops: result.sanitizer_drops,
+            },
+            note_id,
+            note.thread_id,
+          );
+
+          return jsonContent({
+            entry_id: result.entry.id,
+            ts: result.entry.ts,
+            entry_count: entries.length,
+          });
+        }
+
+        case "list_entries": {
+          const note_id = String(args.note_id ?? "");
+          if (!note_id) return errContent("Missing note_id");
+          const note = getNoteMeta(note_id);
+          if (!note) return errContent(`Not found: ${note_id}`);
+          if (!note.live) return errContent(`Note ${note_id} is not a live note.`);
+
+          const since = args.since ? String(args.since) : null;
+          if (since !== null && Number.isNaN(Date.parse(since))) {
+            return errContent(`since is not a valid ISO timestamp: ${since}`);
+          }
+          const tagFilter = args.tag ? String(args.tag) : null;
+          const limit = Math.min(typeof args.limit === "number" ? args.limit : 100, 500);
+
+          const live = await import("../core/live");
+          const jsonl = live.entriesPath(join(folioRoot(), note.path));
+          const compiled = live.compile(live.readEntries(jsonl));
+
+          let filtered = compiled;
+          if (since !== null) filtered = filtered.filter((c) => c.ts > since);
+          if (tagFilter !== null) filtered = filtered.filter((c) => c.compiled_tags.includes(tagFilter));
+
+          return jsonContent({
+            note_id,
+            total: compiled.length,
+            returned: Math.min(filtered.length, limit),
+            entries: filtered.slice(0, limit),
+          });
+        }
+
+        case "set_pinned": {
+          const note_id = String(args.note_id ?? "");
+          if (!note_id) return errContent("Missing note_id");
+          const target = Array.isArray(args.entry_ids) ? args.entry_ids.map(String) : null;
+          if (target === null) return errContent("Missing entry_ids (must be an array)");
+          if (target.length > 5) return errContent("Cannot pin more than 5 entries at a time.");
+          const note = getNoteMeta(note_id);
+          if (!note) return errContent(`Not found: ${note_id}`);
+          if (!note.live) return errContent(`Note ${note_id} is not a live note.`);
+          if (note.is_final) return errContent(`Note ${note_id} is final.`);
+
+          const live = await import("../core/live");
+          const jsonl = live.entriesPath(join(folioRoot(), note.path));
+          const all = live.readEntries(jsonl);
+          const existingIds = new Set(all.map((e) => e.id));
+          const bad = target.filter((id) => !existingIds.has(id));
+          if (bad.length > 0) return errContent(`entry_ids reference unknown entry id(s): ${bad.join(", ")}`);
+
+          const current = new Set(live.currentPinnedIds(all));
+          const want = new Set(target);
+          const toPin = [...want].filter((id) => !current.has(id));
+          const toUnpin = [...current].filter((id) => !want.has(id));
+
+          // Append pin/unpin entries. Both are pure tag-mutation entries
+          // with empty content_html — won't render as standalone in the
+          // feed but their tags compile onto the refs target.
+          const storage = await import("../core/storage");
+          const sseHub = await import("../core/sse-hub");
+          for (const refId of toPin) {
+            const r = live.appendEntry(jsonl, { content_html: "", tags: ["view:pinned"], refs: [refId] });
+            storage.updateLastEntryAt(note_id, r.entry.ts);
+            sseHub.publish(note_id, jsonl);
+          }
+          for (const refId of toUnpin) {
+            const r = live.appendEntry(jsonl, { content_html: "", tags: ["view:unpinned"], refs: [refId] });
+            storage.updateLastEntryAt(note_id, r.entry.ts);
+            sseHub.publish(note_id, jsonl);
+          }
+
+          logEvent(
+            "live_pinned_set",
+            { target_count: target.length, pinned: toPin.length, unpinned: toUnpin.length },
+            note_id,
+            note.thread_id,
+          );
+
+          return jsonContent({
+            note_id,
+            target: [...want],
+            pinned: toPin,
+            unpinned: toUnpin,
+          });
         }
 
         case "version": {

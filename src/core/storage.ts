@@ -59,6 +59,10 @@ export async function createNote(input: CreateNoteInput): Promise<NoteMeta> {
   const filePath = join(targetDir, `${slug}.html`);
   const created = isoNow();
   const is_final = input.is_final ?? false;
+  const live = input.live ?? false;
+  // Live notes auto-expire based on inactivity, not absolute age. Set
+  // expires_at to the lifespan default at creation; list_expiring uses
+  // last_entry_at (NULL initially) for the actual idle check.
   const expires_at = is_final ? null : isoPlusDays(cfg.default_lifespan_days);
 
   // Render full HTML
@@ -88,9 +92,9 @@ export async function createNote(input: CreateNoteInput): Promise<NoteMeta> {
   const d = db();
   d.transaction(() => {
     d.run(
-      `INSERT INTO notes (id, slug, path, title, type, theme, theme_profile, thread_id, is_final, created, updated, expires_at, word_count, summary, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
-      [id, slug, relPath, input.title, input.type, theme, theme_profile, thread_id, is_final ? 1 : 0, created, created, expires_at, stats.word_count, stats.summary]
+      `INSERT INTO notes (id, slug, path, title, type, theme, theme_profile, thread_id, is_final, created, updated, expires_at, word_count, summary, status, live, last_entry_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL)`,
+      [id, slug, relPath, input.title, input.type, theme, theme_profile, thread_id, is_final ? 1 : 0, created, created, expires_at, stats.word_count, stats.summary, live ? 1 : 0]
     );
     for (const tag of input.tags ?? []) {
       d.run("INSERT OR IGNORE INTO tags (note_id, tag) VALUES (?, ?)", [id, tag]);
@@ -120,6 +124,7 @@ export async function createNote(input: CreateNoteInput): Promise<NoteMeta> {
       inline_style_count: stats.inline_style_count,
       sanitizer_drops: drops,
       thread_id,
+      live,
     },
     id,
     thread_id
@@ -135,6 +140,8 @@ export async function createNote(input: CreateNoteInput): Promise<NoteMeta> {
     theme_profile,
     thread_id,
     is_final,
+    live,
+    last_entry_at: null,
     created,
     updated: created,
     expires_at,
@@ -253,16 +260,133 @@ export function searchNotes(opts: SearchOptions): SearchHit[] {
   }));
 }
 
+/** Update notes.last_entry_at after a successful append. */
+export function updateLastEntryAt(id: string, ts: string): void {
+  db().run("UPDATE notes SET last_entry_at = ?, updated = ? WHERE id = ?", [ts, isoNow(), id]);
+}
+
 export function finalize(id: string): boolean {
   const note = getNoteMeta(id);
   if (!note) return false;
+  // Idempotent: re-finalize is a no-op (also covers race conditions where
+  // two callers attempt finalize simultaneously).
+  if (note.is_final) return true;
+
   const ageDays = Math.floor((Date.now() - new Date(note.created).getTime()) / 86400000);
-  db().run("UPDATE notes SET is_final = 1, expires_at = NULL, updated = ? WHERE id = ?", [
-    isoNow(),
+
+  if (note.live) {
+    finalizeLive(note);
+  }
+
+  db().run(
+    "UPDATE notes SET is_final = 1, live = 0, expires_at = NULL, updated = ? WHERE id = ?",
+    [isoNow(), id],
+  );
+  logEvent(
+    "note_finalized",
+    { age_days_at_finalize: ageDays, was_live: note.live },
     id,
-  ]);
-  logEvent("note_finalized", { age_days_at_finalize: ageDays }, id, note.thread_id);
+    note.thread_id,
+  );
   return true;
+}
+
+/**
+ * Live-note finalize: read the .entries.jsonl sidecar, compile to
+ * <article class="entry [state-*]">…</article> blocks, replace the note's
+ * <article data-folio-content>…</article> body inline, atomic-rename
+ * temp file over the .html. Move the jsonl to ~/Folio/.trash/ so it's
+ * archived but no longer streamed.
+ *
+ * Per ADR-014: this is the explicit boundary where in-place mutation
+ * of a note's .html is allowed. finalize = "freeze the live feed into
+ * the static body and stop being live."
+ *
+ * Per ADR-017: emits a `note_finalized_live` event with entries_compiled
+ * count + summed sanitizer_drops from the original append events
+ * (already counted; we don't re-emit per entry).
+ *
+ * No content re-sanitization: each entry.content_html was sanitized on
+ * append_entry. The wrapper HTML we generate here is server-trusted —
+ * adding a second sanitize pass would risk mangling already-valid
+ * content for no security gain.
+ */
+function finalizeLive(note: NoteMeta): void {
+  const { entriesPath, readEntries, compileRendered } = require("./live") as typeof import("./live");
+  const absPath = join(folioRoot(), note.path);
+  const jsonl = entriesPath(absPath);
+  const rawEntries = readEntries(jsonl);
+  const compiled = compileRendered(rawEntries);
+  const totalEntries = rawEntries.length;
+  const renderedCount = compiled.length;
+
+  // Build the compiled body. Each entry becomes:
+  //   <article class="entry [state-*] [pinned]" data-entry-id="…">
+  //     <header class="meta">…tags + time…</header>
+  //     <div class="content">{content_html — already sanitized}</div>
+  //   </article>
+  // entries-css.ts ships the baseline; themes can override.
+  // Pinned entries float to the top in a <section class="entries-pinned">.
+  const pinned = compiled.filter((c) => c.pinned);
+  const rest = compiled.filter((c) => !c.pinned);
+
+  const renderTag = (t: string): string => {
+    const safe = String(t).replace(/[<>&"]/g, (ch) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" })[ch] ?? ch);
+    return `<span class="pill info">${safe}</span>`;
+  };
+
+  const renderEntry = (c: typeof compiled[number]): string => {
+    const cls = ["entry"];
+    if (c.pinned) cls.push("pinned");
+    if (c.state) cls.push(`state-${c.state}`);
+    const tagsHtml = c.compiled_tags.map(renderTag).join(" ");
+    const timeHtml = `<time datetime="${c.ts}">${c.ts}</time>`;
+    return [
+      `<article class="${cls.join(" ")}" data-entry-id="${c.id}">`,
+      `  <header class="meta">${timeHtml} ${tagsHtml}</header>`,
+      `  <div class="content">${c.content_html}</div>`,
+      `</article>`,
+    ].join("\n");
+  };
+
+  const pinnedHtml = pinned.length > 0
+    ? `<section class="entries-pinned"><h3>Pinned</h3>\n${pinned.map(renderEntry).join("\n")}\n</section>`
+    : "";
+  const restHtml = rest.length > 0
+    ? `<section class="entries-feed">\n${rest.map(renderEntry).join("\n")}\n</section>`
+    : "";
+  const compiledBody = [pinnedHtml, restHtml].filter(Boolean).join("\n");
+
+  // Replace <article data-folio-content>…</article> inline. The _base.html.eta
+  // emits exactly one such block per note (the user's body wrapped).
+  const existing = readFileSync(absPath, "utf-8");
+  const replaced = existing.replace(
+    /(<article[^>]*data-folio-content[^>]*>)[\s\S]*?(<\/article>)/,
+    `$1\n${compiledBody}\n$2`,
+  );
+  const tmpPath = `${absPath}.tmp`;
+  writeFileSync(tmpPath, replaced, "utf-8");
+  renameSync(tmpPath, absPath);
+
+  // Move the jsonl to .trash/. Use a name that includes the note id so
+  // multiple finalized notes don't collide.
+  if (existsSync(jsonl)) {
+    const trashDir = join(folioRoot(), ".trash");
+    ensureDir(trashDir);
+    const trashPath = join(trashDir, `${note.id}.entries.jsonl`);
+    renameSync(jsonl, trashPath);
+  }
+
+  logEvent(
+    "note_finalized_live",
+    {
+      entries_total: totalEntries,
+      entries_rendered: renderedCount,
+      pinned_count: pinned.length,
+    },
+    note.id,
+    note.thread_id,
+  );
 }
 
 export interface ReindexResult {
@@ -537,6 +661,8 @@ function rowToMeta(row: Record<string, any>): NoteMeta {
     theme_profile: row.theme_profile as RenderProfile,
     thread_id: row.thread_id,
     is_final: row.is_final === 1,
+    live: row.live === 1,
+    last_entry_at: row.last_entry_at ?? null,
     created: row.created,
     updated: row.updated,
     expires_at: row.expires_at,

@@ -175,8 +175,80 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
           const tag = decodeURIComponent(path.slice(5));
           if (!tag) return Response.redirect("/", 302);
           const notes = listNotesByTag(tag, 200);
-          if (notes.length === 0) return htmlResp(pageError(404, `Brak not z tagiem "${tag}".`), 404);
+          if (notes.length === 0) return htmlResp(pageError(404, `No notes tagged "${tag}".`), 404);
           return htmlResp(pageTag(tag, notes, listPopularTags(20)));
+        }
+
+        // GET /n/:id/stream  (SSE — live notes only)
+        //
+        // Sends the existing entries as backlog, then streams new entries
+        // as they're appended via append_entry (MCP) or folio append (CLI).
+        // 404 if note doesn't exist, isn't live, or is already finalized.
+        // The body iframe (/raw/:id) is unrelated and unchanged — this
+        // endpoint feeds the chrome-side panel only.
+        {
+          const m = path.match(/^\/n\/([^/]+)\/stream$/);
+          if (req.method === "GET" && m) {
+            const id = m[1]!;
+            const note = getNoteMeta(id);
+            if (!note) return new Response("not found", { status: 404 });
+            if (!note.live) return new Response("not a live note", { status: 404 });
+            if (note.is_final) return new Response("note is final", { status: 404 });
+
+            const { entriesPath, readEntries } = await import("../core/live");
+            const { subscribe } = await import("../core/sse-hub");
+            const jsonl = entriesPath(join(folioRoot(), note.path));
+
+            const stream = new ReadableStream({
+              start(controller) {
+                const encoder = new TextEncoder();
+                // Emit backlog first so a fresh subscriber gets a
+                // deterministic point-in-time snapshot before live
+                // events. Each entry is its own SSE frame.
+                for (const entry of readEntries(jsonl)) {
+                  controller.enqueue(encoder.encode(`event: entry\ndata: ${JSON.stringify(entry)}\n\n`));
+                }
+                // Now subscribe for live updates. The hub seeds offset
+                // at current file size, so backlog won't replay.
+                const unsubscribe = subscribe(id, jsonl, (entry) => {
+                  try {
+                    controller.enqueue(encoder.encode(`event: entry\ndata: ${JSON.stringify(entry)}\n\n`));
+                  } catch {
+                    // Stream closed mid-write — cleanup happens via cancel().
+                  }
+                });
+                // Hold the unsubscribe so we can call it on cancel.
+                (controller as any).__folioUnsub = unsubscribe;
+              },
+              cancel() {
+                const unsub = (this as any).__folioUnsub;
+                if (typeof unsub === "function") {
+                  try { unsub(); } catch { /* ignore */ }
+                }
+              },
+            });
+
+            return new Response(stream, {
+              headers: {
+                "Content-Type": "text/event-stream; charset=utf-8",
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+              },
+            });
+          }
+        }
+
+        // GET /entries.css  (baseline styles for compiled-final live notes
+        // and the live-feed panel iframe — see src/viewer/entries-css.ts).
+        if (req.method === "GET" && path === "/entries.css") {
+          const { ENTRIES_CSS } = await import("./entries-css");
+          return new Response(ENTRIES_CSS, {
+            headers: {
+              "Content-Type": "text/css; charset=utf-8",
+              "Cache-Control": "public, max-age=300",
+            },
+          });
         }
 
         // GET /n/:id  (viewer chrome + iframe)

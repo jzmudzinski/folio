@@ -50,7 +50,7 @@ Strategy + ADRs are mirrored from the maintainer's Obsidian vault and intentiona
 │   │   ├── themes.ts           loadThemes() — no cache, fs-scan per call
 │   │   ├── templates.ts        Eta wrapper — _base.html.eta + per-type
 │   │   └── types.ts            NoteMeta, CreateNoteInput, etc.
-│   ├── mcp/server.ts           12 tools + 4 base resources (+ one per thread)
+│   ├── mcp/server.ts           15 tools + 4 base resources (+ one per thread)
 │   └── viewer/
 │       ├── server.ts           Bun.serve(...) — routes for /, /search,
 │       │                         /threads, /n/:id, /raw/:id, /api/*, etc.
@@ -140,6 +140,22 @@ Wide-chrome / narrow-prose pattern (from `themes/README.md`):
 4. Add an example under `skills/folio/examples/<name>/`
 5. Optionally a typed template at `templates/<name>.html.eta` (agents can also send free-form body_html)
 
+### A live-note primitive change
+
+Live notes have their own subsystem split across:
+
+- `src/core/types.ts` — `LiveEntry`, `CompiledEntry`; `Note`/`NoteMeta`/`CreateNoteInput` extensions
+- `src/core/live.ts` — entries-jsonl I/O + compile rule (pure functions; full unit-test coverage in `tests/live-compile.test.ts`)
+- `src/core/sse-hub.ts` — per-note fs.watch + offset tracker + in-process subscribers Set
+- `src/core/migrations.ts` — the migration runner used to add the `live` + `last_entry_at` columns (precedent for future schema changes)
+- `src/core/storage.ts` `finalize()` — special-cased to read the jsonl, compile, atomic-rewrite `<article data-folio-content>` in the .html, move jsonl to `~/Folio/.trash/`
+- `src/mcp/server.ts` — three tools (`append_entry`, `list_entries`, `set_pinned`) plus the `live` flag on `create`. All emit ADR-017 events.
+- `src/viewer/server.ts` — `/n/:id/stream` SSE route + `/entries.css` route
+- `src/viewer/live-panel.ts` + `src/viewer/entries-css.ts` — the panel iframe srcdoc + chrome JS + baseline CSS
+- `src/viewer/render.ts` `pageNote` — conditionally injects the panel iframe + chrome JS when `note.live && !note.is_final`
+
+Touch points when changing tag-rendering semantics: `entries-css.ts` (the baseline), `live.ts` `compile()` (the rule), `live-panel.ts` `PANEL_RENDER_JS` (the panel-side renderer), and storage.ts `finalizeLive()` (the at-finalize HTML render). Keep all four in sync — the panel and finalize must produce visually consistent output.
+
 ### A new viewer helper
 
 The outer note iframe has `sandbox="allow-scripts allow-popups allow-forms"` **without** `allow-same-origin`. That means:
@@ -187,6 +203,7 @@ Parent commands sent into the iframe via `iframe.contentWindow.postMessage({ ns:
 ## Hard rules — don't break these
 
 - **`<script>` IS allowed in body_html** (since v0.3). The note runs inside a null-origin sandboxed iframe with `connect-src 'none'`, so isolation comes from the outer sandbox + CSP, not the sanitizer. Don't re-introduce a script ban — agents will start wrapping everything in iframe srcdoc again (an atavism v0.7.1 SKILL.md actively pushes back on).
+- **`finalize()` on a live note is the ONLY legitimate in-place mutation of a note's `.html` file** (since v0.9.0). It exists precisely to compile the live feed into a static body and shut off live behavior — same explicit-boundary spirit as the `is_final` flag flip. Don't generalize this pattern into other code paths; no `update_note` tool, no second sidecar, no in-place edits outside finalize.
 - **The outer note iframe must NEVER have `allow-same-origin`.** In `src/viewer/render.ts` look for the `<iframe class="note-iframe" ... sandbox="...">` — keep it without `allow-same-origin`. That null-origin property is the single check making body-level scripts safe.
 - **`allow-same-origin` is always stripped from agent-supplied nested iframes** in `sanitize.ts transformTags.iframe`. Don't relax this — same reasoning at the second level.
 - **Append-only (ADR-014).** No `folio.update` MCP tool, no in-place note mutation. New iteration = new note in same thread folder.

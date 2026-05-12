@@ -92,6 +92,32 @@ test("listPopularTags returns counts >= 2 sorted desc; listNotesByTag returns ch
   expect(klient.map((n) => n.title)).toEqual(["B", "A"]); // newest first
 });
 
+test("listNotes combined filter: tag + type narrows correctly", async () => {
+  const { init } = await import("../src/cli/commands/init");
+  const { createNote, listNotes } = await import("../src/core/storage");
+  await init();
+
+  await createNote({ type: "research",   title: "R-foo", body_html: "<p>x</p>", tags: ["klient:foo", "saas"] });
+  await createNote({ type: "comparison", title: "C-foo", body_html: "<p>x</p>", tags: ["klient:foo"] });
+  await createNote({ type: "research",   title: "R-bar", body_html: "<p>x</p>", tags: ["klient:bar"] });
+  await createNote({ type: "research",   title: "R-untagged", body_html: "<p>x</p>" });
+
+  // tag only
+  const byTag = listNotes({ tag: "klient:foo" });
+  expect(byTag.map((n) => n.title).sort()).toEqual(["C-foo", "R-foo"]);
+
+  // tag + type
+  const byBoth = listNotes({ tag: "klient:foo", type: "research" });
+  expect(byBoth.map((n) => n.title)).toEqual(["R-foo"]);
+
+  // type only (existing behavior unchanged)
+  const byType = listNotes({ type: "research" });
+  expect(byType.map((n) => n.title).sort()).toEqual(["R-bar", "R-foo", "R-untagged"]);
+
+  // no filter
+  expect(listNotes({}).length).toBe(4);
+});
+
 test("classes from theme stylebook tracked in analytics", async () => {
   const { init } = await import("../src/cli/commands/init");
   const { createNote } = await import("../src/core/storage");

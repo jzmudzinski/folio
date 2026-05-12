@@ -68,10 +68,12 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
         // GET /
         if (req.method === "GET" && path === "/") {
           const type = url.searchParams.get("type") as NoteType | null;
+          const tag = url.searchParams.get("tag");
           const finalOnly = url.searchParams.get("final") === "1";
           const expiring = url.searchParams.get("expiring") === "1";
           let notes = listNotes({
             type: type ?? undefined,
+            tag: tag ?? undefined,
             is_final: finalOnly ? true : undefined,
             limit: 100,
           });
@@ -79,7 +81,7 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
             notes = notes.filter((n) => !n.is_final && n.expires_at && new Date(n.expires_at).getTime() - Date.now() < 7 * 86400000);
           }
           const popularTags = listPopularTags(20);
-          return htmlResp(pageList(notes, countSummary(), type ?? undefined, finalOnly ? "final" : expiring ? "expiring" : undefined, popularTags));
+          return htmlResp(pageList(notes, countSummary(), type ?? undefined, finalOnly ? "final" : expiring ? "expiring" : undefined, popularTags, tag ?? undefined));
         }
 
         // GET /search?q=...

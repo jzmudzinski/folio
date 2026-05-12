@@ -13,7 +13,7 @@ description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp)
 - **Storage:** `$FOLIO_HOME` (default `~/Folio/`)
 - **MCP:** `folio-mcp` (zobacz `docs/mcp-setup.md`)
 - **Viewer:** `folio serve` → http://127.0.0.1:4810
-- **Tools:** `folio.create`, `folio.get`, `folio.list`, `folio.search`, `folio.finalize`, `folio.suggest_thread`, `folio.list_expiring`, `folio.list_themes`
+- **Tools:** `create`, `get`, `list`, `search`, `finalize`, `unfinalize`, `suggest_thread`, `list_expiring`, `list_themes`, `export` (MCP server name `folio` → mcporter syntax: `folio.create`, `folio.search`, …)
 - **Stylebook:** `skills/folio/STYLEBOOK.md` (class contract z theme.css)
 - **Examples:** `skills/folio/examples/<typ>/`
 
@@ -39,17 +39,19 @@ description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp)
 
 ## Pętla obowiązkowa (każde użycie Folio)
 
+> Tool names (od v0.2.0) są bez prefiksu `folio.`. Server name to `folio`, tool name to `create` / `search` / `suggest_thread` etc. Klienci typu mcporter łączą oba: `mcporter call folio.create --args '...'`.
+
 ```
-1.  folio.suggest_thread({ title: <proposed title> })
+1.  suggest_thread({ title: <proposed title> })
     ↳ Jeśli `matches.length > 0` → użyj istniejącego `thread_id`.
     ↳ Jeśli pusto → użyj `proposed_new_thread` z response (nowy thread).
 
-2.  (opcjonalnie) folio.list_themes()  
+2.  (opcjonalnie) list_themes()
     ↳ Tylko gdy nie pewny theme. Cache w sesji — nie wołaj wielokrotnie.
 
 3.  Wygeneruj body_html zgodny z STYLEBOOK.md aktualnego theme'u.
 
-4.  folio.create({ type, title, body_html, thread_id, theme?, tags? })
+4.  create({ type, title, body_html, thread_id, theme?, tags? })
     ↳ Theme z user config (domyślnie linen) jeśli nie nadpisujesz świadomie.
     ↳ Theme_profile zostaw default ("hosted").
 
@@ -109,7 +111,7 @@ Default user-wide: zwykle **linen** (Apple-grade minimal). Override gdy:
 
 **Reguła:** jeśli user nie powiedział, użyj defaultu. Proponuj override TYLKO jeśli kontekst silnie pasuje (np. user pisze „zrób mi ADR" → sugeruj `folio` lub `terminal`).
 
-**Po wyborze:** `folio.list_themes` zwraca `prompt_addendum` dla każdego — przeczytaj odpowiedni przed generowaniem body. Stylebook theme'u dyktuje strukturę markupu (newsroom prose-forward, brutalist krótkie zdania, etc.).
+**Po wyborze:** `list_themes` zwraca `prompt_addendum` dla każdego — przeczytaj odpowiedni przed generowaniem body. Stylebook theme'u dyktuje strukturę markupu (newsroom prose-forward, brutalist krótkie zdania, etc.).
 
 ---
 
@@ -188,18 +190,19 @@ Sanitizer ENFORCED:
 
 ## Tagowanie
 
-`tags` w `folio.create`:
+`tags` w `create`:
 - Konkretne: `["postgres", "saas", "comparison"]`, nie ogólne `["analiza"]`
 - Lowercase, kebab-case
 - 2-5 tagów per notatka, nie więcej
 - Tag = co użyje user gdy będzie szukał
+- Konwencja per project (np. `klient:<slug>`, `projekt:<slug>`, `temat:<slug>`) działa — viewer agreguje tagi w sidebarze i daje per-tag widok pod `/tag/<slug>`
 
 ---
 
 ## Anti-patterns
 
-- ❌ **Spam folio.create** dla rzeczy, które powinny być w pamięci agenta lub w czacie (krótka odpowiedź jak „co to RAG?")
-- ❌ **Pomijanie folio.suggest_thread** → tworzy duplikat threadów. ZAWSZE sprawdź najpierw.
+- ❌ **Spam `create`** dla rzeczy, które powinny być w pamięci agenta lub w czacie (krótka odpowiedź jak „co to RAG?")
+- ❌ **Pomijanie `suggest_thread`** → tworzy duplikat threadów. ZAWSZE sprawdź najpierw.
 - ❌ **Generowanie body bez znajomości stylebook'a** → notatki wyglądają niespójnie
 - ❌ **Pominięcie metadanych** (tags) — utrudnia retrieval
 - ❌ **Pisanie HTML-a inline-styled jak z 2005** — używaj klas z theme.css
@@ -214,7 +217,7 @@ Per ADR-019 — twardy gating:
 
 **TAK surface:**
 - ✅ User wszedł w Folio-related convo (słowa: „folio", „notatka", „research", użył folio.* w session)
-- ✅ Natural moment po `folio.create` lub `folio.publish` — „BTW thread X ma jeszcze 2 noty wygasające"
+- ✅ Natural moment po `create` lub `export` — „BTW thread X ma jeszcze 2 noty wygasające"
 
 **NIE surface:**
 - ❌ Niezwiązana convo (Python helper, debugowanie czegoś innego)
@@ -223,7 +226,7 @@ Per ADR-019 — twardy gating:
 
 Mechanizm:
 ```
-folio.list_expiring({ within_days: 7, limit: 5 })
+list_expiring({ within_days: 7, limit: 5 })
 ↳ Jeśli array non-empty I jesteś w Folio convo:
    "BTW masz <N> not wygasających: <title 1, title 2, …>.
     Finalizować któryś? `folio finalize <id>`."
@@ -236,15 +239,15 @@ folio.list_expiring({ within_days: 7, limit: 5 })
 Gdy user mówi „popraw to / inna wersja / rozszerz o X":
 
 ```
-1. Identyfikuj `thread_id` aktualnej (lub szukaj przez folio.search).
-2. folio.create({ ..., thread_id: <ten sam> })
+1. Identyfikuj `thread_id` aktualnej (lub szukaj przez search).
+2. create({ ..., thread_id: <ten sam> })
 3. W odpowiedzi:
    MEDIA:<new_local_url>
    <TL;DR nowej wersji + co się zmieniło względem poprzedniej>
 4. User zobaczy w thread view obie wersje. Wybierze finalną klikiem.
 ```
 
-**NIE** wołaj `folio.finalize` na poprzedniej wersji — user sam decyduje która jest "ta właściwa".
+**NIE** wołaj `finalize` na poprzedniej wersji — user sam decyduje która jest "ta właściwa".
 
 ---
 
@@ -265,6 +268,6 @@ Każdy ma `prompt.md` (user prompt) i `output.html` (oczekiwany body_html).
 
 1. „Porównaj Postgres vs SQLite dla małego SaaS" → `comparison`, nowy thread.
 2. „Inna wersja, krótsza" → `comparison`, ten sam thread, nowa nota.
-3. „Co wiem o RAG?" → `folio.search "RAG"`, pokaż wyniki, NIE twórz nowej.
+3. „Co wiem o RAG?" → `search "RAG"`, pokaż wyniki, NIE twórz nowej.
 4. „Co to FTS5?" (krótkie) → bez Folio, zwykła odpowiedź (anti-trigger).
 5. „Zapisz to" po długiej odpowiedzi → `research` lub `snippet`.

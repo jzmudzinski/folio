@@ -1,9 +1,9 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig, folioRoot, bundledThemesDir, themesDir } from "../core/config";
-import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, listThreads } from "../core/storage";
+import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, listThreads, listPopularTags, listNotesByTag } from "../core/storage";
 import { db, logEvent } from "../core/db";
-import { pageList, pageSearch, pageThread, pageThreads, pageNote, pageStats, pageError } from "./render";
+import { pageList, pageSearch, pageThread, pageThreads, pageNote, pageStats, pageError, pageTag } from "./render";
 import type { NoteType } from "../core/types";
 
 function htmlResp(body: string, status = 200): Response {
@@ -56,7 +56,8 @@ export async function startServer(): Promise<void> {
           if (expiring) {
             notes = notes.filter((n) => !n.is_final && n.expires_at && new Date(n.expires_at).getTime() - Date.now() < 7 * 86400000);
           }
-          return htmlResp(pageList(notes, countSummary(), type ?? undefined, finalOnly ? "final" : expiring ? "expiring" : undefined));
+          const popularTags = listPopularTags(20);
+          return htmlResp(pageList(notes, countSummary(), type ?? undefined, finalOnly ? "final" : expiring ? "expiring" : undefined, popularTags));
         }
 
         // GET /search?q=...
@@ -82,6 +83,15 @@ export async function startServer(): Promise<void> {
           const notes = listNotes({ thread_id: tid, limit: 200 });
           if (notes.length === 0) return htmlResp(pageError(404, `Thread "${tid}" not found.`), 404);
           return htmlResp(pageThread(tid, notes));
+        }
+
+        // GET /tag/:slug — wszystkie noty z tagiem
+        if (req.method === "GET" && path.startsWith("/tag/")) {
+          const tag = decodeURIComponent(path.slice(5));
+          if (!tag) return Response.redirect("/", 302);
+          const notes = listNotesByTag(tag, 200);
+          if (notes.length === 0) return htmlResp(pageError(404, `Brak not z tagiem "${tag}".`), 404);
+          return htmlResp(pageTag(tag, notes, listPopularTags(20)));
         }
 
         // GET /n/:id  (viewer chrome + iframe)
@@ -157,6 +167,20 @@ export async function startServer(): Promise<void> {
         if (req.method === "GET" && path === "/api/threads") {
           const q = url.searchParams.get("q") ?? "";
           return jsonResp(listThreads(q || undefined, 500));
+        }
+
+        // GET /api/tags — top tags with count (default ≥2)
+        if (req.method === "GET" && path === "/api/tags") {
+          const limit = Number(url.searchParams.get("limit") ?? 50);
+          const min = Number(url.searchParams.get("min_count") ?? 2);
+          return jsonResp(listPopularTags(Math.min(Math.max(1, limit), 500), Math.max(1, min)));
+        }
+
+        // GET /api/tag/:slug — notes for a single tag (JSON)
+        if (req.method === "GET" && path.startsWith("/api/tag/")) {
+          const tag = decodeURIComponent(path.slice(9));
+          if (!tag) return jsonResp([]);
+          return jsonResp(listNotesByTag(tag, 200));
         }
 
         // GET /health

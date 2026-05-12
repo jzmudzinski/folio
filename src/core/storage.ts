@@ -457,6 +457,34 @@ export function suggestThread(title: string, limit = 5): { thread_id: string; ex
     .all(scoped, limit);
 }
 
+export function listPopularTags(limit = 20, minCount = 2): { tag: string; count: number }[] {
+  return db()
+    .query<{ tag: string; count: number }, [number, number]>(
+      `SELECT t.tag, COUNT(*) AS count
+         FROM tags t
+         JOIN notes n ON n.id = t.note_id
+        WHERE n.status = 'active'
+        GROUP BY t.tag
+       HAVING count >= ?
+        ORDER BY count DESC, t.tag ASC
+        LIMIT ?`
+    )
+    .all(minCount, limit);
+}
+
+export function listNotesByTag(tag: string, limit = 200): NoteMeta[] {
+  const rows = db()
+    .query<Record<string, any>, [string, number]>(
+      `SELECT n.* FROM notes n
+         JOIN tags t ON t.note_id = n.id
+        WHERE n.status = 'active' AND t.tag = ?
+        ORDER BY n.created DESC
+        LIMIT ?`
+    )
+    .all(tag, limit);
+  return rows.map(rowToMeta);
+}
+
 export function stats(): Record<string, any> {
   const d = db();
   return {

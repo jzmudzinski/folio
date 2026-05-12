@@ -13,5 +13,5 @@
 
 **Action:**
 
-1. `folio.suggest_thread({ title: "Q3 finanse" })` → use `q3-2026-finance` or new thread
-2. `folio.create({ type: "technical", title: "Q3 2026 — financial review", theme: "ledger", thread_id: "q3-2026-finance", tags: ["finance","q3-2026","kpi","review"], body_html: <see output.html> })`
+1. `suggest_thread({ title: "Q3 finanse" })` → use `q3-2026-finance` or new thread
+2. `create({ type: "technical", title: "Q3 2026 — financial review", theme: "ledger", thread_id: "q3-2026-finance", tags: ["finance","q3-2026","kpi","review"], body_html: <see output.html> })`

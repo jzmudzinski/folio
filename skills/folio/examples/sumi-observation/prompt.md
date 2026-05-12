@@ -13,5 +13,5 @@
 
 **Action:**
 
-1. `folio.suggest_thread({ title: "Refleksje" })` → use `refleksje` or `weekly-observations`
-2. `folio.create({ type: "snippet", title: "Tydzień z Folio", theme: "sumi", thread_id: "weekly-observations", body_html: <see output.html> })`
+1. `suggest_thread({ title: "Refleksje" })` → use `refleksje` or `weekly-observations`
+2. `create({ type: "snippet", title: "Tydzień z Folio", theme: "sumi", thread_id: "weekly-observations", body_html: <see output.html> })`

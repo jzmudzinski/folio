@@ -45,6 +45,29 @@ export function threadsDir(): string {
   return join(folioRoot(), "threads");
 }
 
+export function threadAssetsDir(threadId: string): string {
+  // Assets live in threads/<thread_id>/assets/ — sibling to the note *.html
+  // files so they share the thread folder and get the same backup coverage,
+  // but in a subdir so a filename can never collide with a note slug.
+  return join(threadsDir(), threadId, "assets");
+}
+
+/**
+ * Safe-asset-filename predicate. Must be ASCII alphanumeric + `.` `_` `-`,
+ * non-empty, ≤ 200 chars, no leading/trailing dot, no consecutive dots
+ * (prevents `..` and `.foo` hidden files). Path separators are excluded by
+ * the character class. Reject everything else; this is the only guard
+ * between an untrusted MCP caller and the filesystem.
+ */
+export function isSafeAssetFilename(name: string): boolean {
+  if (typeof name !== "string") return false;
+  if (name.length === 0 || name.length > 200) return false;
+  if (!/^[a-zA-Z0-9._-]+$/.test(name)) return false;
+  if (name.startsWith(".") || name.endsWith(".")) return false;
+  if (name.includes("..")) return false;
+  return true;
+}
+
 export function themesDir(): string {
   return join(folioRoot(), "themes");
 }

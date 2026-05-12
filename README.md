@@ -5,9 +5,42 @@
 
 > Visual communication layer between AI agents and humans.
 
-Markdown is flat. Folio is the medium where an AI agent stops *describing* something and starts *showing* it — scorecards, color-coded findings, sortable tables, embedded interactive demos, all in a single standalone HTML file that lives on your disk and travels anywhere.
+When your agent has something to show — research, comparison, technical doc, scorecards, color-coded findings, sortable tables, embedded interactive demos — Folio renders it as a **single standalone HTML file** on your disk, served by a local viewer, addressable from any MCP client.
 
-Folio is not a knowledge base. It's the surface on which your current conversation with an agent renders.
+**What you get:**
+
+- 🎨 **18 themes** with structural CSS the agent uses (`.eyebrow`, `.lead`, `.pill`, `.card`, `.verdict`, …) — drop your own folder under `~/Folio/themes/` and it shows up live
+- 📂 **Notes as plain HTML files** in `~/Folio/threads/<topic>/` — append-only, no database lock-in, `tar` and walk away
+- 🔎 **SQLite FTS5 full-text search** with Polish-aware tokenizer + suffix stemmer
+- 🧩 **MCP server** (`folio-mcp`) — 11 tools, works with OpenClaw, Claude Code, Claude Desktop, Cursor, Continue
+- 🖼️ **Local viewer** at `127.0.0.1:4810` — iframe-isolated themes, lightbox, TOC with scroll spy, prev/next-in-thread
+- 📎 **Attach assets** (images / PDFs / videos) to threads with hardened filename + extension validation
+- ⚡ **Pre-compiled binaries** for darwin-arm64 / linux-x64 / linux-arm64 — no runtime dependency
+
+> *Folio is not a knowledge base. It's the surface on which your current conversation with an agent renders. Markdown is flat — Folio is where the agent stops describing and starts showing.*
+
+---
+
+## Status
+
+**v0.8.0 — early but functional.** Public release: 2026-05-12.
+
+- ✅ Core flow works end-to-end: agent calls MCP `create` → note lands on disk → browser opens at `/n/<id>` → renders in the chosen theme
+- ✅ Used daily by the author for ~2 weeks of agent research, comparisons, and decision notes
+- ✅ Pre-compiled tarballs published per release for all three target triples; `folio update` self-updates from GitHub Releases
+- ⚠️ Expect rough edges on error paths and uncommon configurations — issues and PRs welcome
+
+This is the first day the repo is public. The MCP contract (tool names, args, response shape) is stable for v0.x but may still change before 1.0 based on real-world usage.
+
+---
+
+## Why Folio vs …
+
+- **vs Claude Artifacts / OpenAI Canvas** — local-first, your filesystem, no vendor lock-in. Threads of notes (not single isolated artifacts), addressable from any MCP-capable client, not coupled to one chat product.
+- **vs Obsidian / SilverBullet / Notion** — HTML not Markdown, designed for agents to write and humans to read. Sandboxed iframes for embedded demos. Append-only by design — the agent can never overwrite your prior take, only add another angle in the same thread.
+- **vs a folder of `.html` files** — indexed (FTS5), themed (18 bundled), addressable (`/n/<id>`), served, MCP-wired, lifecycle-managed (30-day auto-cleanup unless `finalize`d).
+
+The product is the **filesystem + viewer + MCP contract**, not a hosted app. Every note is a valid standalone HTML file that opens in any browser, with or without Folio running.
 
 ---
 

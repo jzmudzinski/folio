@@ -9,6 +9,7 @@ import { openCmd } from "./commands/open";
 import { cleanupCmd } from "./commands/cleanup";
 import { reindexCmd } from "./commands/reindex";
 import { exportCmd } from "./commands/export";
+import { updateCmd } from "./commands/update";
 import { c, out } from "./io";
 
 interface ParsedArgs {
@@ -62,6 +63,7 @@ function help(): number {
   out(`  ${c.cyan("reindex")}           Rebuild FTS index from HTML files on disk (after tokenizer changes)`);
   out(`  ${c.cyan("export <id>")}       Export note as HTML (--standalone inlines theme CSS, --out path to file or stdout)`);
   out(`  ${c.cyan("serve")}             Start local viewer on http://127.0.0.1:4810`);
+  out(`  ${c.cyan("update")}            Check + install latest release from GitHub (--check, --force, --pre, --json)`);
   out(`  ${c.cyan("help")}              This help`);
   out("");
   out(c.dim("Run `folio init` first if you haven't yet."));
@@ -148,6 +150,13 @@ export async function main(argv = process.argv): Promise<number> {
         });
       case "serve":
         return await serve();
+      case "update":
+        return await updateCmd({
+          check: flagBool(flags.check),
+          force: flagBool(flags.force),
+          prerelease: flagBool(flags.pre) || flagBool(flags.prerelease),
+          jsonOut: flagBool(flags.json),
+        });
       case "help":
       case undefined:
       case "":

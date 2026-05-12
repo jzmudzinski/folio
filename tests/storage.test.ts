@@ -70,6 +70,28 @@ test("finalize clears expires_at", async () => {
   expect(after?.expires_at).toBeNull();
 });
 
+test("listPopularTags returns counts >= 2 sorted desc; listNotesByTag returns chronological", async () => {
+  const { init } = await import("../src/cli/commands/init");
+  const { createNote, listPopularTags, listNotesByTag } = await import("../src/core/storage");
+  await init();
+
+  await createNote({ type: "snippet", title: "A", body_html: "<p>a</p>", tags: ["klient:foo", "saas"] });
+  await createNote({ type: "snippet", title: "B", body_html: "<p>b</p>", tags: ["klient:foo", "saas", "ai"] });
+  await createNote({ type: "snippet", title: "C", body_html: "<p>c</p>", tags: ["saas"] });
+  await createNote({ type: "snippet", title: "D", body_html: "<p>d</p>", tags: ["only-once"] });
+
+  const top = listPopularTags(10);
+  const counts = Object.fromEntries(top.map((t) => [t.tag, t.count]));
+  expect(counts["saas"]).toBe(3);
+  expect(counts["klient:foo"]).toBe(2);
+  expect(counts["only-once"]).toBeUndefined(); // singletons excluded
+  expect(counts["ai"]).toBeUndefined();
+  expect(top[0]!.tag).toBe("saas"); // highest count first
+
+  const klient = listNotesByTag("klient:foo");
+  expect(klient.map((n) => n.title)).toEqual(["B", "A"]); // newest first
+});
+
 test("classes from theme stylebook tracked in analytics", async () => {
   const { init } = await import("../src/cli/commands/init");
   const { createNote } = await import("../src/core/storage");

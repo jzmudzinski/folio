@@ -1,6 +1,8 @@
 # Folio MCP Server — agent setup
 
-`folio-mcp` is a stdio MCP server exposing **10 tools** and **6 resources** to any MCP-capable agent: `folio.create`, `folio.get`, `folio.list`, `folio.search`, `folio.finalize`, `folio.unfinalize`, `folio.suggest_thread`, `folio.list_expiring`, `folio.list_themes`, `folio.export`.
+`folio-mcp` is a stdio MCP server exposing **10 tools** and **6 resources** to any MCP-capable agent: `create`, `get`, `list`, `search`, `finalize`, `unfinalize`, `suggest_thread`, `list_expiring`, `list_themes`, `export`.
+
+The MCP server is registered under the name `folio`, so clients that namespace tools (mcporter, OpenClaw) invoke them as `folio.create`, `folio.search`, etc. The raw tool names themselves carry no prefix — that's a v0.2.0 change.
 
 **Prerequisite:** install Folio so `folio-mcp` is on your `PATH` (see [`../README.md#install`](../README.md#install)). If you cloned the repo for development, use `bun /path/to/folio/bin/folio-mcp.ts` instead of `folio-mcp` below.
 
@@ -28,7 +30,7 @@ Then link the Skill so the agent knows when/how to call Folio:
 ln -s "$HOME/.local/folio/skills/folio" "$HOME/.openclaw/workspace/skills/folio"
 ```
 
-After OpenClaw restart you should see `folio.*` tools in `mcporter list`.
+After OpenClaw restart you should see `folio.*` tools in `mcporter list`. Invoke them as `mcporter call folio.create --args '<json>'` — `folio` is the server, `create` is the tool.
 
 ---
 
@@ -69,7 +71,7 @@ Most MCP-capable editors accept the same shape: command `folio-mcp`, no args, op
 
 ## Response convention
 
-After `folio.create`, the tool returns a `response_hint` field suggesting the agent reply to the user with:
+After `create`, the tool returns a `response_hint` field suggesting the agent reply to the user with:
 
 ```
 MEDIA:http://127.0.0.1:4810/n/<id>
@@ -83,11 +85,11 @@ The user clicks the link, the local viewer renders the note. This is the core lo
 ## Recommended flow
 
 1. **Decide:** does this output deserve rich layout (research, comparison, technical) or is a short text reply enough?
-2. **Pre-create:** `folio.suggest_thread({ title })` — if a matching thread exists, use its `thread_id`; otherwise use the proposed slug.
-3. **Optional:** `folio.list_themes` if uncertain which theme fits the content.
-4. **Create:** `folio.create` with type + title + body_html + thread_id (+ theme if non-default).
+2. **Pre-create:** `suggest_thread({ title })` — if a matching thread exists, use its `thread_id`; otherwise use the proposed slug.
+3. **Optional:** `list_themes` if uncertain which theme fits the content.
+4. **Create:** `create` with type + title + body_html + thread_id (+ theme if non-default).
 5. **Reply** with `MEDIA:<local_url>` + short TL;DR.
-6. **Iterate:** when the user asks for another angle, call `folio.create` again with the same `thread_id` (Folio is append-only; the previous version stays).
+6. **Iterate:** when the user asks for another angle, call `create` again with the same `thread_id` (Folio is append-only; the previous version stays).
 
 ---
 

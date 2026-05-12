@@ -6,8 +6,8 @@
 
 **Agent action sequence:**
 
-1. `folio.suggest_thread({ title: "Daily journal" })` → existing thread `daily-journal` probably matches; use it (or `daily` for short)
-2. `folio.create({ type: "journal", title: "Czwartek — Marta calls", thread_id: "daily", theme: "notebook", tags: ["daily","meeting","marta"], body_html: <see output.html> })`
+1. `suggest_thread({ title: "Daily journal" })` → existing thread `daily-journal` probably matches; use it (or `daily` for short)
+2. `create({ type: "journal", title: "Czwartek — Marta calls", thread_id: "daily", theme: "notebook", tags: ["daily","meeting","marta"], body_html: <see output.html> })`
 3. Respond with `MEDIA:<local_url>` + 2-line recap.
 
 **Why notebook theme:**

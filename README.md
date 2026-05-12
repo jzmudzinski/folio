@@ -44,7 +44,7 @@ Requires Bun 1.3+ for source install. Release tarballs ship pre-compiled single-
 ## How it works in 60 seconds
 
 1. An MCP-capable agent (OpenClaw, Claude Code, Claude Desktop, Cursor, Continue, …) connects to `folio-mcp` over stdio.
-2. When the agent has something visual to show — research, comparison, technical doc, interactive demo — it calls `folio.create` with an HTML body and a theme.
+2. When the agent has something visual to show — research, comparison, technical doc, interactive demo — it calls `create` with an HTML body and a theme.
 3. The note lands at `~/Folio/threads/<topic>/<slug>.html` and the agent replies with `http://127.0.0.1:4810/n/<id>`.
 4. You open the link in a browser. The local viewer renders the note in the chosen theme, attaches a sidebar with metadata + actions, and stays out of the way.
 5. Want another angle? Tell the agent. It writes a new note in the same thread folder. The previous one stays intact (Folio is append-only). Mark the best one as "final" — it skips the 30-day auto-cleanup.
@@ -74,7 +74,7 @@ Environment: `FOLIO_HOME=/path` overrides storage root. `FOLIO_DEBUG=1` for stac
 
 ## Agent integration
 
-Folio is built around the MCP protocol. The server (`folio-mcp`) exposes **10 tools** (`folio.create`, `get`, `list`, `search`, `finalize`, `unfinalize`, `suggest_thread`, `list_expiring`, `list_themes`, `export`) and **6 resources** for context-loading.
+Folio is built around the MCP protocol. The server (`folio-mcp`) exposes **10 tools** (`create`, `get`, `list`, `search`, `finalize`, `unfinalize`, `suggest_thread`, `list_expiring`, `list_themes`, `export`) and **6 resources** for context-loading. The server name is `folio`, so mcporter-style clients invoke them as `folio.create`, `folio.search`, etc.
 
 ### OpenClaw + mcporter
 
@@ -109,7 +109,7 @@ Most MCP-capable clients accept the same shape: command `folio-mcp`, no args. Se
 - `theme.css` — CSS variables + utility classes (`.eyebrow`, `.lead`, `.pill`, `.card`, `.verdict`, …) the agent uses for structure
 - `theme.md` — prompt addendum the Skill injects so the agent matches the theme's voice and structure
 
-Defaults: `linen` (warm cream, Familjen Grotesk + Instrument Serif italic, orange accent). Switch per-note via `folio.create({ theme })` or globally in `~/Folio/folio.config.json`.
+Defaults: `linen` (warm cream, Familjen Grotesk + Instrument Serif italic, orange accent). Switch per-note via `create({ theme })` or globally in `~/Folio/folio.config.json`.
 
 Drop your own folder at `~/Folio/themes/<name>/` and it appears in the viewer dropdown immediately — no restart, no rebuild.
 

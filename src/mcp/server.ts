@@ -10,6 +10,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import pkg from "../../package.json" with { type: "json" };
 
 import {
   createNote,
@@ -32,7 +33,7 @@ const ALLOWED_PROFILES: RenderProfile[] = ["hosted", "standalone"];
 
 const tools: Tool[] = [
   {
-    name: "folio.create",
+    name: "create",
     description:
       "Create a new Folio note (HTML communication artifact). Agents call this when they want to give the user a visually-rich response (research, comparison, technical doc). Note: append-only — you cannot edit; new iteration = new note in same thread.",
     inputSchema: {
@@ -42,8 +43,8 @@ const tools: Tool[] = [
         type: { type: "string", enum: ALLOWED_TYPES, description: "Note type. Pick `research` for deep dives, `comparison` for vs tables, `technical` for ADRs/specs, `journal` for chronological, `snippet` for short." },
         title: { type: "string", description: "Human-readable title (used as h1)." },
         body_html: { type: "string", description: "HTML fragment for the article body. NO <html>/<body>/<head>/<style>/<title>/<meta>; these come from template. Use semantic tags + theme utility classes (.eyebrow, .lead, .pill, .card, .verdict)." },
-        thread_id: { type: "string", description: "Thread slug (kebab-case). Group related iterations. If omitted, slugified from title. PREFER calling folio.suggest_thread first to continue an existing thread instead of creating duplicates." },
-        theme: { type: "string", description: "Theme name (default from user config, usually 'linen'). Call folio.list_themes to discover." },
+        thread_id: { type: "string", description: "Thread slug (kebab-case). Group related iterations. If omitted, slugified from title. PREFER calling suggest_thread first to continue an existing thread instead of creating duplicates." },
+        theme: { type: "string", description: "Theme name (default from user config, usually 'linen'). Call list_themes to discover." },
         theme_profile: { type: "string", enum: ALLOWED_PROFILES, description: "'hosted' (default, links theme.css, ~50% less tokens) or 'standalone' (inline CSS, share-ready)." },
         tags: { type: "array", items: { type: "string" }, description: "Free-form tags." },
         is_final: { type: "boolean", description: "Mark as final (no auto-cleanup). User typically does this from viewer; agent only when explicitly asked." },
@@ -51,7 +52,7 @@ const tools: Tool[] = [
     },
   },
   {
-    name: "folio.get",
+    name: "get",
     description: "Read a note's metadata and body HTML.",
     inputSchema: {
       type: "object",
@@ -63,7 +64,7 @@ const tools: Tool[] = [
     },
   },
   {
-    name: "folio.list",
+    name: "list",
     description: "List recent notes with optional filters.",
     inputSchema: {
       type: "object",
@@ -76,7 +77,7 @@ const tools: Tool[] = [
     },
   },
   {
-    name: "folio.search",
+    name: "search",
     description: "Full-text search across all notes (FTS5 BM25 with field weighting: title ×5, headings ×3, tags ×4, body ×1).",
     inputSchema: {
       type: "object",
@@ -89,7 +90,7 @@ const tools: Tool[] = [
     },
   },
   {
-    name: "folio.finalize",
+    name: "finalize",
     description: "Mark a note as final — skip auto-cleanup. Use when user says 'keep this' or 'this is the right version'.",
     inputSchema: {
       type: "object",
@@ -98,8 +99,8 @@ const tools: Tool[] = [
     },
   },
   {
-    name: "folio.suggest_thread",
-    description: "Suggest existing thread_ids that match the title (FTS-based). CALL THIS BEFORE folio.create when you suspect the topic already has notes — to continue the thread instead of creating duplicates.",
+    name: "suggest_thread",
+    description: "Suggest existing thread_ids that match the title (FTS-based). CALL THIS BEFORE create when you suspect the topic already has notes — to continue the thread instead of creating duplicates.",
     inputSchema: {
       type: "object",
       required: ["title"],
@@ -111,7 +112,7 @@ const tools: Tool[] = [
     },
   },
   {
-    name: "folio.list_expiring",
+    name: "list_expiring",
     description: "List non-final notes that will be auto-deleted soon. Use to proactively warn the user (gated heuristics in Skill).",
     inputSchema: {
       type: "object",
@@ -122,12 +123,12 @@ const tools: Tool[] = [
     },
   },
   {
-    name: "folio.list_themes",
+    name: "list_themes",
     description: "List available themes with name, source (bundled/user), summary, and best-for hints from theme.md.",
     inputSchema: { type: "object", properties: {} },
   },
   {
-    name: "folio.export",
+    name: "export",
     description: "Export a note as a single self-contained HTML document. Use this when the user asks to share / download / send a note — agent gets back the full HTML string ready to paste, save, or pipe further. The note file on disk is NOT modified.",
     inputSchema: {
       type: "object",
@@ -139,7 +140,7 @@ const tools: Tool[] = [
     },
   },
   {
-    name: "folio.unfinalize",
+    name: "unfinalize",
     description: "Reverse a finalize: re-enable auto-cleanup countdown on a note. Use sparingly — only when user explicitly says 'this isn't the right version after all'. Sets expires_at = created + default_lifespan and is_final=false.",
     inputSchema: {
       type: "object",
@@ -163,7 +164,7 @@ function pickFirstLine(s: string, maxLen = 140): string {
 
 export async function buildServer(): Promise<Server> {
   const server = new Server(
-    { name: "folio", version: "0.1.0" },
+    { name: "folio", version: pkg.version },
     { capabilities: { tools: {}, resources: {} } }
   );
 
@@ -175,7 +176,7 @@ export async function buildServer(): Promise<Server> {
 
     try {
       switch (name) {
-        case "folio.create": {
+        case "create": {
           if (!args.type || !args.title || !args.body_html) {
             return errContent("Missing required: type, title, body_html");
           }
@@ -207,7 +208,7 @@ export async function buildServer(): Promise<Server> {
           });
         }
 
-        case "folio.get": {
+        case "get": {
           const id = String(args.id ?? "");
           if (!id) return errContent("Missing id");
           const note = getNoteMeta(id);
@@ -221,7 +222,7 @@ export async function buildServer(): Promise<Server> {
           return jsonContent({ ...note, body_html });
         }
 
-        case "folio.list": {
+        case "list": {
           const rows = listNotes({
             type: args.type as NoteType | undefined,
             thread_id: args.thread_id ? String(args.thread_id) : undefined,
@@ -231,7 +232,7 @@ export async function buildServer(): Promise<Server> {
           return jsonContent(rows);
         }
 
-        case "folio.search": {
+        case "search": {
           if (!args.query) return errContent("Missing query");
           const hits = searchNotes({
             query: String(args.query),
@@ -241,7 +242,7 @@ export async function buildServer(): Promise<Server> {
           return jsonContent(hits);
         }
 
-        case "folio.finalize": {
+        case "finalize": {
           const id = String(args.id ?? "");
           if (!id) return errContent("Missing id");
           const ok = finalize(id);
@@ -249,7 +250,7 @@ export async function buildServer(): Promise<Server> {
           return jsonContent({ ok: true, id });
         }
 
-        case "folio.suggest_thread": {
+        case "suggest_thread": {
           const title = String(args.title ?? "");
           if (!title) return errContent("Missing title");
           const limit = typeof args.limit === "number" ? args.limit : 5;
@@ -266,7 +267,7 @@ export async function buildServer(): Promise<Server> {
           return jsonContent({ matches: found });
         }
 
-        case "folio.list_expiring": {
+        case "list_expiring": {
           const within_days = typeof args.within_days === "number" ? args.within_days : 7;
           const limit = typeof args.limit === "number" ? args.limit : 10;
           const rows = db()
@@ -283,7 +284,7 @@ export async function buildServer(): Promise<Server> {
           return jsonContent(rows);
         }
 
-        case "folio.list_themes": {
+        case "list_themes": {
           const list = listThemes();
           const detailed = await Promise.all(
             list.map(async (t) => {
@@ -302,7 +303,7 @@ export async function buildServer(): Promise<Server> {
           });
         }
 
-        case "folio.export": {
+        case "export": {
           const id = String(args.id ?? "");
           if (!id) return errContent("Missing id");
           const note = getNoteMeta(id);
@@ -336,7 +337,7 @@ export async function buildServer(): Promise<Server> {
           });
         }
 
-        case "folio.unfinalize": {
+        case "unfinalize": {
           const id = String(args.id ?? "");
           if (!id) return errContent("Missing id");
           const note = getNoteMeta(id);

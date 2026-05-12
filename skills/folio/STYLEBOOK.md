@@ -212,7 +212,7 @@ Twoja notatka renderuje się w viewerze z wieloma helpers attached parent-side. 
 
 ## Tone — per theme
 
-Każdy theme ma `theme.md` z sekcjami "Voice" i "Avoid" — przeczytaj **aktualnego theme'u prompt addendum** zanim generujesz. Najprostszy sposób: `folio.list_themes` zwraca pełny `prompt_addendum` field dla każdego dostępnego theme'u.
+Każdy theme ma `theme.md` z sekcjami "Voice" i "Avoid" — przeczytaj **aktualnego theme'u prompt addendum** zanim generujesz. Najprostszy sposób: `list_themes` zwraca pełny `prompt_addendum` field dla każdego dostępnego theme'u.
 
 **Linen (default):** clear, measured, public-facing. Generous whitespace.
 **Folio:** precise, opinionated, snarky OK. Numbers > vague.
@@ -225,7 +225,7 @@ Każdy theme ma `theme.md` z sekcjami "Voice" i "Avoid" — przeczytaj **aktualn
 
 ## Mierzymy (ADR-017)
 
-Każde użycie `folio.create` zapisuje do `events`:
+Każde użycie `create` zapisuje do `events`:
 - `class_count` — ile klas użyłeś z theme.css
 - `inline_style_count` — ile `style="..."` (cel: 0)
 - `sanitizer_drops` — ile sanitizer wyrzucił (cel: 0, znaczy nie ma exotic shit)

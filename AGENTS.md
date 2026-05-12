@@ -1,6 +1,6 @@
 # AGENTS.md — working ON the Folio codebase
 
-> This file is for an agent (Claude Code, Cursor, OpenClaw, etc.) **modifying Folio's source**. If you're an agent looking for "how to use Folio as a tool" (folio.create, themes, output structure), read `skills/folio/SKILL.md` and `skills/folio/STYLEBOOK.md` instead.
+> This file is for an agent (Claude Code, Cursor, OpenClaw, etc.) **modifying Folio's source**. If you're an agent looking for "how to use Folio as a tool" (the `create` / `search` / `suggest_thread` MCP tools, themes, output structure), read `skills/folio/SKILL.md` and `skills/folio/STYLEBOOK.md` instead.
 
 ---
 

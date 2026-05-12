@@ -179,6 +179,16 @@ a { color: inherit; text-decoration: none; }
 .cluster .cluster-meta { font-family: var(--vmono); font-size: 11px; color: var(--vmuted); text-align: right; display: flex; flex-direction: column; gap: 4px; align-items: end; }
 .cluster .cluster-meta .big { font-family: var(--vhead); font-weight: 500; font-size: 32px; line-height: 1; color: var(--vink); letter-spacing: -0.02em; }
 
+.tag-cloud { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 4px 8px; }
+.tag-cloud .tag-chip { display: inline-flex; align-items: baseline; gap: 8px; font-family: var(--vmono); font-size: 12px; padding: 5px 12px; border-radius: 999px; background: var(--vpanel); border: 1px solid var(--vline); color: var(--vink-2); transition: color .12s, border-color .12s, background .12s; }
+.tag-cloud .tag-chip:hover { color: var(--vorange); border-color: var(--vorange); }
+.tag-cloud .tag-chip.on { background: var(--vink); border-color: var(--vink); color: var(--vbg); }
+.tag-cloud .tag-chip .ns { color: var(--vbronze); }
+.tag-cloud .tag-chip.on .ns { color: var(--vamber); }
+.tag-cloud .tag-chip .count { font-size: 10.5px; color: var(--vmuted); }
+.tag-cloud .tag-chip.on .count { color: var(--vbg); opacity: 0.7; }
+.tag-cloud .more { font-family: var(--vmono); font-size: 11px; color: var(--vmuted-2); padding: 5px 4px; align-self: center; }
+
 .thread-card { display: grid; grid-template-columns: 1fr auto auto; gap: 22px; align-items: center; padding: 18px 8px 18px 30px; border-bottom: 1px solid var(--vline-2); position: relative; transition: background .12s; }
 .thread-card:hover { background: var(--vbg-2); }
 .thread-card::before { content: ""; position: absolute; left: 8px; top: 18px; bottom: 18px; width: 2px; background: var(--vline); border-radius: 1px; }
@@ -222,7 +232,8 @@ a { color: inherit; text-decoration: none; }
 .side-meta dd.warn { color: var(--vamber); }
 .side-meta dd.final { color: var(--vorange); }
 .side-tags { display: flex; flex-wrap: wrap; gap: 4px; }
-.side-tags .tg { font-family: var(--vmono); font-size: 10.5px; padding: 3px 8px; border-radius: 4px; background: var(--vbg-2); color: var(--vmuted); border: 1px solid var(--vline-2); }
+.side-tags .tg { font-family: var(--vmono); font-size: 10.5px; padding: 3px 8px; border-radius: 4px; background: var(--vbg-2); color: var(--vmuted); border: 1px solid var(--vline-2); transition: color .12s, border-color .12s, background .12s; }
+.side-tags a.tg:hover { color: var(--vorange); border-color: var(--vorange); background: var(--vpanel); }
 .side-aux { margin-top: auto; padding-top: 18px; border-top: 1px solid var(--vline); display: flex; flex-direction: column; gap: 4px; }
 .side-aux a, .side-aux button { font-family: var(--vmono); font-size: 11px; color: var(--vmuted); letter-spacing: 0.06em; padding: 4px 0; transition: color .12s; background: transparent; border: 0; text-align: left; cursor: pointer; }
 .side-aux a:hover, .side-aux button:hover { color: var(--vorange); }
@@ -522,7 +533,26 @@ function threadCard(t: ThreadHit): string {
 </a>`;
 }
 
-export function pageList(notes: NoteMeta[], counts: CountSummary, activeType?: string, activeStatus?: string): string {
+function tagChip(t: { tag: string; count: number }, active = false): string {
+  const colonIdx = t.tag.indexOf(":");
+  const label = colonIdx > 0
+    ? `<span class="ns">${esc(t.tag.slice(0, colonIdx + 1))}</span>${esc(t.tag.slice(colonIdx + 1))}`
+    : esc(t.tag);
+  return `<a class="tag-chip${active ? " on" : ""}" href="/tag/${encodeURIComponent(t.tag)}">${label}<span class="count">${t.count}</span></a>`;
+}
+
+function tagCloud(tags: { tag: string; count: number }[], activeTag?: string): string {
+  if (tags.length === 0) return "";
+  return `<div class="tag-cloud">${tags.map((t) => tagChip(t, t.tag === activeTag)).join("")}</div>`;
+}
+
+export function pageList(
+  notes: NoteMeta[],
+  counts: CountSummary,
+  activeType?: string,
+  activeStatus?: string,
+  popularTags: { tag: string; count: number }[] = []
+): string {
   const groups = new Map<string, NoteMeta[]>();
   for (const n of notes) {
     const g = dateGroup(n.created);
@@ -543,12 +573,55 @@ export function pageList(notes: NoteMeta[], counts: CountSummary, activeType?: s
     })
     .join("");
 
+  const tagsSection = popularTags.length > 0 && !activeType && !activeStatus
+    ? `<div class="group">
+         <div class="group-lbl">Tagi <span class="count">· ${popularTags.length}</span><span class="spacer"></span><span class="accent">popularne</span></div>
+         ${tagCloud(popularTags)}
+       </div>`
+    : "";
+
   const body = notes.length === 0
     ? `<div class="empty"><h2>Pusto</h2><p class="lead">Stwórz pierwszą notatkę: <code>folio new --title "..." --html @file.html</code></p></div>`
-    : `<main class="v-page">${groupsHtml}</main>`;
+    : `<main class="v-page">${groupsHtml}${tagsSection}</main>`;
 
   const meta = notes.length > 0 ? `${notes.length} not · ostatnia ${ago(notes[0]!.created)}` : "";
   return shell("Folio", `${topbar("", "notes")}${filterBar(activeType, activeStatus, counts, meta)}${body}`);
+}
+
+export function pageTag(tag: string, notes: NoteMeta[], popularTags: { tag: string; count: number }[] = []): string {
+  const sorted = [...notes].sort((a, b) => b.created.localeCompare(a.created));
+  const latest = sorted[0]?.created ?? "";
+  const finalCount = notes.filter((n) => n.is_final).length;
+  const rows = sorted.map(noteRow).join("");
+  const otherTags = popularTags.filter((t) => t.tag !== tag).slice(0, 16);
+  const otherCloud = otherTags.length > 0
+    ? `<div class="group">
+         <div class="group-lbl">Inne popularne tagi <span class="count">· ${otherTags.length}</span></div>
+         ${tagCloud(otherTags)}
+       </div>`
+    : "";
+
+  const colonIdx = tag.indexOf(":");
+  const headerLabel = colonIdx > 0
+    ? `<span style="color:var(--vbronze)">${esc(tag.slice(0, colonIdx + 1))}</span>${esc(tag.slice(colonIdx + 1))}`
+    : esc(tag);
+
+  const body = `
+<main class="v-page">
+  <div class="group">
+    <div class="group-lbl"><a href="/" style="color:var(--vmuted)">← Noty</a> <span class="spacer"></span><span class="accent">tag</span></div>
+    <div style="padding: 8px 4px 20px;">
+      <div style="font-family: var(--vmono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--vbronze); margin-bottom: 8px;">🏷 tag</div>
+      <h1 style="font-family: var(--vhead); font-weight: 500; font-size: clamp(28px, 3.6vw, 40px); letter-spacing: -0.025em; margin: 0 0 6px; line-height: 1.1;">${headerLabel}</h1>
+      <div style="font-family: var(--vmono); font-size: 12px; color: var(--vmuted);">
+        ${notes.length} ${notes.length === 1 ? "nota" : "not"} · ostatnia ${ago(latest)}${finalCount > 0 ? ` · <span style="color:var(--vorange)">★ ${finalCount} final</span>` : ""}
+      </div>
+    </div>
+    <div class="rows">${rows}</div>
+  </div>
+  ${otherCloud}
+</main>`;
+  return shell(`Tag: ${tag}`, `${topbar("", "notes")}${body}`);
 }
 
 export function pageSearch(
@@ -690,7 +763,7 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
        </form>`;
 
   const tagsHtml = note.tags.length > 0
-    ? `<dt>Tagi</dt><dd><div class="side-tags">${note.tags.map((t) => `<span class="tg">${esc(t)}</span>`).join("")}</div></dd>`
+    ? `<dt>Tagi</dt><dd><div class="side-tags">${note.tags.map((t) => `<a class="tg" href="/tag/${encodeURIComponent(t)}">${esc(t)}</a>`).join("")}</div></dd>`
     : "";
 
   const tocHtml = `<nav class="toc" id="folio-toc" hidden><div class="toc-lbl">W tym dokumencie</div><ol class="toc-list"></ol></nav>`;

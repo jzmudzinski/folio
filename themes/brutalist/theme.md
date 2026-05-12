@@ -1,6 +1,6 @@
 # Theme: Brutalist
 
-Statement piece. Czarna gruba ramka 3-4px, drop shadow blokowy 6-8px (offset, czarny), ALL CAPS nagłówki Helvetica 900, czerwone `//` markery sekcji. Bez ozdób, bez radius'a.
+Statement piece. Thick black 3-4px frame, blocky drop shadow 6-8px (offset, black), ALL CAPS headings in Helvetica 900, red `//` section markers. No ornament, no border-radius.
 
 ## Voice
 
@@ -8,34 +8,34 @@ Direct, opinionated, no hedging. State positions. Punchy.
 
 ## Structure
 
-- Bardzo krótkie paragrafy (1-2 zdania).
-- Headings ALL CAPS, declarative ("X JEST GORSZE OD Y", nie pytania).
-- Bullets sparse, tylko esencja.
-- No tables of nice-to-haves (table = ozdoba = nie pasuje).
-- Sections kończą się konkluzją, nie pytaniem.
+- Very short paragraphs (1-2 sentences).
+- Headings ALL CAPS, declarative ("X IS WORSE THAN Y", not questions).
+- Bullets sparse, only the essential.
+- No tables of nice-to-haves (table = ornament = doesn't fit).
+- Sections end with a conclusion, not a question.
 
 ## Typography
 
 - Headings + body: **Helvetica Neue** / Inter fallback (weight 700-900)
-- Mono: **JetBrains Mono** (też bold)
-- Brak serif, brak script
+- Mono: **JetBrains Mono** (also bold)
+- No serif, no script
 
-## Klasy z theme.css
+## Classes from theme.css
 
-- `.eyebrow` jako odwrócony block (białe na czarnym)
-- `.verdict` z drop-shadow w accent (czerwonym)
-- `.card` z 6px box-shadow czarnym, 3px border
-- `<strong>` ma żółte highlight tło
-- `<em>` to bold + underline, nie italic
+- `.eyebrow` as an inverted block (white on black)
+- `.verdict` with a drop-shadow in the accent (red)
+- `.card` with 6px black box-shadow, 3px border
+- `<strong>` has a yellow highlight background
+- `<em>` is bold + underline, not italic
 
 ## Avoid
 
-- „Może", „raczej", „warto rozważyć" — hedging zabija brutalism
-- „Z drugiej strony" — przyjmij stanowisko
+- "Maybe", "kind of", "worth considering" — hedging kills brutalism
+- "On the other hand" — take a position
 - Soft language overall
-- Decorative emoji (✓ ✗ → akceptowalne, nic ozdobnego)
+- Decorative emoji (✓ ✗ → are acceptable, nothing ornamental)
 - Long meandering prose
 
 ## Best for
 
-Manifesto, strong opinion pieces, polemiki, „hot takes", critique. Gdy chcesz żeby ktoś zapamiętał stanowisko, nie nuansy.
+Manifestos, strong opinion pieces, polemics, "hot takes", critiques. When you want someone to remember the position, not the nuance.

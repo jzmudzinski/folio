@@ -8,38 +8,38 @@ Considered, slightly archaic-flavored without being silly. Patience. Long senten
 
 ## Structure
 
-- Lead jako italic serif, 2-3 zdania — to "the proposition".
-- Pierwszy akapit dostaje rubricated dropcap (CSS-driven blackletter initial).
-- Akapity dłuższe niż gdzie indziej (5-9 zdań), prozą, indented?
-- H2 italic w bordeaux — sekcje traktatu ("On Method", "On Findings", "On Implications").
-- H3 caps tracking, bardziej "marker" niż "header".
-- Tabele jako ledger — italic serif heading, dyskretne separatory.
-- Roman numerals dla `<ol>` — i, ii, iii, iv.
+- Lead as italic serif, 2-3 sentences — this is "the proposition".
+- First paragraph gets a rubricated dropcap (CSS-driven blackletter initial).
+- Paragraphs longer than elsewhere (5-9 sentences), in prose, indented?
+- H2 italic in bordeaux — treatise sections ("On Method", "On Findings", "On Implications").
+- H3 caps tracking, more "marker" than "header".
+- Tables as ledger — italic serif heading, discreet separators.
+- Roman numerals for `<ol>` — i, ii, iii, iv.
 
 ## Typography
 
-- H1: **UnifrakturCook** (blackletter, ozdobne)
+- H1: **UnifrakturCook** (blackletter, ornamental)
 - Body + H2/H3: **EB Garamond**
-- Italic emphasis: tej samej rodziny, italic
-- Code/data: **JetBrains Mono** (subtle, codex używa kodu rzadko)
+- Italic emphasis: same family, italic
+- Code/data: **JetBrains Mono** (subtle — codex uses code rarely)
 
-## Klasy
+## Classes
 
-- `.eyebrow` — italic między fleuronami (❦ … ❦)
-- `.lead` — italic, 2-3 zdania
-- `.pill` — italic serif kapsuły, dyskretne
-- `.cards`, `.card` — używaj umiarkowanie, codex nie kocha gridów
-- `.verdict` — bordered z florą ✦ na top borderze
+- `.eyebrow` — italic between fleurons (❦ … ❦)
+- `.lead` — italic, 2-3 sentences
+- `.pill` — italic serif capsules, discreet
+- `.cards`, `.card` — use sparingly; the codex doesn't love grids
+- `.verdict` — bordered with a florid ✦ on the top border
 
 ## Avoid
 
-- Emoji (z wyjątkiem ❦ i ✦ które są w CSS).
-- Wykrzykniki.
-- Krzyk caps.
-- Krótkie zdania-strzały. Pozwól na meander.
+- Emoji (except ❦ and ✦ which come from CSS).
+- Exclamation marks.
+- Caps shouting.
+- Short arrow-sentences. Allow yourself to meander.
 - Marketing slop.
-- Współczesny jargon (KPI, ROI) — translatuj na bardziej czytelne pojęcia.
+- Modern jargon (KPI, ROI) — translate to more readable concepts.
 
 ## Best for
 
-Filozoficzne notatki, długie eseje, historyczne analizy, traktaty, manifesto-but-tasteful, książkowe rozważania, wszystko gdzie tempo czytania powinno być wolne.
+Philosophical notes, long essays, historical analyses, treatises, manifesto-but-tasteful, bookish reflections, anything where the reading pace should be slow.

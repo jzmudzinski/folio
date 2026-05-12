@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pl">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <title>Folio v2 themes — preview</title>
@@ -29,22 +29,22 @@ const sample = (theme) => `<!doctype html><html><head><meta charset="utf-8"><met
 <body><main class="wrap">
 <span class="eyebrow">Field report · ${theme}</span>
 <h1>Why our retrieval <em>silently</em> degraded</h1>
-<p class="lead">Trzy tygodnie po launchu zauważyliśmy że recall@10 spadł z 0.82 do 0.61. Nie wywaliło nic — po prostu odpowiedzi stały się bardziej "generyczne". Oto co się stało, dlaczego nikt tego nie zauważył od razu, i co naprawiliśmy.</p>
+<p class="lead">Three weeks after launch we noticed recall@10 had slipped from 0.82 to 0.61. Nothing crashed — answers just became more "generic". Here's what happened, why nobody caught it immediately, and what we fixed.</p>
 
-<p>Pierwszy sygnał przyszedł z eval'i — zestaw 200 zapytań produkcyjnych który trzymamy w CI. Recall spadał stopniowo, dzień po dniu, około 0.7 punktu procentowego dziennie. Tak wolno że alerts ustawione na 5% delta nie odpaliły. <strong>Drift był ciągły, nie skokowy.</strong></p>
+<p>The first signal came from evals — a 200-query production set we keep in CI. Recall dropped gradually, day by day, around 0.7 percentage points per day. Slow enough that alerts set on 5% delta never fired. <strong>The drift was continuous, not stepwise.</strong></p>
 
-<p>Drugi sygnał przyszedł od użytkowników, ale dopiero po 11 dniach. Treść feedbacku: "odpowiedzi są w porządku ale jakieś takie ogólne". To zła jakość sygnału — bez nazwiska konkretnego dokumentu którego brakuje nie można odtworzyć problemu.</p>
+<p>The second signal came from users, but only after 11 days. The feedback gist: "the answers are OK but kind of generic." That's a bad-quality signal — without the name of a specific missing document, the problem isn't reproducible.</p>
 
-<h2>Co znaleźliśmy</h2>
-<p>Embedding model dostał ciche aktualizacje od dostawcy. Numer wersji nie zmieniał się, ale wektory dla tych samych tekstów zaczęły się drobnie różnić od dnia X. Stara baza wektorów + nowy enkoder zapytań = systematyczne przesunięcie cosine distance.</p>
+<h2>What we found</h2>
+<p>The embedding model received silent updates from the vendor. The version number didn't change, but vectors for the same text started to differ subtly from day X. Old vector base + new query encoder = systematic cosine-distance shift.</p>
 
 <ol>
-  <li>Ponumerowaliśmy wszystkie indeksy z timestampem embeddingu.</li>
-  <li>Włączyliśmy alert na A/B distribution shift w cosine score.</li>
-  <li>Re-embed cały korpus dla nowych zapytań idących przez ten enkoder.</li>
+  <li>We numbered every index with an embedding timestamp.</li>
+  <li>We turned on alerts for A/B distribution shift in cosine score.</li>
+  <li>Re-embed the entire corpus for new queries hitting this encoder.</li>
 </ol>
 
-<h3>Metryki przed/po fixu</h3>
+<h3>Metrics before/after the fix</h3>
 <table>
 <thead><tr><th>Metric</th><th>Before</th><th>After</th><th>Δ</th></tr></thead>
 <tbody>
@@ -55,16 +55,16 @@ const sample = (theme) => `<!doctype html><html><head><meta charset="utf-8"><met
 </tbody>
 </table>
 
-<blockquote>Nie mierzysz tego, czego nie mierzysz. Embedding version drift to klasyczny przypadek metryki która istniała, ale nikt na nią nie patrzył.</blockquote>
+<blockquote>You don't measure what you don't measure. Embedding version drift is the classic case of a metric that existed but nobody watched.</blockquote>
 
 <div class="cards">
-<div class="card"><h3>Wnioski 01</h3><p>Wersjonuj embeddingi <strong>twardo</strong>. Hash modelu + data — w nazwie indeksu.</p></div>
-<div class="card"><h3>Wnioski 02</h3><p>Trzymaj eval set który leci codziennie, nie tylko przy release.</p></div>
-<div class="card"><h3>Wnioski 03</h3><p>Drift jest <em>ciągły</em>. Alert na delta-percentage gubi powolny spadek.</p></div>
+<div class="card"><h3>Takeaway 01</h3><p>Version embeddings <strong>hard</strong>. Model hash + date — in the index name.</p></div>
+<div class="card"><h3>Takeaway 02</h3><p>Keep an eval set that runs every day, not just at release.</p></div>
+<div class="card"><h3>Takeaway 03</h3><p>Drift is <em>continuous</em>. A delta-percentage alert misses the slow slide.</p></div>
 </div>
 
-<h3>Stan po naprawie</h3>
-<p>Re-embed zajął 6 godzin. Koszt jednorazowy: ~$340. <span class="pill good">Resolved</span> <span class="pill info">Monitored</span> <span class="pill mid">Re-embed planned Q1</span></p>
+<h3>State after the fix</h3>
+<p>The re-embed took 6 hours. One-time cost: ~$340. <span class="pill good">Resolved</span> <span class="pill info">Monitored</span> <span class="pill mid">Re-embed planned Q1</span></p>
 
 <pre><code># detect embedding drift
 distances = cosine(old_queries, new_queries_re_encoded)
@@ -73,7 +73,7 @@ if distances.mean() > 0.04:
 
 <div class="verdict">
 <h3>Recommendation</h3>
-<p>Każdy zewnętrzny model dostaje pin do konkretnego hash'u, nie wersji. Eval CI codziennie, nie tylko na release. Alert na <strong>distribution shape</strong>, nie tylko delta. Następny review za 60 dni.</p>
+<p>Every external model gets pinned to a specific hash, not a version. Eval CI runs every day, not only at release. Alert on <strong>distribution shape</strong>, not just delta. Next review in 60 days.</p>
 </div>
 
 <hr>

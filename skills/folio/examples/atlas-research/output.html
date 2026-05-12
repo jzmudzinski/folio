@@ -1,31 +1,31 @@
 <span class="eyebrow">Research · Machine Learning</span>
 <h1>Emergent capabilities in large language models</h1>
-<p class="lead">Przegląd literatury (2022–2026): kiedy i dlaczego LLM-y wykazują zdolności nieobecne w mniejszych modelach. Krytyczna analiza, czy „emergencja" to artefakt metryki, czy rzeczywiste przejście fazowe.</p>
+<p class="lead">A literature review (2022–2026): when and why LLMs exhibit capabilities absent from smaller models. Critical analysis of whether "emergence" is a metric artifact or a real phase transition.</p>
 
 <h3>Abstract</h3>
-<p>Termin <em>emergent capabilities</em> (Wei et al., 2022) opisuje zdolności, które pojawiają się skokowo wraz ze skalą modelu — nieobecne poniżej pewnego progu compute/parameter count, obecne powyżej. Niniejszy przegląd analizuje 14 badań z lat 2022–2026 i identyfikuje trzy konkurencyjne hipotezy: (1) rzeczywiste przejście fazowe w geometrii reprezentacji, (2) artefakt nieciągłych metryk ewaluacyjnych (Schaeffer et al., 2023), (3) heterogeniczna kompozycja sub-skill-i już obecnych w mniejszej skali.</p>
+<p>The term <em>emergent capabilities</em> (Wei et al., 2022) describes abilities that appear discontinuously with model scale — absent below a compute/parameter threshold, present above. This review surveys 14 studies from 2022–2026 and identifies three competing hypotheses: (1) a real phase transition in representational geometry, (2) an artifact of discontinuous evaluation metrics (Schaeffer et al., 2023), (3) heterogeneous composition of sub-skills already present at smaller scale.</p>
 
-<h3>Metodologia</h3>
-<p>Wybrano 14 prac spełniających kryteria: <strong>(a)</strong> empiryczna ewaluacja co najmniej trzech rozmiarów modeli z jednej rodziny, <strong>(b)</strong> publicznie dostępne metryki, <strong>(c)</strong> jasne kryterium emergencji (próg accuracy, BIG-Bench-Hard, etc.).</p>
+<h3>Methodology</h3>
+<p>14 papers were selected meeting these criteria: <strong>(a)</strong> empirical evaluation across at least three model sizes from one family, <strong>(b)</strong> publicly available metrics, <strong>(c)</strong> a clear emergence criterion (accuracy threshold, BIG-Bench-Hard, etc.).</p>
 <ul>
-  <li>Bazy: arXiv (2022–2026), TMLR, NeurIPS proceedings, ICLR proceedings</li>
-  <li>Wykluczono: blog-posty bez peer-review, prace bez kontrolnej grupy mniejszych modeli</li>
-  <li>Analiza ilościowa: 8 prac. Analiza jakościowa: 6 prac.</li>
+  <li>Sources: arXiv (2022–2026), TMLR, NeurIPS proceedings, ICLR proceedings</li>
+  <li>Excluded: blog posts without peer-review, papers without a smaller-model control</li>
+  <li>Quantitative analysis: 8 papers. Qualitative analysis: 6 papers.</li>
 </ul>
 
 <h3>Findings</h3>
 
-<h3>Hipoteza 1 — Phase transition (cited 6×)</h3>
-<p>Najsilniejsze wsparcie: <em>Power et al. (2022)</em> — grokking jako analogia do przejścia fazowego w fizyce statystycznej; reprezentacje przechodzą od fragmentarycznych do kompozycyjnych. <strong>Kontrargument:</strong> tę samą krzywą można uzyskać przez interpolację, jeśli model jest oceniany na zadaniu z nieciągłym kryterium (binary accuracy).</p>
+<h3>Hypothesis 1 — Phase transition (cited 6×)</h3>
+<p>Strongest support: <em>Power et al. (2022)</em> — grokking as an analogy to phase transitions in statistical physics; representations move from fragmentary to compositional. <strong>Counter-argument:</strong> the same curve can be obtained via interpolation if the model is evaluated on a task with a discontinuous criterion (binary accuracy).</p>
 
-<h3>Hipoteza 2 — Metric artifact (cited 8×)</h3>
-<p>Schaeffer, Miranda, &amp; Koyejo (2023) wykazują, że emergencja znika gdy zamienić exact-match accuracy na log-likelihood smoothed over tokens. Wniosek: zdolności rosną gładko, ale metryka „przekracza próg" widzialności dopiero przy wystarczającym signal-to-noise. <strong>Kontrargument:</strong> niektóre zdolności (np. chain-of-thought reasoning) wykazują dyskretne progi nawet w metrykach ciągłych (Suzgun et al., 2023).</p>
+<h3>Hypothesis 2 — Metric artifact (cited 8×)</h3>
+<p>Schaeffer, Miranda, &amp; Koyejo (2023) show that emergence disappears when exact-match accuracy is replaced with token-smoothed log-likelihood. Conclusion: capabilities grow smoothly, but the metric "crosses a visibility threshold" only at sufficient signal-to-noise. <strong>Counter-argument:</strong> some capabilities (e.g. chain-of-thought reasoning) show discrete thresholds even under continuous metrics (Suzgun et al., 2023).</p>
 
-<h3>Hipoteza 3 — Compositional sub-skills (cited 4×)</h3>
-<p>Olsson et al. (2022) — <em>induction heads</em> jako konkretny mechanizm: pojedyncze sub-skill (in-context copy) staje się dostępne dla wyższych zdolności gdy reszta sieci jest „dostatecznie ukształtowana". Pasuje do obserwacji że emergencja jest tylko w niektórych zadaniach, nie wszystkich.</p>
+<h3>Hypothesis 3 — Compositional sub-skills (cited 4×)</h3>
+<p>Olsson et al. (2022) — <em>induction heads</em> as a concrete mechanism: a single sub-skill (in-context copy) becomes available to higher-level abilities once the rest of the network is "sufficiently shaped". Fits the observation that emergence shows up in some tasks but not others.</p>
 
 <table>
-<thead><tr><th>Zadanie</th><th>Próg (≈ params)</th><th>Hipoteza wspierająca</th></tr></thead>
+<thead><tr><th>Task</th><th>Threshold (≈ params)</th><th>Hypothesis supported</th></tr></thead>
 <tbody>
 <tr><td>Arithmetic 3-digit</td><td>10B</td><td>Phase transition</td></tr>
 <tr><td>Chain-of-thought</td><td>62B</td><td>Compositional</td></tr>
@@ -35,11 +35,11 @@
 </table>
 
 <h3>Discussion</h3>
-<p>Żadna z trzech hipotez nie tłumaczy całości danych. Najbardziej parsymoniczna interpretacja: emergencja jest <em>heterogeniczna</em> — różne zdolności mają różne mechanizmy. Niektóre (arithmetic) wykazują real phase transition w geometrii. Inne (multi-step reasoning) to kompozycja sub-skill-i. Wiele „emergent" capabilities znika gdy poprawić metrykę.</p>
+<p>None of the three hypotheses explains all the data. The most parsimonious interpretation: emergence is <em>heterogeneous</em> — different capabilities have different mechanisms. Some (arithmetic) show a real phase transition in geometry. Others (multi-step reasoning) are compositional sub-skill unlocks. Many "emergent" capabilities disappear when the metric is fixed.</p>
 
 <div class="verdict">
-<h3>Werdykt</h3>
-<p>Termin „emergent capabilities" jest pojęciem-parasolem ukrywającym co najmniej trzy odrębne zjawiska. Sugerowane: dezagregować dyskusję na (1) sharp phase transitions, (2) compositional unlocking, (3) metric-driven artifacts. Dalsze badania powinny ujawniać który mechanizm dla której zdolności.</p>
+<h3>Verdict</h3>
+<p>"Emergent capabilities" is an umbrella term hiding at least three distinct phenomena. Suggestion: disaggregate the discussion into (1) sharp phase transitions, (2) compositional unlocking, (3) metric-driven artifacts. Future work should identify which mechanism drives which capability.</p>
 </div>
 
 <h3>References</h3>
@@ -53,7 +53,7 @@
 
 <h3>Open questions</h3>
 <ul>
-  <li>Czy heterogeniczna kompozycja sub-skill-i pasuje do <em>induction heads</em> dla wszystkich zadań, czy tylko in-context learning?</li>
-  <li>Jak zmierzyć „przejście fazowe" w geometrii reprezentacji niezależnie od metryki taska?</li>
-  <li>Czy emergent capabilities są voltage-like (zniknie poniżej progu) czy capacity-like (gradualne, ale niemierzalne poniżej)?</li>
+  <li>Does heterogeneous sub-skill composition match <em>induction heads</em> for every task, or only in-context learning?</li>
+  <li>How do we measure a "phase transition" in representational geometry independently of the task's metric?</li>
+  <li>Are emergent capabilities voltage-like (vanish below threshold) or capacity-like (gradual but unmeasurable below)?</li>
 </ul>

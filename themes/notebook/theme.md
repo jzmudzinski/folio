@@ -1,39 +1,39 @@
 # Theme: Notebook
 
-Personal brainstorm vibe. Caveat (handwritten) na nagłówkach + bulletach. Inter dla body (czytelność). Atramentowy niebieski tytuł na papierowym tle z liniami. Koralowe akcenty i kreseczki.
+Personal brainstorm vibe. Caveat (handwritten) for headings + bullets. Inter for body (readability). Ink-blue title on a paper-with-lines background. Coral accents and tick marks.
 
 ## Voice
 
-First-person OK („myślę że…", „zauważyłem"), exploratory. Hedging mile widziany („może", „raczej", „wydaje mi się"). Pytania retoryczne jako headings.
+First-person OK ("I think…", "I noticed"), exploratory. Hedging welcome ("maybe", "kind of", "I'd guess"). Rhetorical questions as headings are fine.
 
 ## Structure
 
-- Krótsze paragrafy (2-3 zdania), więcej whitespace.
-- Bullety często, mogą być incomplete („…?").
-- Headings rhetoryczne OK („Co jeśli…?", „Dlaczego nie X?").
-- Section closings często pytaniem.
-- Cite linki jako kontekst, nie autorytet.
+- Shorter paragraphs (2-3 sentences), more whitespace.
+- Bullets often; may be incomplete ("…?").
+- Rhetorical headings OK ("What if…?", "Why not X?").
+- Section closings often a question.
+- Cite links as context, not authority.
 
 ## Typography
 
 - Headings + accent text: **Caveat** (handwritten, weight 700, slight rotation)
-- Body: **Inter** (czytelność)
+- Body: **Inter** (readability)
 - Mono: **JetBrains Mono**
 
-## Klasy z theme.css
+## Classes from theme.css
 
-- `.eyebrow` w Caveat, rotated -1deg
-- Lista bulletów z `✓` w Caveat
-- Cards z dashed border, slight tilt per child
-- Underlined links z wavy decoration
+- `.eyebrow` in Caveat, rotated -1deg
+- Bullet list with `✓` in Caveat
+- Cards with dashed border, slight tilt per child
+- Underlined links with wavy decoration
 
 ## Avoid
 
-- Sterylna formalność, korpomowa
-- Dense tables (nie pasują do casual feel)
-- Marketing tone („revolutionary", „seamlessly")
+- Sterile formality, corporate-speak
+- Dense tables (don't fit the casual feel)
+- Marketing tone ("revolutionary", "seamlessly")
 - Long uninterrupted prose — break it up
 
 ## Best for
 
-Brainstormy, journal entries, ideation, sketchy thoughts, „myślenie na głos", notes na własny użytek gdzie eksperymentujesz z pomysłem.
+Brainstorms, journal entries, ideation, sketchy thoughts, "thinking out loud", notes for your own use where you're playing with an idea.

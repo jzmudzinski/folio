@@ -150,7 +150,7 @@ const tools: Tool[] = [
   },
   {
     name: "version",
-    description: "Return Folio version + system info: storage root, viewer URL, default theme. Useful when the agent wants to confirm which Folio installation it's talking to (e.g. before bulk operations, or when the user asks 'jaką wersję mamy?').",
+    description: "Return Folio version + system info: storage root, viewer URL, default theme. Useful when the agent wants to confirm which Folio installation it's talking to (e.g. before bulk operations, or when the user asks 'what version are we on?').",
     inputSchema: { type: "object", properties: {} },
   },
 ];

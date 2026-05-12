@@ -8,14 +8,14 @@ Confident, opinionated, declarative. Reporting tone with editorial bite. Use `<e
 
 ## Structure
 
-- `.eyebrow` red sticker — category + dyscyplina
-- H1 gigantyczne, użyj `<em>` na jednym kluczowym słowie żeby przełamać sans display italic serif
-- Lead jako display italic Newsreader, 1-2 zdania
+- `.eyebrow` red sticker — category + discipline
+- H1 gigantic; use `<em>` on one key word to break the sans display with italic serif
+- Lead as display italic Newsreader, 1-2 sentences
 - H2 sans display bold
-- H3 mono caps z poziomym akcentem
-- Blockquote jako pull-quote z czerwoną sztabką nad
-- Ordered list z mono-tags numeralami (czarne na białym)
-- Verdict to czarny blok z czerwoną lewą sztabką
+- H3 mono caps with a horizontal accent
+- Blockquote as a pull-quote with a red bar above
+- Ordered list with mono-tag numerals (black on white)
+- Verdict is a black block with a red left bar
 
 ## Typography
 
@@ -24,21 +24,21 @@ Confident, opinionated, declarative. Reporting tone with editorial bite. Use `<e
 - Body: **Space Grotesk** 400
 - Code/meta: **JetBrains Mono**
 
-## Klasy
+## Classes
 
 - `.eyebrow` — red sticker, white mono caps
 - `.lead` — display italic Newsreader
 - `.pill` — solid fills (`.good` signal-green, `.bad`/`.acc` red, `.info` electric blue)
 - `.card`, `.cards` — clean white tiles
-- `.verdict` — black block z czerwoną sztabką; deklaracja
+- `.verdict` — black block with a red bar; the declaration
 
 ## Avoid
 
-- Soft adjectives — Prism jest deklaratywne.
-- Quiet typography — display jest częścią headline'u.
-- Mieszanie ALL CAPS w body — tylko mono labels.
+- Soft adjectives — Prism is declarative.
+- Quiet typography — display is part of the headline.
+- Mixing ALL CAPS in body — only mono labels.
 - Marketing slop.
 
 ## Best for
 
-Editorial feature pieces, opinion essays, retrospectives z głosem, "state of X" reports, manifesto-ish features, tech criticism, anything where a single strong opinion drives the read.
+Editorial feature pieces, opinion essays, retrospectives with a voice, "state of X" reports, manifesto-ish features, tech criticism — anything where a single strong opinion drives the read.

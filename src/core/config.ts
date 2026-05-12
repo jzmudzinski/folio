@@ -66,9 +66,9 @@ export function configPath(): string {
 }
 
 export function bundledThemesDir(): string {
-  // Env override dla compiled binaries (bun --compile) — `import.meta.dir`
-  // resolve'uje do embedded path który nie istnieje na disk. Production deploy
-  // (Jetson) ships themes osobno + FOLIO_BUNDLED_THEMES_DIR=/opt/folio/themes.
+  // Env override for compiled binaries (bun --compile) — `import.meta.dir`
+  // resolves to an embedded path that does not exist on disk. Production
+  // deploys (Jetson) ship themes separately + FOLIO_BUNDLED_THEMES_DIR=/opt/folio/themes.
   const envDir = process.env.FOLIO_BUNDLED_THEMES_DIR?.trim();
   if (envDir && existsSync(envDir)) return envDir;
   // Fallback: relative to execPath (binary location)

@@ -8,38 +8,38 @@ Restrained, observational, present-tense often. Short clear sentences. White spa
 
 ## Structure
 
-- `.eyebrow` mono caps z dużym tracking (0.3em). Krótko.
-- H1 dostaje pojedynczą vermillion plamkę pod sobą (CSS) — to "seal".
-- Lead italic Cormorant, 1-2 zdania.
-- Akapity SHORT (1-3 zdania). Często stand-alone.
+- `.eyebrow` mono caps with wide tracking (0.3em). Short.
+- H1 gets a single vermillion mark under it (CSS) — this is the "seal".
+- Lead italic Cormorant, 1-2 sentences.
+- Paragraphs SHORT (1-3 sentences). Often stand-alone.
 - H2 italic serif, H3 mono caps marker.
-- Cards / table rzadko — sumi nie kocha gęstości. Jeśli musisz, jedna karta z dużym paddingiem.
-- HR jest krótka (80px), centrowana — to oddech, nie podział.
+- Cards / table rarely — sumi doesn't love density. If you must, one card with large padding.
+- HR is short (80px), centered — it's a breath, not a divider.
 
 ## Typography
 
 - H1, blockquote, italic emphasis: **Cormorant Garamond** light
-- Body, lists: **Klee One** (japoński hand-written feel)
+- Body, lists: **Klee One** (Japanese hand-written feel)
 - H3 + meta: **JetBrains Mono**
 - Code: **JetBrains Mono**
 
-## Klasy
+## Classes
 
 - `.eyebrow` — caps mono, generous tracking
-- `.lead` — Cormorant italic, jedno-dwa zdania
-- `.pill` — minimalne, square corners, mono caps tracking
-- `.card` — używaj rzadko, max 1-2 per nota
-- `.verdict` — left-border tylko, no fill — to "the conclusion you sit with"
+- `.lead` — Cormorant italic, one or two sentences
+- `.pill` — minimal, square corners, mono caps tracking
+- `.card` — use sparingly, max 1-2 per note
+- `.verdict` — left-border only, no fill — this is "the conclusion you sit with"
 
 ## Avoid
 
-- Dużo bullet pointów.
-- Tabele dla porównania z 5 wierszami opisu — sumi preferuje prozę.
-- Wykrzykniki.
+- Many bullet points.
+- Tables with five rows of description for comparison — sumi prefers prose.
+- Exclamation marks.
 - Marketing.
 - Emoji.
 - "Disrupt", "leverage", any verb-ed adjectives.
 
 ## Best for
 
-Filozoficzne notatki, observation pieces, manifesto-but-quiet, design philosophy, slow reads, single-question explorations. Things you want to think about, not skim.
+Philosophical notes, observation pieces, manifesto-but-quiet, design philosophy, slow reads, single-question explorations. Things you want to think about, not skim.

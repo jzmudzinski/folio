@@ -1,93 +1,93 @@
 <span class="eyebrow">Comparison · Databases</span>
-<h1>PostgreSQL vs MySQL vs SQLite dla SaaS</h1>
-<p class="lead">Trzy bazy, jeden mały SaaS. Który wybrać i kiedy. Porównanie z 2026.</p>
+<h1>PostgreSQL vs MySQL vs SQLite for SaaS</h1>
+<p class="lead">Three databases, one small SaaS. Which to pick and when. A 2026 comparison.</p>
 
 <div class="cards">
   <div class="card">
     <span class="pill acc">flagship</span>
     <h3>PostgreSQL</h3>
-    <p>Battle-tested, najbogatszy SQL, JSON-first, świetny pgvector dla AI. Defaultowy wybór gdy nie ma silnego powodu inaczej.</p>
+    <p>Battle-tested, the richest SQL, JSON-first, excellent pgvector for AI. Default choice unless there's a strong reason otherwise.</p>
   </div>
   <div class="card">
     <span class="pill mid">workhorse</span>
     <h3>MySQL / MariaDB</h3>
-    <p>Sprawdzony, prosty operations, najwięcej hosting providerów. Najmocniejszy gdy team ma legacy doświadczenie.</p>
+    <p>Proven, simple operations, the largest hosting-provider ecosystem. Strongest when the team has legacy experience.</p>
   </div>
   <div class="card">
     <span class="pill info">embedded</span>
     <h3>SQLite</h3>
-    <p>Pojedynczy plik, zero infrastruktury, najszybszy single-user. FTS5 w cenie. Idealny dla offline-first apps.</p>
+    <p>Single file, zero infrastructure, fastest single-user. FTS5 included. Ideal for offline-first apps.</p>
   </div>
 </div>
 
 <h3>Scorecard</h3>
 <table>
   <thead>
-    <tr><th>Cecha</th><th>Postgres</th><th>MySQL</th><th>SQLite</th></tr>
+    <tr><th>Feature</th><th>Postgres</th><th>MySQL</th><th>SQLite</th></tr>
   </thead>
   <tbody>
-    <tr><td><strong>JSON support</strong></td><td>⭐⭐⭐⭐⭐ jsonb + indexy</td><td>⭐⭐⭐ JSON columns</td><td>⭐⭐ json1 extension</td></tr>
+    <tr><td><strong>JSON support</strong></td><td>⭐⭐⭐⭐⭐ jsonb + indexes</td><td>⭐⭐⭐ JSON columns</td><td>⭐⭐ json1 extension</td></tr>
     <tr><td><strong>Full-text search</strong></td><td>⭐⭐⭐⭐ tsvector</td><td>⭐⭐⭐ FULLTEXT</td><td>⭐⭐⭐⭐⭐ FTS5 native</td></tr>
     <tr><td><strong>Concurrent writes</strong></td><td>⭐⭐⭐⭐⭐</td><td>⭐⭐⭐⭐⭐</td><td>⭐⭐ single-writer</td></tr>
-    <tr><td><strong>Skalowanie horyzontalne</strong></td><td>⭐⭐⭐⭐ Citus/Aurora</td><td>⭐⭐⭐⭐⭐ Vitess/Aurora</td><td>⭐ (Turso, LiteFS)</td></tr>
+    <tr><td><strong>Horizontal scaling</strong></td><td>⭐⭐⭐⭐ Citus/Aurora</td><td>⭐⭐⭐⭐⭐ Vitess/Aurora</td><td>⭐ (Turso, LiteFS)</td></tr>
     <tr><td><strong>AI / vector support</strong></td><td>⭐⭐⭐⭐⭐ pgvector native</td><td>⭐⭐ via plugins</td><td>⭐⭐⭐ sqlite-vec</td></tr>
-    <tr><td><strong>Hosting ekosystem</strong></td><td>⭐⭐⭐⭐ Neon, Supabase, Aurora</td><td>⭐⭐⭐⭐⭐ wszędzie</td><td>⭐⭐⭐ Turso, Cloudflare D1</td></tr>
+    <tr><td><strong>Hosting ecosystem</strong></td><td>⭐⭐⭐⭐ Neon, Supabase, Aurora</td><td>⭐⭐⭐⭐⭐ everywhere</td><td>⭐⭐⭐ Turso, Cloudflare D1</td></tr>
     <tr><td><strong>Setup time</strong></td><td>5 min</td><td>5 min</td><td>0 min</td></tr>
   </tbody>
 </table>
 
-<h3>Plusy i minusy</h3>
+<h3>Pros and cons</h3>
 <div class="cards">
   <div class="card">
     <h3>PostgreSQL</h3>
     <p><strong>+</strong></p>
     <ul>
-      <li>Najpełniejszy SQL standard + extensions</li>
-      <li>pgvector dla AI workloads</li>
-      <li>JSON-first projektowanie</li>
-      <li>Świetny tooling (Neon branching, Supabase, Aurora)</li>
+      <li>Most complete SQL standard + extensions</li>
+      <li>pgvector for AI workloads</li>
+      <li>JSON-first design</li>
+      <li>Excellent tooling (Neon branching, Supabase, Aurora)</li>
     </ul>
     <p><strong>−</strong></p>
     <ul>
-      <li>Setup connection pooling trochę uciążliwy (pgbouncer)</li>
-      <li>VACUUM management przy wysokim updates traffic</li>
+      <li>Connection pooling setup is mildly annoying (pgbouncer)</li>
+      <li>VACUUM management with heavy-update traffic</li>
     </ul>
   </div>
   <div class="card">
     <h3>MySQL</h3>
     <p><strong>+</strong></p>
     <ul>
-      <li>Najpopularniejszy — łatwo znaleźć ops engineerów</li>
-      <li>Najlepsze read-heavy scaling (Vitess/PlanetScale)</li>
-      <li>InnoDB jest battle-tested</li>
+      <li>Most popular — easy to find ops engineers</li>
+      <li>Best read-heavy scaling (Vitess/PlanetScale)</li>
+      <li>InnoDB is battle-tested</li>
     </ul>
     <p><strong>−</strong></p>
     <ul>
-      <li>JSON support słabszy niż Postgres</li>
-      <li>Brak pgvector odpowiednika</li>
-      <li>Mniej zaawansowane window functions / CTEs</li>
+      <li>JSON support weaker than Postgres</li>
+      <li>No pgvector equivalent</li>
+      <li>Less advanced window functions / CTEs</li>
     </ul>
   </div>
   <div class="card">
     <h3>SQLite</h3>
     <p><strong>+</strong></p>
     <ul>
-      <li>Zero ops — to plik na dysku</li>
-      <li>FTS5 best-in-class dla full-text</li>
-      <li>Idealny dla local-first / offline-first apps</li>
-      <li>Tania backup strategia (copy file)</li>
+      <li>Zero ops — it's a file on disk</li>
+      <li>FTS5 best-in-class for full-text</li>
+      <li>Ideal for local-first / offline-first apps</li>
+      <li>Cheap backup strategy (copy the file)</li>
     </ul>
     <p><strong>−</strong></p>
     <ul>
-      <li>Single writer — concurrent writes blokują</li>
-      <li>Horizontal scaling tylko via Turso/LiteFS</li>
-      <li>Słabszy ekosystem dla SaaS (auth, multi-tenant)</li>
+      <li>Single writer — concurrent writes block</li>
+      <li>Horizontal scaling only via Turso/LiteFS</li>
+      <li>Weaker ecosystem for SaaS (auth, multi-tenant)</li>
     </ul>
   </div>
 </div>
 
 <div class="verdict">
-  <h3>Werdykt</h3>
-  <p><strong>Postgres</strong> dla complex schema, AI features, gdy planujesz pgvector. <strong>SQLite</strong> dla offline-first, single-user apps (CLI tools, desktop). <strong>MySQL</strong> gdy team ma legacy doświadczenie albo musisz skalować read-heavy traffic via Vitess.</p>
-  <p>Dla typowego SaaS 2026 z agent/AI features: <strong>Postgres na Neon/Supabase</strong>. Branching, pgvector, hosted. Brain-dead default.</p>
+  <h3>Verdict</h3>
+  <p><strong>Postgres</strong> for complex schemas, AI features, when you plan to use pgvector. <strong>SQLite</strong> for offline-first, single-user apps (CLI tools, desktop). <strong>MySQL</strong> when the team has legacy experience or you must scale read-heavy traffic via Vitess.</p>
+  <p>For a typical 2026 SaaS with agent / AI features: <strong>Postgres on Neon/Supabase</strong>. Branching, pgvector, hosted. Brain-dead default.</p>
 </div>

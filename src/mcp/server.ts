@@ -148,6 +148,11 @@ const tools: Tool[] = [
       properties: { id: { type: "string" } },
     },
   },
+  {
+    name: "version",
+    description: "Return Folio version + system info: storage root, viewer URL, default theme. Useful when the agent wants to confirm which Folio installation it's talking to (e.g. before bulk operations, or when the user asks 'jaką wersję mamy?').",
+    inputSchema: { type: "object", properties: {} },
+  },
 ];
 
 function jsonContent(obj: unknown) {
@@ -355,6 +360,18 @@ export async function buildServer(): Promise<Server> {
             [new Date().toISOString(), "note_unfinalized", id, note.thread_id, JSON.stringify({ via: "mcp" })]
           );
           return jsonContent({ ok: true, id, expires_at_reset_to: `created + ${cfg.default_lifespan_days} days` });
+        }
+
+        case "version": {
+          const cfg = await loadConfig();
+          return jsonContent({
+            name: pkg.name,
+            version: pkg.version,
+            folio_root: folioRoot(),
+            viewer_url: `http://${cfg.viewer_host}:${cfg.viewer_port}`,
+            default_theme: cfg.theme,
+            default_lifespan_days: cfg.default_lifespan_days,
+          });
         }
 
         default:

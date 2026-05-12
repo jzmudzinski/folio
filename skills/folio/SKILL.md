@@ -13,7 +13,7 @@ description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp)
 - **Storage:** `$FOLIO_HOME` (default `~/Folio/`)
 - **MCP:** `folio-mcp` (zobacz `docs/mcp-setup.md`)
 - **Viewer:** `folio serve` → http://127.0.0.1:4810
-- **Tools:** `create`, `get`, `list`, `search`, `finalize`, `unfinalize`, `suggest_thread`, `list_expiring`, `list_themes`, `export` (MCP server name `folio` → mcporter syntax: `folio.create`, `folio.search`, …)
+- **Tools:** `create`, `get`, `list`, `search`, `finalize`, `unfinalize`, `suggest_thread`, `list_expiring`, `list_themes`, `export`, `version` (MCP server name `folio` → mcporter syntax: `folio.create`, `folio.search`, …)
 - **Stylebook:** `skills/folio/STYLEBOOK.md` (class contract z theme.css)
 - **Examples:** `skills/folio/examples/<typ>/`
 

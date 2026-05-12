@@ -98,8 +98,6 @@ a { color: inherit; text-decoration: none; }
 .v-logo .mark .dot { color: var(--vorange); }
 .v-logo .div { width: 1px; height: 18px; background: var(--vline); align-self: center; }
 .v-logo .tagline { font-family: var(--vmono); font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--vmuted-2); font-weight: 400; }
-.v-top-inner .ver { font-family: var(--vmono); font-size: 10px; color: var(--vmuted-2); font-weight: 400; opacity: 0.6; align-self: center; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 4px; transition: opacity .12s, color .12s, background .12s; }
-.v-top-inner .ver:hover { opacity: 1; color: var(--vorange); background: var(--vbg-2); }
 .v-search { flex: 1; max-width: 520px; background: var(--vpanel); border: 1px solid var(--vline); border-radius: 10px; padding: 8px 14px; display: flex; align-items: center; gap: 10px; font-family: var(--vmono); font-size: 13px; transition: border-color .15s, box-shadow .15s, background .15s; }
 .v-search:focus-within { border-color: var(--vorange); box-shadow: 0 0 0 4px var(--vorange-soft); background: #fff; }
 .v-search .ico { color: var(--vmuted-2); font-size: 12px; }
@@ -252,7 +250,7 @@ a { color: inherit; text-decoration: none; }
 .thread-card .latest { font-family: var(--vmono); font-size: 11.5px; color: var(--vmuted-2); text-align: right; min-width: 90px; }
 .thread-card .latest .final-marker { display: inline-block; color: var(--vorange); font-weight: 600; margin-top: 4px; }
 
-.note-shell { display: grid; grid-template-columns: 248px 1fr; min-height: calc(100vh - 60px); }
+.note-shell { display: grid; grid-template-columns: 360px 1fr; min-height: calc(100vh - 60px); }
 .note-side { border-right: 1px solid var(--vline); padding: 24px 22px 22px; display: flex; flex-direction: column; gap: 0; background: var(--vbg); position: sticky; top: 60px; align-self: start; max-height: calc(100vh - 60px); overflow-y: auto; overflow-x: hidden; min-width: 0; }
 .note-side .back { font-family: var(--vmono); font-size: 11px; color: var(--vmuted); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 22px; transition: color .12s; }
 .note-side .back:hover { color: var(--vorange); }
@@ -320,13 +318,13 @@ a { color: inherit; text-decoration: none; }
 .lightbox .lb-close { position: absolute; top: 18px; right: 22px; font-family: var(--vmono); font-size: 11px; color: rgba(255,255,255,0.7); letter-spacing: 0.14em; text-transform: uppercase; cursor: pointer; }
 @keyframes lb-in { from { opacity: 0; } to { opacity: 1; } }
 
-.note-main { background: var(--vpanel); min-width: 0; }
-.note-banner { padding: 12px 24px; background: linear-gradient(90deg, rgba(201,142,45,0.08), transparent 60%); border-bottom: 1px solid var(--vline-2); display: flex; align-items: center; justify-content: space-between; font-family: var(--vmono); font-size: 11.5px; color: var(--vink-2); gap: 14px; flex-wrap: wrap; }
+.note-main { background: var(--vpanel); min-width: 0; display: flex; flex-direction: column; height: calc(100vh - 60px); }
+.note-banner { padding: 12px 24px; background: linear-gradient(90deg, rgba(201,142,45,0.08), transparent 60%); border-bottom: 1px solid var(--vline-2); display: flex; align-items: center; justify-content: space-between; font-family: var(--vmono); font-size: 11.5px; color: var(--vink-2); gap: 14px; flex-wrap: wrap; flex-shrink: 0; }
 .note-banner .lbl { color: var(--vamber); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; font-size: 10.5px; }
 .note-banner .finalize-btn { font-family: var(--vhead); font-weight: 500; font-size: 13px; letter-spacing: -0.005em; padding: 6px 14px; border-radius: 7px; background: var(--vink); color: var(--vbg); border: 0; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
 .note-banner .finalize-btn:hover { background: var(--vorange); }
-.note-iframe-wrap { background: var(--vpanel); min-height: calc(100vh - 60px); }
-.note-iframe { width: 100%; height: calc(100vh - 60px); border: 0; display: block; }
+.note-iframe-wrap { background: var(--vpanel); flex: 1; min-height: 0; }
+.note-iframe { width: 100%; height: 100%; border: 0; display: block; }
 
 .empty { text-align: center; padding: 80px 20px; color: var(--vmuted); max-width: 480px; margin: 0 auto; }
 .empty h2 { font-family: var(--vhead); font-weight: 500; font-size: 36px; letter-spacing: -0.025em; color: var(--vink); margin: 0 0 12px; }
@@ -516,7 +514,6 @@ function topbar(query = "", active?: "notes" | "threads" | "stats"): string {
       <span class="div"></span>
       <span class="tagline">Visual comm for agents</span>
     </a>
-    <a href="/stats" class="ver" title="Folio v${esc(pkg.version)} — system info">v${esc(pkg.version)}</a>
     <form class="v-search" role="search" action="/search" method="get">
       <span class="ico">⌕</span>
       <input type="search" name="q" placeholder="Search notes and threads…" value="${esc(query)}" autocomplete="off">

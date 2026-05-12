@@ -159,39 +159,40 @@ Full spec in `STYLEBOOK.md` in this folder. In short, use **utility classes from
 
 **DO NOT:**
 - ❌ `style="..."` inline (beyond exceptional cases — bar width, custom accent)
-- ❌ `<style>`, `<script>` (top-level), `<html>`, `<head>`, `<body>`, `<title>`, `<meta>` — the template wraps your fragment
+- ❌ `<html>`, `<head>`, `<body>`, `<title>`, `<meta>` — the template wraps your fragment
+- ❌ `<style>` at body level — that's theme.css's job
 - ❌ `<font>`, `<center>`, deprecated HTML4 tags
 - ❌ Raw hex colors in attributes — use the classes
 
-**Folio's sanitizer drops** non-allowed tags and top-level `<script>`. Your clean semantic HTML is best.
-
-**ALLOWED: `<iframe sandbox>`** — for embeds that need `<script>` in an isolated context. Use cases: live demo (CodeSandbox), interactive chart (Observable), filterable 100-row table (srcdoc with your own HTML+JS), video (YouTube), visualization (D3 demo).
+**`<script>` at body level IS allowed** (since v0.3). Notes are served from `/raw/:id` into a null-origin sandboxed iframe with CSP `connect-src 'none'`, so your script can build DOM and run handlers but cannot reach the parent window, cookies, localStorage, or any network endpoint. Default pattern for interactivity — inline `<script>` in body, not iframe srcdoc:
 
 ```html
-<!-- External embed -->
+<div id="my-widget"></div>
+<script>
+(function () {
+  var root = document.getElementById("my-widget");
+  // Need <input>/<select>/<button>? Build via createElement — the sanitizer
+  // strips them from static HTML, but doesn't see runtime-built DOM.
+  var input = document.createElement("input");
+  input.placeholder = "filter…";
+  root.appendChild(input);
+  // theme.css applies natively to .card / .cards / .pill etc. that you create here.
+})();
+</script>
+```
+
+**Native HTML when sufficient:** for expand/collapse use `<details><summary>...</summary>...</details>` — no JS needed.
+
+**When `<iframe>`:** third-party embeds only — YouTube, CodeSandbox, Observable, Loom. Use `src="https://..."`. Iframe `srcdoc=` for your own HTML/JS was the pre-v0.3 workaround; today it's overhead and the inner content loses theme inheritance.
+
+```html
 <iframe src="https://codesandbox.io/embed/abc"
         sandbox="allow-scripts"
         width="100%" height="400"
         title="Live demo"></iframe>
-
-<!-- Inline interactive (srcdoc with your own JS) -->
-<iframe sandbox="allow-scripts"
-        width="100%" height="500"
-        srcdoc='<!doctype html><body><script>...</script></body>'></iframe>
 ```
 
-Sanitizer ENFORCED:
-- `src` only `https://` (NOT `data:`, NOT `javascript:`)
-- `sandbox` is always present; `allow-same-origin` is ALWAYS stripped (the frame cannot reach the parent origin)
-- Missing `sandbox` → automatically set to `allow-scripts allow-popups allow-forms`
-- `on*` event handlers are dropped
-- `referrerpolicy="no-referrer"` is forced
-
-**When iframe vs `<details>`:**
-- ✅ Needs JS (sorting, filtering, state animation, charts) → `<iframe sandbox srcdoc=...>`
-- ✅ Third-party embed → `<iframe sandbox src=https://...>`
-- ✅ Larger visualization or demo → iframe
-- ❌ Accordion, expandable section, "show/hide" → use `<details><summary>...</summary>...</details>` (CSS-only, works everywhere)
+Sanitizer enforces (when you do iframe): `src` only `https://`, `sandbox` always present with `allow-same-origin` stripped, default sandbox `allow-scripts allow-popups allow-forms`, `on*` handlers dropped, `referrerpolicy="no-referrer"`.
 
 ---
 

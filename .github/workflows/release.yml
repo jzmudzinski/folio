@@ -56,7 +56,8 @@ jobs:
           cp -r themes templates skills dist/
           cp README.md LICENSE dist/
           mkdir -p dist/docs
-          cp docs/mcp-setup.md docs/wordmark-v05.html dist/docs/ 2>/dev/null || true
+          cp docs/mcp-setup.md dist/docs/ 2>/dev/null || true
+          cp -r assets dist/ 2>/dev/null || true
           # Install script — sets up themes/templates next to binary so execPath
           # fallback in config.ts picks them up.
           cat > dist/install.sh << 'EOF'

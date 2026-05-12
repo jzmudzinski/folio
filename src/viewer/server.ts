@@ -5,6 +5,7 @@ import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, lis
 import { db, logEvent } from "../core/db";
 import { pageList, pageSearch, pageThread, pageThreads, pageNote, pageStats, pageError, pageTag } from "./render";
 import { injectBootstrap } from "./note-bootstrap";
+import pkg from "../../package.json" with { type: "json" };
 import type { NoteType } from "../core/types";
 
 function htmlResp(body: string, status = 200): Response {
@@ -231,7 +232,7 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
       }
     },
   });
-  console.log(`📄 Folio viewer → http://${server.hostname}:${server.port}`);
+  console.log(`📄 Folio v${pkg.version} → http://${server.hostname}:${server.port}`);
   console.log(`   Notes from: ${folioRoot()}`);
   return server;
 }

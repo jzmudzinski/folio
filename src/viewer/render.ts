@@ -198,14 +198,17 @@ a { color: inherit; text-decoration: none; }
    without sacrificing contrast against linen-warm viewer chrome.
    ns-klient → niebieski, ns-projekt → zielony, ns-temat → bursztynowy,
    ns-type → fioletowy, ns-unknown / no namespace → muted neutral. */
-.tag-cloud .tag-chip.ns-klient   { background: color-mix(in srgb, var(--vblue)   12%, var(--vpanel)); border-color: color-mix(in srgb, var(--vblue)   28%, var(--vline));  color: color-mix(in srgb, var(--vblue)   80%, var(--vink)); }
-.tag-cloud .tag-chip.ns-projekt  { background: color-mix(in srgb, var(--vgood)   12%, var(--vpanel)); border-color: color-mix(in srgb, var(--vgood)   28%, var(--vline));  color: color-mix(in srgb, var(--vgood)   80%, var(--vink)); }
-.tag-cloud .tag-chip.ns-temat    { background: color-mix(in srgb, var(--vamber)  14%, var(--vpanel)); border-color: color-mix(in srgb, var(--vamber)  30%, var(--vline));  color: color-mix(in srgb, var(--vamber)  85%, var(--vink)); }
-.tag-cloud .tag-chip.ns-type     { background: color-mix(in srgb, var(--vpurple) 12%, var(--vpanel)); border-color: color-mix(in srgb, var(--vpurple) 28%, var(--vline));  color: color-mix(in srgb, var(--vpurple) 80%, var(--vink)); }
-.tag-cloud .tag-chip.ns-klient   .ns { color: color-mix(in srgb, var(--vblue)   75%, var(--vink)); }
-.tag-cloud .tag-chip.ns-projekt  .ns { color: color-mix(in srgb, var(--vgood)   75%, var(--vink)); }
-.tag-cloud .tag-chip.ns-temat    .ns { color: color-mix(in srgb, var(--vamber)  80%, var(--vink)); }
-.tag-cloud .tag-chip.ns-type     .ns { color: color-mix(in srgb, var(--vpurple) 75%, var(--vink)); }
+/* Intensities tuned for clearly-visible tint on linen-warm chrome:
+   ~24% background fill (still light, but distinguishable from #f5f3ee bg),
+   ~55% border for a strong outline, ~70% text for AA-safe contrast on top. */
+.tag-cloud .tag-chip.ns-klient   { background: color-mix(in srgb, var(--vblue)   22%, var(--vpanel)); border-color: color-mix(in srgb, var(--vblue)   55%, var(--vline));  color: color-mix(in srgb, var(--vblue)   70%, var(--vink)); }
+.tag-cloud .tag-chip.ns-projekt  { background: color-mix(in srgb, var(--vgood)   22%, var(--vpanel)); border-color: color-mix(in srgb, var(--vgood)   55%, var(--vline));  color: color-mix(in srgb, var(--vgood)   70%, var(--vink)); }
+.tag-cloud .tag-chip.ns-temat    { background: color-mix(in srgb, var(--vamber)  26%, var(--vpanel)); border-color: color-mix(in srgb, var(--vamber)  60%, var(--vline));  color: color-mix(in srgb, var(--vamber)  75%, var(--vink)); }
+.tag-cloud .tag-chip.ns-type     { background: color-mix(in srgb, var(--vpurple) 22%, var(--vpanel)); border-color: color-mix(in srgb, var(--vpurple) 55%, var(--vline));  color: color-mix(in srgb, var(--vpurple) 70%, var(--vink)); }
+.tag-cloud .tag-chip.ns-klient   .ns { color: color-mix(in srgb, var(--vblue)   65%, var(--vink)); }
+.tag-cloud .tag-chip.ns-projekt  .ns { color: color-mix(in srgb, var(--vgood)   65%, var(--vink)); }
+.tag-cloud .tag-chip.ns-temat    .ns { color: color-mix(in srgb, var(--vamber)  70%, var(--vink)); }
+.tag-cloud .tag-chip.ns-type     .ns { color: color-mix(in srgb, var(--vpurple) 65%, var(--vink)); }
 .tag-cloud .tag-chip:hover.ns-klient,
 .tag-cloud .tag-chip:hover.ns-projekt,
 .tag-cloud .tag-chip:hover.ns-temat,
@@ -215,14 +218,14 @@ a { color: inherit; text-decoration: none; }
 .tag-header .ns { color: var(--vbronze); opacity: 0.7; font-weight: 400; }
 .tag-header .val { font-weight: 600; letter-spacing: -0.01em; }
 .tag-header .count { font-family: var(--vmono); font-size: 12px; color: var(--vmuted); font-weight: 400; letter-spacing: 0.04em; padding-left: 8px; border-left: 1px solid var(--vline); }
-.tag-header.ns-klient  { background: color-mix(in srgb, var(--vblue)   12%, var(--vpanel)); border-color: color-mix(in srgb, var(--vblue)   35%, var(--vline)); color: color-mix(in srgb, var(--vblue)   80%, var(--vink)); }
-.tag-header.ns-projekt { background: color-mix(in srgb, var(--vgood)   12%, var(--vpanel)); border-color: color-mix(in srgb, var(--vgood)   35%, var(--vline)); color: color-mix(in srgb, var(--vgood)   80%, var(--vink)); }
-.tag-header.ns-temat   { background: color-mix(in srgb, var(--vamber)  14%, var(--vpanel)); border-color: color-mix(in srgb, var(--vamber)  35%, var(--vline)); color: color-mix(in srgb, var(--vamber)  85%, var(--vink)); }
-.tag-header.ns-type    { background: color-mix(in srgb, var(--vpurple) 12%, var(--vpanel)); border-color: color-mix(in srgb, var(--vpurple) 35%, var(--vline)); color: color-mix(in srgb, var(--vpurple) 80%, var(--vink)); }
-.tag-header.ns-klient  .ns { color: color-mix(in srgb, var(--vblue)   75%, var(--vink)); }
-.tag-header.ns-projekt .ns { color: color-mix(in srgb, var(--vgood)   75%, var(--vink)); }
-.tag-header.ns-temat   .ns { color: color-mix(in srgb, var(--vamber)  80%, var(--vink)); }
-.tag-header.ns-type    .ns { color: color-mix(in srgb, var(--vpurple) 75%, var(--vink)); }
+.tag-header.ns-klient  { background: color-mix(in srgb, var(--vblue)   22%, var(--vpanel)); border-color: color-mix(in srgb, var(--vblue)   60%, var(--vline)); color: color-mix(in srgb, var(--vblue)   70%, var(--vink)); }
+.tag-header.ns-projekt { background: color-mix(in srgb, var(--vgood)   22%, var(--vpanel)); border-color: color-mix(in srgb, var(--vgood)   60%, var(--vline)); color: color-mix(in srgb, var(--vgood)   70%, var(--vink)); }
+.tag-header.ns-temat   { background: color-mix(in srgb, var(--vamber)  26%, var(--vpanel)); border-color: color-mix(in srgb, var(--vamber)  65%, var(--vline)); color: color-mix(in srgb, var(--vamber)  75%, var(--vink)); }
+.tag-header.ns-type    { background: color-mix(in srgb, var(--vpurple) 22%, var(--vpanel)); border-color: color-mix(in srgb, var(--vpurple) 60%, var(--vline)); color: color-mix(in srgb, var(--vpurple) 70%, var(--vink)); }
+.tag-header.ns-klient  .ns { color: color-mix(in srgb, var(--vblue)   65%, var(--vink)); }
+.tag-header.ns-projekt .ns { color: color-mix(in srgb, var(--vgood)   65%, var(--vink)); }
+.tag-header.ns-temat   .ns { color: color-mix(in srgb, var(--vamber)  70%, var(--vink)); }
+.tag-header.ns-type    .ns { color: color-mix(in srgb, var(--vpurple) 65%, var(--vink)); }
 
 /* Active filter strip shown above the date groups when ?tag= and/or ?type= is set */
 .active-filter { display: flex; align-items: center; gap: 10px; padding: 10px 4px 14px; margin-bottom: 4px; flex-wrap: wrap; font-family: var(--vmono); font-size: 11.5px; color: var(--vmuted); }

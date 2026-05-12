@@ -23,7 +23,7 @@ import {
   suggestThread,
   stats,
 } from "../core/storage";
-import { loadConfig, folioRoot, bundledThemesDir, themesDir } from "../core/config";
+import { loadConfig, folioRoot, bundledThemesDir, themesDir, viewerLocalBaseUrl, viewerPublicBaseUrl } from "../core/config";
 import { listThemes, getTheme } from "../core/themes";
 import { db } from "../core/db";
 import type { NoteType, RenderProfile } from "../core/types";
@@ -199,17 +199,24 @@ export async function buildServer(): Promise<Server> {
             is_final: typeof args.is_final === "boolean" ? args.is_final : undefined,
           });
           const cfg = await loadConfig();
+          const localUrl = `${viewerLocalBaseUrl(cfg)}/n/${note.id}`;
+          const publicUrl = `${viewerPublicBaseUrl(cfg)}/n/${note.id}`;
           return jsonContent({
             id: note.id,
             slug: note.slug,
             path: note.path,
-            local_url: `http://${cfg.viewer_host}:${cfg.viewer_port}/n/${note.id}`,
+            // local_url stays for back-compat (always 127.0.0.1:<port>); public_url
+            // is what relays/bots should surface — equals local_url when no public
+            // base configured, else the configured viewer_public_url.
+            local_url: localUrl,
+            public_url: publicUrl,
             thread_id: note.thread_id,
             theme: note.theme,
             theme_profile: note.theme_profile,
             expires_at: note.expires_at,
-            // Hint to agent: include in MEDIA: response convention
-            response_hint: `Respond to user with: "MEDIA:http://${cfg.viewer_host}:${cfg.viewer_port}/n/${note.id}" + 3-5 line TL;DR.`,
+            // Hint to agent: include in MEDIA: response convention. Uses public_url
+            // so relays (Telegram, email, Slack) don't paste localhost URLs.
+            response_hint: `Respond to user with: "MEDIA:${publicUrl}" + 3-5 line TL;DR.`,
           });
         }
 
@@ -368,7 +375,8 @@ export async function buildServer(): Promise<Server> {
             name: pkg.name,
             version: pkg.version,
             folio_root: folioRoot(),
-            viewer_url: `http://${cfg.viewer_host}:${cfg.viewer_port}`,
+            viewer_url: viewerLocalBaseUrl(cfg),
+            public_url: viewerPublicBaseUrl(cfg),
             default_theme: cfg.theme,
             default_lifespan_days: cfg.default_lifespan_days,
           });

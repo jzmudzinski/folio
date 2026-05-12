@@ -11,6 +11,9 @@ import { reindexCmd } from "./commands/reindex";
 import { exportCmd } from "./commands/export";
 import { updateCmd } from "./commands/update";
 import { versionCmd } from "./commands/version";
+import { installCmd } from "./commands/install";
+import { uninstallCmd } from "./commands/uninstall";
+import { doctorCmd } from "./commands/doctor";
 import { c, out } from "./io";
 
 interface ParsedArgs {
@@ -65,6 +68,9 @@ function help(): number {
   out(`  ${c.cyan("export <id>")}       Export note as HTML (--standalone inlines theme CSS, --out path to file or stdout)`);
   out(`  ${c.cyan("serve")}             Start local viewer on http://127.0.0.1:4810`);
   out(`  ${c.cyan("update")}            Check + install latest release from GitHub (--check, --force, --pre, --json)`);
+  out(`  ${c.cyan("install")}           Wire Folio into an agent client (--target claude-code, --skill-only, --mcp-only, --scope, --dry-run, --yes)`);
+  out(`  ${c.cyan("uninstall")}         Remove Folio wiring (--target, --skill-only, --mcp-only, --scope, --all-scopes, --dry-run, --yes)`);
+  out(`  ${c.cyan("doctor")}            Show install state + warn on stale paths or version conflicts (--json)`);
   out(`  ${c.cyan("version")}           Print Folio version + system info (--json) — also: --version, -v`);
   out(`  ${c.cyan("help")}              This help`);
   out("");
@@ -163,6 +169,29 @@ export async function main(argv = process.argv): Promise<number> {
           prerelease: flagBool(flags.pre) || flagBool(flags.prerelease),
           jsonOut: flagBool(flags.json),
         });
+      case "install":
+        return await installCmd({
+          target: flagStr(flags.target),
+          skillOnly: flagBool(flags["skill-only"]),
+          mcpOnly: flagBool(flags["mcp-only"]),
+          scope: flagStr(flags.scope),
+          dryRun: flagBool(flags["dry-run"]),
+          yes: flagBool(flags.yes) || flagBool(flags.y),
+          jsonOut: flagBool(flags.json),
+        });
+      case "uninstall":
+        return await uninstallCmd({
+          target: flagStr(flags.target),
+          skillOnly: flagBool(flags["skill-only"]),
+          mcpOnly: flagBool(flags["mcp-only"]),
+          scope: flagStr(flags.scope),
+          allScopes: flagBool(flags["all-scopes"]),
+          dryRun: flagBool(flags["dry-run"]),
+          yes: flagBool(flags.yes) || flagBool(flags.y),
+          jsonOut: flagBool(flags.json),
+        });
+      case "doctor":
+        return await doctorCmd({ jsonOut: flagBool(flags.json) });
       case "help":
       case undefined:
       case "":

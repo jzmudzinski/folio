@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { loadConfig, folioRoot, bundledThemesDir, themesDir } from "../core/config";
+import { loadConfig, folioRoot, bundledThemesDir, themesDir, viewerPublicBaseUrl } from "../core/config";
 import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, listThreads, listPopularTags, listNotesByTag } from "../core/storage";
 import { db, logEvent } from "../core/db";
 import { pageList, pageSearch, pageThread, pageThreads, pageNote, pageStats, pageError, pageTag } from "./render";
@@ -232,7 +232,10 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
       }
     },
   });
-  console.log(`📄 Folio v${pkg.version} → http://${server.hostname}:${server.port}`);
+  const localBase = `http://${server.hostname}:${server.port}`;
+  const publicBase = viewerPublicBaseUrl(cfg);
+  const publicNote = publicBase !== localBase ? `  (public: ${publicBase})` : "";
+  console.log(`📄 Folio v${pkg.version} → ${localBase}${publicNote}`);
   console.log(`   Notes from: ${folioRoot()}`);
   return server;
 }

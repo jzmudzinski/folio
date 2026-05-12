@@ -8,7 +8,7 @@ export interface FolioConfig {
   viewer_port: number;
   viewer_host: string;
   // Public-facing base URL of the viewer when Folio is reverse-proxied
-  // (e.g. https://zeszyt.notibox.local). When set, MCP responses and CLI
+  // (e.g. https://notes.example.com). When set, MCP responses and CLI
   // banners surface this instead of http://127.0.0.1:<port> — important when
   // an agent (bot, Telegram, email) relays the URL to a user who can't reach
   // localhost. Notes themselves keep relative /n/<id> links so they render

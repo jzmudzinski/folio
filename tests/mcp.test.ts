@@ -198,33 +198,33 @@ test("create returns public_url equal to local_url when no viewer_public_url set
 test("create uses viewer_public_url when configured", async () => {
   const { saveConfig, loadConfig } = await import("../src/core/config");
   const cfg = await loadConfig();
-  await saveConfig({ ...cfg, viewer_public_url: "https://zeszyt.example.test" });
+  await saveConfig({ ...cfg, viewer_public_url: "https://notes.example.com" });
   const res = await callTool("create", { type: "snippet", title: "Public base", body_html: "<p>x</p>" });
   expect(res.isError).toBeFalsy();
   const data = JSON.parse(res.content[0].text);
-  expect(data.public_url).toBe(`https://zeszyt.example.test/n/${data.id}`);
+  expect(data.public_url).toBe(`https://notes.example.com/n/${data.id}`);
   expect(data.local_url).toContain("127.0.0.1");
-  expect(data.local_url).not.toContain("zeszyt.example.test");
-  expect(data.response_hint).toContain(`MEDIA:https://zeszyt.example.test/n/${data.id}`);
+  expect(data.local_url).not.toContain("notes.example.com");
+  expect(data.response_hint).toContain(`MEDIA:https://notes.example.com/n/${data.id}`);
 });
 
 test("create strips trailing slash from viewer_public_url", async () => {
   const { saveConfig, loadConfig } = await import("../src/core/config");
   const cfg = await loadConfig();
-  await saveConfig({ ...cfg, viewer_public_url: "https://zeszyt.example.test/" });
+  await saveConfig({ ...cfg, viewer_public_url: "https://notes.example.com/" });
   const res = await callTool("create", { type: "snippet", title: "Trailing slash", body_html: "<p>x</p>" });
   const data = JSON.parse(res.content[0].text);
-  expect(data.public_url).toBe(`https://zeszyt.example.test/n/${data.id}`);
+  expect(data.public_url).toBe(`https://notes.example.com/n/${data.id}`);
 });
 
 test("version tool exposes both viewer_url and public_url", async () => {
   const { saveConfig, loadConfig } = await import("../src/core/config");
   const cfg = await loadConfig();
-  await saveConfig({ ...cfg, viewer_public_url: "https://zeszyt.example.test" });
+  await saveConfig({ ...cfg, viewer_public_url: "https://notes.example.com" });
   const res = await callTool("version", {});
   const data = JSON.parse(res.content[0].text);
   expect(data.viewer_url).toMatch(/^http:\/\/127\.0\.0\.1:/);
-  expect(data.public_url).toBe("https://zeszyt.example.test");
+  expect(data.public_url).toBe("https://notes.example.com");
 });
 
 test("search after create finds the note", async () => {

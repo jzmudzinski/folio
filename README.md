@@ -146,7 +146,7 @@ Folio binds to `127.0.0.1:4810` by default. When you reverse-proxy the viewer to
   "theme": "linen",
   "viewer_port": 4810,
   "viewer_host": "127.0.0.1",
-  "viewer_public_url": "https://zeszyt.notibox.local"
+  "viewer_public_url": "https://notes.example.com"
 }
 ```
 
@@ -171,7 +171,7 @@ Effect: `folio.create` returns `public_url` + a `response_hint` (the `MEDIA:` li
   "thread_id": "morning-ride-2026-05-12",
   "filename": "speed-chart.png",
   "path":  "~/Folio/threads/morning-ride-2026-05-12/assets/speed-chart.png",
-  "url":   "https://zeszyt.notibox.local/t/morning-ride-2026-05-12/asset/speed-chart.png",
+  "url":   "https://notes.example.com/t/morning-ride-2026-05-12/asset/speed-chart.png",
   "local_url": "http://127.0.0.1:4810/t/…/asset/speed-chart.png",
   "size_bytes": 23184
 }

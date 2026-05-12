@@ -146,11 +146,25 @@ export async function updateCmd(opts: UpdateOptions = {}): Promise<number> {
     if (!opts.jsonOut) out(c.dim("  install.sh"));
     await runCmd("bash", [installSh], { cwd: tmp });
 
+    // Post-update refresh: if the user previously ran `folio install --target
+    // claude-code`, the MCP command path in ~/.claude.json may now point at
+    // the old binary location. Refresh idempotently — noop if nothing was
+    // ever installed.
+    let refreshed = 0;
+    try {
+      const { refreshAfterUpdate } = await import("../install/claude-code");
+      const r = refreshAfterUpdate();
+      refreshed = r.refreshed;
+    } catch (e: any) {
+      if (!opts.jsonOut) err(c.warn(`! Post-update install refresh failed: ${e?.message ?? e}`));
+    }
+
     if (opts.jsonOut) {
-      json({ action: "installed", target, from: currentRaw, to: latestRaw });
+      json({ action: "installed", target, from: currentRaw, to: latestRaw, refreshed });
     } else {
       out("");
       out(c.ok(`✓ Installed v${latestRaw}.`));
+      if (refreshed > 0) out(c.dim(`  Refreshed ${refreshed} install entr${refreshed === 1 ? "y" : "ies"} (skill / MCP).`));
       out(c.dim("  Restart `folio serve` (if running) and reconnect any MCP client to pick it up."));
     }
     return 0;

@@ -1,100 +1,101 @@
 ---
 name: folio
-description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp). Use when the user asks for research, comparison, deep dive, technical doc, ADR, specyfikacja, „zrób mi notatkę", „porównaj X i Y", „TL;DR ten URL", or any output that would benefit from rich visual layout (tables, scorecards, diagrams, color-coded findings). Also proactively after producing long structured responses — propose saving to Folio. Append-only model: never edits; new version = new note in same thread folder.
+description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp). Use when the user asks for research, comparison, deep dive, technical doc, ADR, spec, "make me a note", "compare X and Y", "TL;DR this URL", or any output that would benefit from rich visual layout (tables, scorecards, diagrams, color-coded findings). Also proactively after producing long structured responses — propose saving to Folio. Append-only model: never edits; new version = new note in the same thread folder.
 ---
 
 # Folio Skill
 
-> Generuj wizualnie bogate HTML-owe artefakty komunikacyjne via Folio. Markdown w czacie ma flat hierarchy; Folio daje scorecards, color coding, in-page nav, tabele.
+> Generate visually rich HTML communication artifacts via Folio. Markdown in chat has flat hierarchy; Folio gives you scorecards, color coding, in-page nav, tables.
 
 ## Quick reference
 
 - **Install root:** `~/.local/folio` (override via `$FOLIO_PREFIX`)
 - **Storage:** `$FOLIO_HOME` (default `~/Folio/`)
-- **MCP:** `folio-mcp` (zobacz `docs/mcp-setup.md`)
+- **MCP:** `folio-mcp` (see `docs/mcp-setup.md`)
 - **Viewer:** `folio serve` → http://127.0.0.1:4810
 - **Tools:** `create`, `get`, `list`, `search`, `finalize`, `unfinalize`, `suggest_thread`, `list_expiring`, `list_themes`, `export`, `version` (MCP server name `folio` → mcporter syntax: `folio.create`, `folio.search`, …)
-- **Stylebook:** `skills/folio/STYLEBOOK.md` (class contract z theme.css)
-- **Examples:** `skills/folio/examples/<typ>/`
+- **Stylebook:** `skills/folio/STYLEBOOK.md` (class contract with theme.css)
+- **Examples:** `skills/folio/examples/<type>/`
 
 ---
 
-## Kiedy używać Folio
+## When to use Folio
 
-**TAK (triggers):**
-- „research [temat]", „rozszerz", „streść", „deep dive", „TL;DR ten URL"
-- „porównaj X i Y", „compare X vs Y", „różnice między"
-- „ADR", „decyzja techniczna", „specyfikacja", „dokumentacja"
-- „zrób mi notatkę o…", „zapisz to do folio"
-- Proaktywnie po długich strukturalnych odpowiedziach (gdy w czacie wyprodukowałeś rozbudowany artefakt, zaproponuj: „Zapisać do Folio jako [typ]?")
-- Po dłuższej rozmowie debriefującej (rozmowa rekrutacyjna, meeting) → zaproponuj `journal`
+**YES (triggers):**
+- "research [topic]", "expand on", "summarize", "deep dive", "TL;DR this URL"
+- "compare X and Y", "compare X vs Y", "differences between"
+- "ADR", "technical decision", "spec", "documentation"
+- "make me a note about…", "save this to folio"
+- Proactively after long structured responses (when the chat answer is already a rich artifact, offer: "Save to Folio as [type]?")
+- After a long debrief conversation (interview, meeting) → offer `journal`
 
-**NIE (anti-triggers):**
-- Krótka odpowiedź konwersacyjna („która godzina?", „co to RAG?" gdy wystarczy 2 zdania)
-- Edycja istniejącego pliku poza Folio (Folio nie edytuje plików)
-- Daily note, projekty zarządzane manualnie w Obsidian
-- Jednorazowy snippet kodu odpowiadający na dokładne pytanie (chyba że user wprost prosi „zapisz to")
+**NO (anti-triggers):**
+- Short conversational answer ("what time is it?", "what's RAG?" when two sentences suffice)
+- Editing an existing file outside Folio (Folio does not edit files)
+- Daily notes / projects manually managed in Obsidian
+- One-off code snippet answering a precise question (unless the user explicitly says "save this")
 
 ---
 
-## Pętla obowiązkowa (każde użycie Folio)
+## Mandatory loop (every Folio use)
 
-> Tool names (od v0.2.0) są bez prefiksu `folio.`. Server name to `folio`, tool name to `create` / `search` / `suggest_thread` etc. Klienci typu mcporter łączą oba: `mcporter call folio.create --args '...'`.
+> Since v0.2.0, tool names have no `folio.` prefix. The server name is `folio`, the tool name is `create` / `search` / `suggest_thread` etc. Clients like mcporter join the two: `mcporter call folio.create --args '...'`.
 
 ```
 1.  suggest_thread({ title: <proposed title> })
-    ↳ Jeśli `matches.length > 0` → użyj istniejącego `thread_id`.
-    ↳ Jeśli pusto → użyj `proposed_new_thread` z response (nowy thread).
+    ↳ If `matches.length > 0` → use the existing `thread_id`.
+    ↳ If empty → use `proposed_new_thread` from the response (new thread).
 
-2.  (opcjonalnie) list_themes()
-    ↳ Tylko gdy nie pewny theme. Cache w sesji — nie wołaj wielokrotnie.
+2.  (optional) list_themes()
+    ↳ Only when unsure about the theme. Cache in-session — don't re-call.
 
-3.  Wygeneruj body_html zgodny z STYLEBOOK.md aktualnego theme'u.
+3.  Generate body_html consistent with STYLEBOOK.md for the chosen theme.
 
 4.  create({ type, title, body_html, thread_id, theme?, tags? })
-    ↳ Theme z user config (domyślnie linen) jeśli nie nadpisujesz świadomie.
-    ↳ Theme_profile zostaw default ("hosted").
+    ↳ Theme from user config (default linen) unless you override deliberately.
+    ↳ Leave theme_profile at its default ("hosted").
 
-5.  W odpowiedzi do usera:
+5.  Respond to the user with:
 
-    MEDIA:<local_url>
+    MEDIA:<public_url>          // public_url falls back to local_url
+                                // when no viewer_public_url is configured
     
-    <3-5 linijek TL;DR — nie cała notatka, tylko esencja co tam jest>
+    <3-5 line TL;DR — not the whole note, just the essence of what's there>
     
-    <Tagi: tag1, tag2>  ← opcjonalnie, gdy non-obvious
+    <Tags: tag1, tag2>  ← optional, when non-obvious
 
-6.  ZAPAMIĘTAJ `id` w kontekście sesji — gdy user prosi o iterację
-    („inna wersja", „dopracuj"), użyj tego samego `thread_id`
-    do nowej noty (NIE edytujesz starej — ADR-014 append-only).
+6.  REMEMBER the `id` in session context — when the user asks for an iteration
+    ("different version", "polish this"), reuse the same `thread_id` for
+    the new note (do NOT edit the old one — ADR-014 append-only).
 ```
 
 ---
 
-## Wybór `type`
+## Choosing `type`
 
-| Sygnał w prompcie | Type | Template (slot data) |
+| Prompt signal | Type | Template (slot data) |
 |---|---|---|
-| „porównaj", „vs", „różnice między", scorecard | `comparison` | `comparison.html.eta` |
-| „research", „deep dive", „wszystko o", „streszczenie URL" | `research` | `research.html.eta` |
-| „debrief", „dziennik", „podsumowanie dnia / spotkania" | `journal` | (custom body_html — brak dedykowanego template'u w MVP) |
-| „ADR", „decyzja techniczna", „specyfikacja", „proposal" | `technical` | `technical.html.eta` |
-| „zapisz to" + krótka treść (<400 słów), single point | `snippet` | (custom body_html, single card layout) |
+| "compare", "vs", "differences between", scorecard | `comparison` | `comparison.html.eta` |
+| "research", "deep dive", "everything about", "summarize URL" | `research` | `research.html.eta` |
+| "debrief", "diary", "summary of the day / meeting" | `journal` | (custom body_html — no dedicated MVP template) |
+| "ADR", "technical decision", "spec", "proposal" | `technical` | `technical.html.eta` |
+| "save this" + short content (<400 words), single point | `snippet` | (custom body_html, single card layout) |
 
-Gdy niejasne → spytaj jednym pytaniem albo wybierz `research` jako safe default.
+If unclear → ask one question, or pick `research` as a safe default.
 
 ---
 
-## Wybór `theme`
+## Choosing `theme`
 
-Default user-wide: zwykle **linen** (Apple-grade minimal). Override gdy:
+Default user-wide: usually **linen** (Apple-grade minimal). Override when:
 
-| Kontekst | Theme | Dlaczego |
+| Context | Theme | Why |
 |---|---|---|
-| Public-facing report / customer-facing | `linen` | Polish, neutral, czytelny dla niedevs |
+| Public-facing report / customer-facing | `linen` | Polished, neutral, readable by non-devs |
 | System design, ADR, code-heavy | `folio` | Dev-targeted, dark, mono, gradient h1 |
-| Long-form journalism, formal report | `newsroom` | Serif gravitas, ciszy bullet'om |
+| Long-form journalism, formal report | `newsroom` | Serif gravitas, quieter bullets |
 | Personal brainstorm, journal, exploratory | `notebook` | Handwritten headers, casual, hedging OK |
-| Strong opinion, manifesto, polemika | `brutalist` | ALL CAPS, bez ozdób, statement piece |
+| Strong opinion, manifesto, polemic | `brutalist` | ALL CAPS, no ornament, statement piece |
 | Log analysis, debugging, system internals | `terminal` | Mono, green-on-black, code-like |
 | Personal soft communication, gentle | `pastel` | Warm rounded, soft accents |
 | Investigation, OSINT, deep dossier | `dossier` | Typewriter, manila, "classified" stamp |
@@ -109,37 +110,37 @@ Default user-wide: zwykle **linen** (Apple-grade minimal). Override gdy:
 | DIY zine, indie hot take | `kraft` | Bricolage + risograph duotone |
 | Editorial feature, opinion essay | `prism` | Space Grotesk + Newsreader italic |
 
-**Reguła:** jeśli user nie powiedział, użyj defaultu. Proponuj override TYLKO jeśli kontekst silnie pasuje (np. user pisze „zrób mi ADR" → sugeruj `folio` lub `terminal`).
+**Rule:** if the user didn't say, use the default. Suggest an override ONLY when the context strongly fits (e.g. user says "make me an ADR" → suggest `folio` or `terminal`).
 
-**Po wyborze:** `list_themes` zwraca `prompt_addendum` dla każdego — przeczytaj odpowiedni przed generowaniem body. Stylebook theme'u dyktuje strukturę markupu (newsroom prose-forward, brutalist krótkie zdania, etc.).
+**After picking:** `list_themes` returns a `prompt_addendum` for each — read the relevant one before generating body. The theme's stylebook dictates markup structure (newsroom prose-forward, brutalist short sentences, etc.).
 
 ---
 
-## Stylebook — kontrakt z theme.css
+## Stylebook — contract with theme.css
 
-Pełna spec w `STYLEBOOK.md` w tym samym folderze. W skrócie, używaj **klas utility z theme.css**:
+Full spec in `STYLEBOOK.md` in this folder. In short, use **utility classes from theme.css**:
 
 ```html
 <span class="eyebrow">Research · AI / ML</span>
-<h1>Tytuł</h1>
-<p class="lead">Lead 1-2 zdania.</p>
+<h1>Title</h1>
+<p class="lead">Lead 1-2 sentences.</p>
 
-<h3>Sekcja</h3>
-<p>Treść.</p>
+<h3>Section</h3>
+<p>Content.</p>
 <ul><li>Bullet</li></ul>
 
 <div class="cards">
   <div class="card">
-    <h3>Karta</h3>
-    <p>Opis</p>
+    <h3>Card</h3>
+    <p>Description</p>
   </div>
 </div>
 
 <table>...</table>
 
 <div class="verdict">
-  <h3>Werdykt</h3>
-  <p>Rekomendacja.</p>
+  <h3>Verdict</h3>
+  <p>Recommendation.</p>
 </div>
 
 <span class="pill good">final</span>
@@ -148,17 +149,17 @@ Pełna spec w `STYLEBOOK.md` w tym samym folderze. W skrócie, używaj **klas ut
 <span class="pill acc">accent</span>
 ```
 
-**Pożądane klasy:** `.eyebrow`, `.lead`, `.card`, `.cards`, `.verdict`, `.pill` (variants: `.good`, `.bad`, `.mid`, `.acc`, `.info`).
+**Allowed classes:** `.eyebrow`, `.lead`, `.card`, `.cards`, `.verdict`, `.pill` (variants: `.good`, `.bad`, `.mid`, `.acc`, `.info`).
 
-**NIE:**
-- ❌ `style="..."` inline (poza wyjątkowymi przypadkami — bar width, custom accent)
-- ❌ `<style>`, `<script>` (top-level), `<html>`, `<head>`, `<body>`, `<title>`, `<meta>` — to template wraps your fragment
-- ❌ `<font>`, `<center>`, deprecated HTML4 tagi
-- ❌ Surowe kolory hex w atrybutach — używaj klas
+**DO NOT:**
+- ❌ `style="..."` inline (beyond exceptional cases — bar width, custom accent)
+- ❌ `<style>`, `<script>` (top-level), `<html>`, `<head>`, `<body>`, `<title>`, `<meta>` — the template wraps your fragment
+- ❌ `<font>`, `<center>`, deprecated HTML4 tags
+- ❌ Raw hex colors in attributes — use the classes
 
-**Sanitizer Folio drop'uje** nie-allowed tagi i top-level `<script>`. Twoje czyste semantyczne HTML jest najlepsze.
+**Folio's sanitizer drops** non-allowed tags and top-level `<script>`. Your clean semantic HTML is best.
 
-**TAK MOŻNA: `<iframe sandbox>`** — dla embedów z `<script>`-em w izolowanym kontekście. Use case: live demo (CodeSandbox), interactive chart (Observable), filtrowalna tabela 100 rekordów (srcdoc z własnym HTML+JS), video (YouTube), wizualizacja (D3 demo).
+**ALLOWED: `<iframe sandbox>`** — for embeds that need `<script>` in an isolated context. Use cases: live demo (CodeSandbox), interactive chart (Observable), filterable 100-row table (srcdoc with your own HTML+JS), video (YouTube), visualization (D3 demo).
 
 ```html
 <!-- External embed -->
@@ -167,107 +168,107 @@ Pełna spec w `STYLEBOOK.md` w tym samym folderze. W skrócie, używaj **klas ut
         width="100%" height="400"
         title="Live demo"></iframe>
 
-<!-- Inline interactive (srcdoc z własnym JS) -->
+<!-- Inline interactive (srcdoc with your own JS) -->
 <iframe sandbox="allow-scripts"
         width="100%" height="500"
         srcdoc='<!doctype html><body><script>...</script></body>'></iframe>
 ```
 
 Sanitizer ENFORCED:
-- `src` tylko `https://` (NIE `data:`, NIE `javascript:`)
-- `sandbox` zawsze obecne; `allow-same-origin` ZAWSZE stripped (frame nie ma dostępu do parent origin)
-- Brak `sandbox` → automatycznie wpisuje `allow-scripts allow-popups allow-forms`
-- `on*` event handlery dropowane
-- `referrerpolicy="no-referrer"` forced
+- `src` only `https://` (NOT `data:`, NOT `javascript:`)
+- `sandbox` is always present; `allow-same-origin` is ALWAYS stripped (the frame cannot reach the parent origin)
+- Missing `sandbox` → automatically set to `allow-scripts allow-popups allow-forms`
+- `on*` event handlers are dropped
+- `referrerpolicy="no-referrer"` is forced
 
-**Kiedy iframe vs `<details>`:**
-- ✅ Wymaga JS (sortowanie, filtrowanie, animacja stanów, charts) → `<iframe sandbox srcdoc=...>`
-- ✅ Embed z third-party → `<iframe sandbox src=https://...>`
-- ✅ Większa wizualizacja albo demo → iframe
-- ❌ Akordeon, expandable section, „pokaż/ukryj" → użyj `<details><summary>...</summary>...</details>` (CSS-only, działa wszędzie)
+**When iframe vs `<details>`:**
+- ✅ Needs JS (sorting, filtering, state animation, charts) → `<iframe sandbox srcdoc=...>`
+- ✅ Third-party embed → `<iframe sandbox src=https://...>`
+- ✅ Larger visualization or demo → iframe
+- ❌ Accordion, expandable section, "show/hide" → use `<details><summary>...</summary>...</details>` (CSS-only, works everywhere)
 
 ---
 
-## Tagowanie
+## Tagging
 
-`tags` w `create`:
-- Konkretne: `["postgres", "saas", "comparison"]`, nie ogólne `["analiza"]`
+`tags` in `create`:
+- Specific: `["postgres", "saas", "comparison"]`, not generic `["analysis"]`
 - Lowercase, kebab-case
-- 2-5 tagów per notatka, nie więcej
-- Tag = co użyje user gdy będzie szukał
-- Konwencja per project (np. `klient:<slug>`, `projekt:<slug>`, `temat:<slug>`) działa — viewer agreguje tagi w sidebarze i daje per-tag widok pod `/tag/<slug>`
+- 2-5 tags per note, no more
+- A tag = what the user will use when searching
+- Per-project conventions work (e.g. `client:<slug>`, `project:<slug>`, `topic:<slug>`) — the viewer aggregates tags in the sidebar and offers a per-tag view at `/tag/<slug>`
 
 ---
 
 ## Anti-patterns
 
-- ❌ **Spam `create`** dla rzeczy, które powinny być w pamięci agenta lub w czacie (krótka odpowiedź jak „co to RAG?")
-- ❌ **Pomijanie `suggest_thread`** → tworzy duplikat threadów. ZAWSZE sprawdź najpierw.
-- ❌ **Generowanie body bez znajomości stylebook'a** → notatki wyglądają niespójnie
-- ❌ **Pominięcie metadanych** (tags) — utrudnia retrieval
-- ❌ **Pisanie HTML-a inline-styled jak z 2005** — używaj klas z theme.css
-- ❌ **Edycja**: jeśli user prosi „popraw" → tworzysz NOWĄ notę w tym samym threadzie (append-only, ADR-014)
-- ❌ **Markowanie `is_final: true` na własną rękę** — to decyzja usera (z viewera/CLI/explicit prośby)
+- ❌ **Spamming `create`** for things that should live in agent memory or chat (short answers like "what's RAG?")
+- ❌ **Skipping `suggest_thread`** → creates duplicate threads. ALWAYS check first.
+- ❌ **Generating body without consulting the stylebook** → notes look inconsistent
+- ❌ **Missing metadata** (tags) — hurts retrieval
+- ❌ **Writing inline-styled HTML like it's 2005** — use the classes from theme.css
+- ❌ **Editing**: if the user asks "fix this" → create a NEW note in the same thread (append-only, ADR-014)
+- ❌ **Marking `is_final: true` on your own** — that's the user's call (from the viewer / CLI / explicit request)
 
 ---
 
-## Surfacing wygasających not (proaktywne)
+## Surfacing expiring notes (proactive)
 
-Per ADR-019 — twardy gating:
+Per ADR-019 — hard gating:
 
-**TAK surface:**
-- ✅ User wszedł w Folio-related convo (słowa: „folio", „notatka", „research", użył folio.* w session)
-- ✅ Natural moment po `create` lub `export` — „BTW thread X ma jeszcze 2 noty wygasające"
+**YES surface:**
+- ✅ User is already in a Folio-related conversation (words: "folio", "note", "research", used folio.* in this session)
+- ✅ Natural moment after `create` or `export` — "BTW thread X has 2 more notes expiring"
 
-**NIE surface:**
-- ❌ Niezwiązana convo (Python helper, debugowanie czegoś innego)
-- ❌ Powtórnie ten sam `id` w 24h (idempotency)
-- ❌ Więcej niż 5 not naraz — przytłacza
+**NO surface:**
+- ❌ Unrelated conversation (Python helper, debugging something else)
+- ❌ Same `id` twice within 24h (idempotency)
+- ❌ More than 5 notes at once — overwhelming
 
-Mechanizm:
+Mechanism:
 ```
 list_expiring({ within_days: 7, limit: 5 })
-↳ Jeśli array non-empty I jesteś w Folio convo:
-   "BTW masz <N> not wygasających: <title 1, title 2, …>.
-    Finalizować któryś? `folio finalize <id>`."
+↳ If the array is non-empty AND you're in a Folio convo:
+   "BTW you have <N> notes expiring: <title 1, title 2, …>.
+    Finalize any? `folio finalize <id>`."
 ```
 
 ---
 
-## Edycja → tworzenie nowej noty w tym samym threadzie
+## Editing → create a new note in the same thread
 
-Gdy user mówi „popraw to / inna wersja / rozszerz o X":
+When the user says "fix this / different version / expand with X":
 
 ```
-1. Identyfikuj `thread_id` aktualnej (lub szukaj przez search).
-2. create({ ..., thread_id: <ten sam> })
-3. W odpowiedzi:
-   MEDIA:<new_local_url>
-   <TL;DR nowej wersji + co się zmieniło względem poprzedniej>
-4. User zobaczy w thread view obie wersje. Wybierze finalną klikiem.
+1. Identify the current `thread_id` (or look it up with search).
+2. create({ ..., thread_id: <same> })
+3. Respond with:
+   MEDIA:<new_public_url>
+   <TL;DR of the new version + what changed vs the previous>
+4. The user sees both versions in the thread view. They pick the final one.
 ```
 
-**NIE** wołaj `finalize` na poprzedniej wersji — user sam decyduje która jest "ta właściwa".
+**DO NOT** call `finalize` on the previous version — the user decides which one is "the right one".
 
 ---
 
 ## Examples (few-shot)
 
-W folderze `examples/`:
+In the `examples/` folder:
 
-- `research/` — research o RAG vs Fine-Tuning
-- `comparison/` — Postgres vs MySQL vs SQLite dla SaaS
-- `technical/` — ADR-style decyzja
-- `snippet/` — krótka notka
+- `research/` — research on RAG vs Fine-Tuning
+- `comparison/` — Postgres vs MySQL vs SQLite for SaaS
+- `technical/` — ADR-style decision
+- `snippet/` — short note
 
-Każdy ma `prompt.md` (user prompt) i `output.html` (oczekiwany body_html).
+Each has `prompt.md` (the user prompt) and `output.html` (the expected body_html).
 
 ---
 
-## Test przed mergem (manual)
+## Pre-merge test (manual)
 
-1. „Porównaj Postgres vs SQLite dla małego SaaS" → `comparison`, nowy thread.
-2. „Inna wersja, krótsza" → `comparison`, ten sam thread, nowa nota.
-3. „Co wiem o RAG?" → `search "RAG"`, pokaż wyniki, NIE twórz nowej.
-4. „Co to FTS5?" (krótkie) → bez Folio, zwykła odpowiedź (anti-trigger).
-5. „Zapisz to" po długiej odpowiedzi → `research` lub `snippet`.
+1. "Compare Postgres vs SQLite for a small SaaS" → `comparison`, new thread.
+2. "Another version, shorter" → `comparison`, same thread, new note.
+3. "What do I know about RAG?" → `search "RAG"`, show results, do NOT create a new one.
+4. "What's FTS5?" (short) → no Folio, plain answer (anti-trigger).
+5. "Save this" after a long answer → `research` or `snippet`.

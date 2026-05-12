@@ -1,56 +1,56 @@
 <span class="eyebrow">Research · AI / ML</span>
-<h1>RAG vs Fine-Tuning dla SaaS</h1>
-<p class="lead">Kiedy retrieval-augmented generation bije fine-tuning, a kiedy odwrotnie. Krótkie porównanie dla małego SaaS w 2026.</p>
+<h1>RAG vs Fine-Tuning for SaaS</h1>
+<p class="lead">When retrieval-augmented generation beats fine-tuning, and when it's the other way around. A short comparison for a small SaaS in 2026.</p>
 
 <h3>TL;DR</h3>
 <ul>
-  <li>RAG: świeże/zmienne dane, audytowalność źródeł, prosty pipeline, sub-second latency.</li>
-  <li>Fine-tuning: specyficzny ton marki, stabilna domena, real-time inference &lt; 100ms, high-volume traffic.</li>
-  <li>Dla typowego SaaS 2026: hybrid — RAG dla dynamicznych docs + small fine-tune dla tone matching.</li>
+  <li>RAG: fresh/changing data, source auditability, simple pipeline, sub-second latency.</li>
+  <li>Fine-tuning: brand-specific tone, stable domain, real-time inference &lt; 100ms, high-volume traffic.</li>
+  <li>For a typical 2026 SaaS: hybrid — RAG for dynamic docs + a small fine-tune for tone matching.</li>
 </ul>
 
-<h3>Kiedy RAG</h3>
-<p>Klasyczny case: docs Q&amp;A. Dokumentacja zmienia się co tydzień, modele językowe mają cutoff. Building retrieval pipeline (chunking + embeddings + vector search) jest tańsze niż retraining przy każdej aktualizacji docs.</p>
+<h3>When RAG</h3>
+<p>Classic case: docs Q&amp;A. Documentation changes weekly; language models have a knowledge cutoff. Building a retrieval pipeline (chunking + embeddings + vector search) is cheaper than retraining every time the docs update.</p>
 <ul>
-  <li>Iteracja na zmieniających się danych — przeindeksuj 5k docs w 10 min</li>
-  <li>Cytowalność — linki do oryginalnych źródeł w odpowiedzi</li>
-  <li>Sub-second latency przy dobrym vector indeksie (Pinecone, pgvector, sqlite-vec)</li>
-  <li>Tania iteracja kosztowa: ~$3/M tokens (Claude Sonnet)</li>
+  <li>Iterating on changing data — reindex 5k docs in 10 min</li>
+  <li>Citability — links to original sources in the answer</li>
+  <li>Sub-second latency with a good vector index (Pinecone, pgvector, sqlite-vec)</li>
+  <li>Cheap iteration cost: ~$3/M tokens (Claude Sonnet)</li>
 </ul>
 
-<h3>Kiedy fine-tuning</h3>
-<p>Customer support z konkretnym tone-of-voice marki. Domain ze specyficznymi formami (medyczne, prawne, finansowe). Real-time inference gdzie nawet 200ms RAG retrieval boli.</p>
+<h3>When fine-tuning</h3>
+<p>Customer support with a specific brand tone-of-voice. Domains with specialized forms (medical, legal, financial). Real-time inference where even 200ms of RAG retrieval hurts.</p>
 <ul>
-  <li>Tone-matching trudny do osiągnięcia samym RAG-em</li>
-  <li>Latency &lt; 100ms wymaga pre-baked weights</li>
-  <li>Stabilna baza wiedzy (zmienia się co kwartał, nie codziennie)</li>
-  <li>Koszt: $5-50k upfront, 2.5× inference cost</li>
+  <li>Tone matching is hard with RAG alone</li>
+  <li>Latency &lt; 100ms requires pre-baked weights</li>
+  <li>Stable knowledge base (changes quarterly, not daily)</li>
+  <li>Cost: $5-50k upfront, 2.5× inference cost</li>
 </ul>
 
 <h3>Cost analysis</h3>
 <table>
   <thead>
-    <tr><th>Wymiar</th><th>RAG</th><th>Fine-tuning</th></tr>
+    <tr><th>Dimension</th><th>RAG</th><th>Fine-tuning</th></tr>
   </thead>
   <tbody>
-    <tr><td>Setup koszt</td><td>$0 (już mamy model)</td><td>$5-50k jednorazowo</td></tr>
-    <tr><td>Per-query koszt (1M tokens)</td><td>$3-5 (in)</td><td>$7-12 (in, 2.5×)</td></tr>
-    <tr><td>Time-to-update</td><td>Minuty (reindex)</td><td>Dni-tygodnie (retrain)</td></tr>
+    <tr><td>Setup cost</td><td>$0 (we already have the model)</td><td>$5-50k one-off</td></tr>
+    <tr><td>Per-query cost (1M tokens)</td><td>$3-5 (in)</td><td>$7-12 (in, 2.5×)</td></tr>
+    <tr><td>Time-to-update</td><td>Minutes (reindex)</td><td>Days to weeks (retrain)</td></tr>
     <tr><td>Citation/audit</td><td>Native</td><td>None</td></tr>
   </tbody>
 </table>
 
 <h3>Case study: legal docs Q&amp;A</h3>
-<p>Firma 50 prawników, 10k zapytań dziennie. <strong>RAG:</strong> $90/miesiąc (Anthropic + Pinecone). <strong>Fine-tune equivalent:</strong> $8k upfront + $250/miesiąc inference. Break-even: 32 miesiące. <strong>Werdykt:</strong> RAG.</p>
+<p>A firm with 50 lawyers, 10k queries/day. <strong>RAG:</strong> $90/month (Anthropic + Pinecone). <strong>Fine-tune equivalent:</strong> $8k upfront + $250/month inference. Break-even: 32 months. <strong>Verdict:</strong> RAG.</p>
 
 <div class="verdict">
-  <h3>Werdykt</h3>
-  <p>Dla typowego SaaS 2026: <strong>RAG default</strong>. Zaczynaj od RAG (tani, szybki PoC, mierzalny). Fine-tuning dopiero gdy: (a) masz validated produkt, (b) tone-matching to faktyczny constraint, (c) latency &lt; 200ms to hard requirement.</p>
+  <h3>Verdict</h3>
+  <p>For a typical 2026 SaaS: <strong>RAG default</strong>. Start with RAG (cheap, fast PoC, measurable). Fine-tune only when: (a) you have a validated product, (b) tone matching is a real constraint, (c) &lt; 200ms latency is a hard requirement.</p>
 </div>
 
 <h3>Open questions</h3>
 <ul>
-  <li>Hybrid setup — kiedy fine-tune'ujesz <em>na danych</em> z RAG retrieval (best of both)?</li>
-  <li>Embedding model choice — OpenAI ada-3 vs Cohere v3 vs lokalny gte-small?</li>
-  <li>Vector DB — pgvector w istniejącym Postgres czy dedykowany Pinecone/Qdrant?</li>
+  <li>Hybrid setup — when do you fine-tune <em>on data</em> retrieved through RAG (best of both)?</li>
+  <li>Embedding model choice — OpenAI ada-3 vs Cohere v3 vs a local gte-small?</li>
+  <li>Vector DB — pgvector inside an existing Postgres, or a dedicated Pinecone/Qdrant?</li>
 </ul>

@@ -1,46 +1,46 @@
 <span class="eyebrow">ADR · Runtime</span>
-<h1>ADR-001: Bun zamiast Node dla Folio</h1>
-<p class="lead">Wybór runtime CLI + MCP server + viewer. Status: <span class="pill good">Accepted</span></p>
+<h1>ADR-001: Bun over Node for Folio</h1>
+<p class="lead">Runtime choice for the CLI + MCP server + viewer. Status: <span class="pill good">Accepted</span></p>
 
-<h3>Kontekst</h3>
-<p>Folio = CLI + lokalny HTTP server (viewer) + stdio MCP server. Trzy komponenty muszą startować szybko (CLI &lt; 50ms dla user feel) i obsłużyć Bun:sqlite + sanitize-html + @modelcontextprotocol/sdk.</p>
+<h3>Context</h3>
+<p>Folio = CLI + a local HTTP server (viewer) + a stdio MCP server. All three must start fast (CLI &lt; 50ms for user feel) and handle Bun:sqlite + sanitize-html + @modelcontextprotocol/sdk.</p>
 
-<h3>Decyzja</h3>
-<p>Bun + TypeScript jako runtime.</p>
+<h3>Decision</h3>
+<p>Bun + TypeScript as the runtime.</p>
 
-<h3>Dlaczego</h3>
+<h3>Why</h3>
 <ul>
-  <li><strong>Startup time:</strong> ~10ms (Bun) vs ~80ms (Node). User feel CLI &gt;&gt; ⭐.</li>
-  <li><strong>Native sqlite</strong> via <code>bun:sqlite</code> — zero native bindings, działa cross-platform.</li>
-  <li><strong>Zero build step</strong> — TypeScript natywnie. CI/CD prostszy.</li>
-  <li><strong>Bun.serve + HTMLRewriter</strong> — wbudowany HTTP server + Cloudflare-style HTML streaming, szybsze niż jsdom.</li>
-  <li><strong>Bun test</strong> wystarczy — nie potrzeba Vitest/Jest.</li>
-  <li><strong>MCP SDK</strong> (<code>@modelcontextprotocol/sdk</code>) jest TS — walidowane że działa na Bun 1.3.13 (smoke test).</li>
+  <li><strong>Startup time:</strong> ~10ms (Bun) vs ~80ms (Node). User feel for CLI &gt;&gt; ⭐.</li>
+  <li><strong>Native sqlite</strong> via <code>bun:sqlite</code> — zero native bindings, works cross-platform.</li>
+  <li><strong>Zero build step</strong> — TypeScript runs natively. CI/CD is simpler.</li>
+  <li><strong>Bun.serve + HTMLRewriter</strong> — built-in HTTP server + Cloudflare-style HTML streaming, faster than jsdom.</li>
+  <li><strong>Bun test</strong> is enough — no need for Vitest/Jest.</li>
+  <li><strong>MCP SDK</strong> (<code>@modelcontextprotocol/sdk</code>) is TS — validated to work on Bun 1.3.13 (smoke test).</li>
 </ul>
 
-<h3>Tradeoffy</h3>
+<h3>Tradeoffs</h3>
 <ul>
-  <li>Mniejsze community niż Node — ale rośnie szybko, większość npm packages działa.</li>
-  <li>Niektóre paczki z natywnymi bindingami mogą wymagać kompilacji — sprawdzamy ad-hoc.</li>
-  <li>Production maturity wciąż &lt; Node, ale dla single-user CLI/local server akceptowalne.</li>
+  <li>Smaller community than Node — but growing fast, most npm packages work.</li>
+  <li>Some packages with native bindings may need compilation — we check ad-hoc.</li>
+  <li>Production maturity is still &lt; Node, but acceptable for a single-user CLI / local server.</li>
 </ul>
 
-<h3>Alternatywy odrzucone</h3>
+<h3>Alternatives rejected</h3>
 <ul>
-  <li><strong>Node.js + tsx/ts-node:</strong> wolniejszy startup, więcej setupu, gorszy DX. Rozważymy jako fallback gdyby Bun zawodził pod konkretne deps.</li>
-  <li><strong>Deno:</strong> świetny dla nowych projektów, ale npm interop kuleje przy MCP SDK i niektórych transitive deps.</li>
-  <li><strong>Rust:</strong> overkill na MVP. Możemy przepisać hot-paths (sanitizer, FTS) gdy będą bottleneck.</li>
-  <li><strong>Go:</strong> mniej idiomatic dla naszego async/streaming work; brak natywnego HTML sanitizera porównywalnego z <code>sanitize-html</code>.</li>
+  <li><strong>Node.js + tsx/ts-node:</strong> slower startup, more setup, worse DX. We'd consider it as fallback if Bun failed for specific deps.</li>
+  <li><strong>Deno:</strong> great for new projects, but npm interop is shaky with the MCP SDK and some transitive deps.</li>
+  <li><strong>Rust:</strong> overkill for MVP. We can rewrite hot paths (sanitizer, FTS) when they become bottlenecks.</li>
+  <li><strong>Go:</strong> less idiomatic for our async/streaming work; no native HTML sanitizer comparable to <code>sanitize-html</code>.</li>
 </ul>
 
-<h3>Konsekwencje</h3>
+<h3>Consequences</h3>
 <ul>
-  <li>Wymóg: Bun ≥ 1.3 zainstalowany u usera. Install: <code>brew install oven-sh/bun/bun</code> (lub <code>curl -fsSL https://bun.sh/install | bash</code>).</li>
-  <li>Cross-platform: macOS / Linux działają out-of-the-box. Windows via WSL2 (Bun Windows native jest beta).</li>
-  <li>Plan B (jeśli Bun + jakaś paczka zawiedzie): port do Node 20+ jest mechaniczny, ~1 dzień roboty. Większość kodu (TS) przenosi się 1:1, zamieniamy <code>bun:sqlite</code> na <code>better-sqlite3</code>.</li>
+  <li>Requirement: Bun ≥ 1.3 installed on the user side. Install: <code>brew install oven-sh/bun/bun</code> (or <code>curl -fsSL https://bun.sh/install | bash</code>).</li>
+  <li>Cross-platform: macOS / Linux work out-of-the-box. Windows via WSL2 (native Bun Windows is beta).</li>
+  <li>Plan B (if Bun + some package fails): porting to Node 20+ is mechanical, ~1 day of work. Most code (TS) moves 1:1; replace <code>bun:sqlite</code> with <code>better-sqlite3</code>.</li>
 </ul>
 
 <div class="verdict">
-  <h3>Werdykt</h3>
-  <p>Bun + TypeScript stoi. Plan B (Node fallback) udokumentowany. Walidacja MCP SDK na Bun przeprowadzona w S0 — wszystkie 8 tools'ów Folio MCP działa.</p>
+  <h3>Verdict</h3>
+  <p>Bun + TypeScript stays. Plan B (Node fallback) is documented. MCP SDK validation on Bun was done in S0 — all 8 Folio MCP tools work.</p>
 </div>

@@ -8,14 +8,14 @@ Punchy, conversational, opinionated. Short paragraphs. Imperative + first-person
 
 ## Structure
 
-- `.eyebrow` jako rotated black sticker
-- H1 z drop shadow w tomato — krótki, mocny
-- Lead jako bold display, 1-2 zdania
+- `.eyebrow` as a rotated black sticker
+- H1 with a tomato drop shadow — short, strong
+- Lead as a bold display, 1-2 sentences
 - H2 ink-blue display
-- H3 jako rotated yellow highlighter strip
+- H3 as a rotated yellow highlighter strip
 - `.cards` rotating colored shadows (tomato/blue/yellow cyclically)
-- Ordered list z duże Bricolage numeralami w blue
-- Verdict to tomato block z blue drop shadow
+- Ordered list with large Bricolage numerals in blue
+- Verdict is a tomato block with a blue drop shadow
 
 ## Typography
 
@@ -23,21 +23,21 @@ Punchy, conversational, opinionated. Short paragraphs. Imperative + first-person
 - Body: **DM Sans**
 - Mono / eyebrow / pills: **DM Mono**
 
-## Klasy
+## Classes
 
 - `.eyebrow` — black sticker, yellow text, rotated
 - `.lead` — bold display
 - `.pill` — solid fills (semantic colors)
 - `.card`, `.cards` — drop-shadow tiles, cycling shadow color
-- `.verdict` — tomato block with blue offset shadow
+- `.verdict` — tomato block with a blue offset shadow
 
 ## Avoid
 
-- Sober tone — kraft jest energetyczny.
-- Mono podstawowy tekst — to dla code i `.eyebrow`/`.pill`.
-- Center align akapitów.
-- Pastelowe kolory — kraft jest saturated.
+- Sober tone — kraft is energetic.
+- Mono as the body font — that's reserved for code and `.eyebrow`/`.pill`.
+- Center-aligned paragraphs.
+- Pastel colors — kraft is saturated.
 
 ## Best for
 
-DIY zine pisma, retrospektywy z pasji, "hot take" notatki, manifesty, indie hacker stories, design rants, tech blog opinion pieces, anything where craft + opinion > polish.
+DIY zine writing, retrospectives from a place of passion, "hot take" notes, manifestos, indie-hacker stories, design rants, tech-blog opinion pieces — anything where craft + opinion > polish.

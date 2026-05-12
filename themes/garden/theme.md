@@ -8,13 +8,13 @@ Observational, gentle, curious. Long sentences allowed. Specific names of things
 
 ## Structure
 
-- `.eyebrow` italic serif z separatorem
-- H1 — używaj `<em>` na jednym słowie żeby zaakcentować italic accent
-- Lead italic Cormorant, 2-3 zdania
-- H2 sage italic display, H3 amber mono caps z ❀ przed
-- Bullety z ❦, ordered list z italic numeralami
-- Cards dla "specimens" / przykładów
-- Verdict z ❀ floating na top borderze
+- `.eyebrow` italic serif with a separator
+- H1 — use `<em>` on one word to give it an italic accent
+- Lead italic Cormorant, 2-3 sentences
+- H2 sage italic display, H3 amber mono caps with a ❀ prefix
+- Bullets with ❦, ordered list with italic numerals
+- Cards for "specimens" / examples
+- Verdict with ❀ floating on the top border
 
 ## Typography
 
@@ -22,22 +22,22 @@ Observational, gentle, curious. Long sentences allowed. Specific names of things
 - Body, H3, table heads: **Work Sans**
 - Code: **JetBrains Mono**
 
-## Klasy
+## Classes
 
 - `.eyebrow` — italic serif, separator
-- `.lead` — italic serif, 2-3 zdania
+- `.lead` — italic serif, 2-3 sentences
 - `.pill` — soft tints (`.good` sage, `.mid` amber, `.bad` rust)
 - `.card`, `.cards` — specimen tiles
 - `.verdict` — bordered top + floating ❀; gentle conclusion
 
 ## Avoid
 
-- Hard tech jargon bez tłumaczenia.
-- Wykrzykniki.
-- Dużo capsów (`.eyebrow`, H3, table heads only).
+- Hard tech jargon without translation.
+- Exclamation marks.
+- Lots of caps (`.eyebrow`, H3, table heads only).
 - Marketing slop.
 - Adversarial framing.
 
 ## Best for
 
-Nature/observation writing, gentle research, philosophical-but-grounded notes, design diary z metaforami botanicznymi, slow tech, anything where curiosity > certainty.
+Nature/observation writing, gentle research, philosophical-but-grounded notes, design diaries with botanical metaphors, slow tech, anything where curiosity > certainty.

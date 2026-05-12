@@ -1,41 +1,41 @@
 # Theme: Dossier
 
-Manila folder + Courier Prime typewriter. „CONFIDENTIAL" stamp obrócony w prawym górnym rogu. ▌ marker tytułu, ▸ przed sekcjami, ☐ przed bulletami (checkbox aesthetic). „FINDING" badge na konkluzji.
+Manila folder + Courier Prime typewriter. "CONFIDENTIAL" stamp rotated in the top-right corner. ▌ title marker, ▸ before sections, ☐ before bullets (checkbox aesthetic). "FINDING" badge on the conclusion.
 
 ## Voice
 
-Investigative report. Third-person, factual. Imperatives w sekcjach ("Subject", "Summary"). Pieczęcie i stamps w treści gdzie pasują.
+Investigative report. Third-person, factual. Imperatives in section names ("Subject", "Summary"). Stamps and seals in the content where they fit.
 
 ## Structure
 
-- Sekcje nazwane jak w raporcie: **Subject** / **Summary** / **Field notes** / **Sources** / **Open questions** / **Recommendations**
-- Headings ALL CAPS dla primary, Title Case dla secondary
-- Bulleted findings jako `<li>☐` items (rendered by CSS)
-- Cite sources inline: `[REF: …]` lub `[SRC: doc#123]`
-- Numbers exact, nie zaokrąglone („47%" nie „prawie połowa")
-- Use `<blockquote>` dla cytowanych statementów (renders with QUOTE prefix)
+- Sections named like a report: **Subject** / **Summary** / **Field notes** / **Sources** / **Open questions** / **Recommendations**
+- Headings ALL CAPS for primary, Title Case for secondary
+- Bulleted findings as `<li>☐` items (rendered by CSS)
+- Cite sources inline: `[REF: …]` or `[SRC: doc#123]`
+- Numbers exact, not rounded ("47%", not "nearly half")
+- Use `<blockquote>` for quoted statements (renders with a QUOTE prefix)
 
 ## Typography
 
 - Headings + tables + code: **Courier Prime** (typewriter)
-- Body: **Inter** (czytelność, ale w typewriter spacing)
-- Spójność czcionek mono = dossier feel
+- Body: **Inter** (readability, but in typewriter spacing)
+- Mono-font consistency = dossier feel
 
-## Klasy z theme.css
+## Classes from theme.css
 
-- `.eyebrow` z czerwoną ramką, rotated -1.5deg
-- `.verdict` z „FINDING" badge'em u góry
-- `.card` z `▤` ikoną w rogu
-- `::before` na `.wrap` daje „CONFIDENTIAL" stamp
-- `<strong>` ma subtle czerwone tło (jak highlight stamps)
+- `.eyebrow` with a red frame, rotated -1.5deg
+- `.verdict` with a "FINDING" badge at the top
+- `.card` with a `▤` icon in the corner
+- `::before` on `.wrap` gives a "CONFIDENTIAL" stamp
+- `<strong>` has a subtle red background (like highlight stamps)
 
 ## Avoid
 
 - Emoji, marketing prose
-- „Amazing", „delightful", „revolutionary"
-- Casualness, „my", „you" — third-person zawsze
-- Krzykliwe akcenty kolorystyczne (tylko stamp red i ink red)
+- "Amazing", "delightful", "revolutionary"
+- Casualness, "my", "you" — always third-person
+- Loud color accents (stamp red and ink red only)
 
 ## Best for
 
-Deep research z OSINT vibe, post-mortem reports, incident reports, investigative pieces, security findings, archival summary documents — gdy treść ma się wydawać poważna i ważna.
+Deep research with an OSINT vibe, post-mortem reports, incident reports, investigative pieces, security findings, archival summary documents — when the content should feel serious and weighty.

@@ -11,22 +11,22 @@ function ago(iso: string): string {
   if (!iso) return "";
   const ms = Date.now() - new Date(iso).getTime();
   const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s temu`;
+  if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m} min temu`;
+  if (m < 60) return `${m} min ago`;
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h} godz temu`;
+  if (h < 24) return `${h} hr ago`;
   const d = Math.floor(h / 24);
-  return d === 1 ? "wczoraj" : `${d} dni temu`;
+  return d === 1 ? "yesterday" : `${d} days ago`;
 }
 
 function daysUntil(iso: string | null): string | null {
   if (!iso) return null;
   const ms = new Date(iso).getTime() - Date.now();
   const d = Math.floor(ms / 86400000);
-  if (d < 0) return "wygasła";
-  if (d === 0) return "dziś";
-  if (d === 1) return "jutro";
+  if (d < 0) return "expired";
+  if (d === 0) return "today";
+  if (d === 1) return "tomorrow";
   return `${d}d`;
 }
 
@@ -37,11 +37,11 @@ function dateGroup(iso: string): string {
   const dDay = new Date(d);
   dDay.setHours(0, 0, 0, 0);
   const diffDays = Math.floor((today.getTime() - dDay.getTime()) / 86400000);
-  if (diffDays === 0) return "Dzisiaj";
-  if (diffDays === 1) return "Wczoraj";
-  if (diffDays < 7) return "W tym tygodniu";
-  if (diffDays < 30) return "W tym miesiącu";
-  return "Starsze";
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) return "This week";
+  if (diffDays < 30) return "This month";
+  return "Older";
 }
 
 const VIEWER_CSS = `
@@ -368,6 +368,34 @@ a { color: inherit; text-decoration: none; }
   .note-side h1 { font-size: 22px; }
   .action-card { margin-bottom: 14px; }
 }
+
+/* Live search dropdown — attached to .v-search by JS */
+.v-search { position: relative; }
+.v-search-results {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+  background: var(--vpanel); border: 1px solid var(--vline); border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(10,10,10,0.12);
+  z-index: 50; max-height: 60vh; overflow-y: auto;
+  display: none;
+}
+.v-search-results.open { display: block; }
+.v-search-results .group-lbl { font-family: var(--vmono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--vmuted-2); padding: 10px 14px 6px; border-bottom: 1px solid var(--vline-2); display: flex; align-items: center; gap: 8px; }
+.v-search-results .group-lbl .accent { color: var(--vorange); }
+.v-search-results a.hit { display: block; padding: 9px 14px; border-bottom: 1px solid var(--vline-2); color: var(--vink); cursor: pointer; }
+.v-search-results a.hit:last-of-type { border-bottom: 0; }
+.v-search-results a.hit:hover, .v-search-results a.hit.kb { background: var(--vbg-2); }
+.v-search-results .hit .t { font-family: var(--vhead); font-weight: 500; font-size: 14px; line-height: 1.3; letter-spacing: -0.01em; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v-search-results .hit .sub { font-family: var(--vmono); font-size: 10.5px; color: var(--vmuted); display: flex; gap: 8px; align-items: center; }
+.v-search-results .hit .sub .type.research { color: var(--vorange); }
+.v-search-results .hit .sub .type.comparison { color: var(--vbronze); }
+.v-search-results .hit .sub .type.technical { color: var(--vblue); }
+.v-search-results .hit .sub .type.journal { color: var(--vgood); }
+.v-search-results .hit .sub .final { color: var(--vorange); font-weight: 600; }
+.v-search-results .hit .snip { font-family: var(--vserif); font-style: italic; font-size: 12px; color: var(--vmuted); margin-top: 3px; line-height: 1.45; max-height: 2.9em; overflow: hidden; }
+.v-search-results .hit .snip mark { background: var(--vorange-soft); color: var(--vink); padding: 0 2px; font-style: normal; font-weight: 500; font-family: var(--vbody); }
+.v-search-results .footer { padding: 8px 14px; font-family: var(--vmono); font-size: 11px; color: var(--vmuted-2); border-top: 1px solid var(--vline-2); display: flex; justify-content: space-between; align-items: center; }
+.v-search-results .footer a { color: var(--vorange); }
+.v-search-results .empty { padding: 24px 14px; font-family: var(--vserif); font-style: italic; color: var(--vmuted); font-size: 14px; text-align: center; }
 `;
 
 const KBD_SHORTCUT_JS = `<script>
@@ -380,6 +408,102 @@ document.addEventListener('keydown', (e) => {
     document.activeElement.blur();
   }
 });
+
+// Live search — debounced /api/search dropdown attached to .v-search.
+// Hits Enter / form submit still falls through to /search?q=... so the
+// no-JS / full-results path keeps working.
+(function(){
+  var form = document.querySelector('.v-search');
+  if (!form) return;
+  var input = form.querySelector('input');
+  if (!input) return;
+  var results = document.createElement('div');
+  results.className = 'v-search-results';
+  form.appendChild(results);
+
+  var debounceTimer = 0;
+  var lastQuery = '';
+  var activeReq = 0;
+  var kbIdx = -1;
+
+  function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function close(){ results.classList.remove('open'); results.innerHTML = ''; kbIdx = -1; }
+  function open(){ results.classList.add('open'); }
+
+  function render(query, hits){
+    if (!Array.isArray(hits) || hits.length === 0) {
+      results.innerHTML = '<div class="empty">No matches for <em>' + escapeHtml(query) + '</em></div>';
+      open();
+      return;
+    }
+    var shown = hits.slice(0, 8);
+    var pieces = ['<div class="group-lbl">Notes <span class="accent">· ' + hits.length + ' ' + (hits.length === 1 ? 'hit' : 'hits') + '</span></div>'];
+    shown.forEach(function(h){
+      var sub = '<div class="sub"><span class="type ' + escapeHtml(h.type) + '">' + escapeHtml(h.type) + '</span> · <span>' + escapeHtml(h.thread_id) + '</span>' + (h.is_final ? ' · <span class="final">★ final</span>' : '') + '</div>';
+      var snip = h.snippet ? '<div class="snip">' + h.snippet + '</div>' : '';
+      pieces.push('<a class="hit" href="/n/' + escapeHtml(h.id) + '"><div class="t">' + escapeHtml(h.title) + '</div>' + sub + snip + '</a>');
+    });
+    var moreNote = hits.length > shown.length ? '+' + (hits.length - shown.length) + ' more' : '&nbsp;';
+    pieces.push('<div class="footer"><span>' + moreNote + '</span><a href="/search?q=' + encodeURIComponent(query) + '">Open full results →</a></div>');
+    results.innerHTML = pieces.join('');
+    kbIdx = -1;
+    open();
+  }
+
+  function doSearch(q){
+    var myReq = ++activeReq;
+    fetch('/api/search?q=' + encodeURIComponent(q))
+      .then(function(r){ return r.json(); })
+      .then(function(json){
+        if (myReq !== activeReq) return; // stale response
+        render(q, json);
+      })
+      .catch(function(){
+        if (myReq !== activeReq) return;
+        results.innerHTML = '<div class="empty">Search failed</div>';
+        open();
+      });
+  }
+
+  input.addEventListener('input', function(){
+    var q = input.value.trim();
+    if (q === lastQuery) return;
+    lastQuery = q;
+    clearTimeout(debounceTimer);
+    if (!q) { close(); return; }
+    debounceTimer = setTimeout(function(){ doSearch(q); }, 150);
+  });
+
+  input.addEventListener('focus', function(){
+    if (input.value.trim() && results.children.length > 0) open();
+  });
+
+  document.addEventListener('mousedown', function(e){
+    if (!form.contains(e.target)) close();
+  });
+
+  input.addEventListener('keydown', function(e){
+    var items = results.querySelectorAll('a.hit');
+    if (e.key === 'ArrowDown') {
+      if (items.length === 0) return;
+      e.preventDefault();
+      kbIdx = Math.min(items.length - 1, kbIdx + 1);
+      items.forEach(function(el, i){ el.classList.toggle('kb', i === kbIdx); });
+      items[kbIdx].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowUp') {
+      if (items.length === 0) return;
+      e.preventDefault();
+      kbIdx = Math.max(0, kbIdx - 1);
+      items.forEach(function(el, i){ el.classList.toggle('kb', i === kbIdx); });
+      items[kbIdx].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter' && kbIdx >= 0 && items[kbIdx]) {
+      e.preventDefault();
+      window.location.href = items[kbIdx].getAttribute('href');
+    } else if (e.key === 'Escape') {
+      close();
+    }
+  });
+})();
 </script>`;
 
 function topbar(query = "", active?: "notes" | "threads" | "stats"): string {
@@ -395,12 +519,12 @@ function topbar(query = "", active?: "notes" | "threads" | "stats"): string {
     <a href="/stats" class="ver" title="Folio v${esc(pkg.version)} — system info">v${esc(pkg.version)}</a>
     <form class="v-search" role="search" action="/search" method="get">
       <span class="ico">⌕</span>
-      <input type="search" name="q" placeholder="Szukaj notatek i wątków…" value="${esc(query)}" autocomplete="off">
+      <input type="search" name="q" placeholder="Search notes and threads…" value="${esc(query)}" autocomplete="off">
       <kbd>/</kbd>
     </form>
     <nav class="v-nav">
-      <a href="/"${on("notes")}>Noty</a>
-      <a href="/threads"${on("threads")}>Wątki</a>
+      <a href="/"${on("notes")}>Notes</a>
+      <a href="/threads"${on("threads")}>Threads</a>
       <a href="/stats"${on("stats")}>Stats</a>
     </nav>
   </div>
@@ -431,14 +555,14 @@ function filterBar(activeType?: string, activeStatus?: string, counts?: CountSum
   return `
 <div class="v-strip">
   <div class="v-strip-inner">
-    <a href="${withTag({})}" class="fp${on(!activeType && !activeStatus)}">Wszystkie <span class="count">${cs.all}</span></a>
+    <a href="${withTag({})}" class="fp${on(!activeType && !activeStatus)}">All <span class="count">${cs.all}</span></a>
     <a href="${withTag({ type: "research" })}" class="fp${on(activeType === "research")}">Research <span class="count">${cs.byType.research ?? 0}</span></a>
     <a href="${withTag({ type: "comparison" })}" class="fp${on(activeType === "comparison")}">Comparison <span class="count">${cs.byType.comparison ?? 0}</span></a>
     <a href="${withTag({ type: "technical" })}" class="fp${on(activeType === "technical")}">Technical <span class="count">${cs.byType.technical ?? 0}</span></a>
     ${cs.byType.journal ? `<a href="${withTag({ type: "journal" })}" class="fp${on(activeType === "journal")}">Journal <span class="count">${cs.byType.journal}</span></a>` : ""}
     <span class="sep"></span>
     <a href="${withTag({ final: "1" })}" class="fp${on(activeStatus === "final")}"><span class="star">★</span> Final <span class="count">${cs.final}</span></a>
-    <a href="${withTag({ expiring: "1" })}" class="fp warn${on(activeStatus === "expiring")}">⏱ Wygasające 7d <span class="count">${cs.expiring}</span></a>
+    <a href="${withTag({ expiring: "1" })}" class="fp warn${on(activeStatus === "expiring")}">⏱ Expiring 7d <span class="count">${cs.expiring}</span></a>
     ${resultsMeta ? `<span class="results-meta">${esc(resultsMeta)}</span>` : ""}
   </div>
 </div>`;
@@ -454,22 +578,22 @@ function activeFilterStrip(activeTag?: string, activeType?: string, activeStatus
       : esc(activeTag);
     // Remove tag, keep other filters
     const href = buildHref({ type: activeType, final: activeStatus === "final" ? "1" : null, expiring: activeStatus === "expiring" ? "1" : null });
-    chips.push(`<a href="${href}" class="chip${nsClass ? " " + nsClass : ""}" title="Wyczyść filtr tagu">🏷 ${label}<span class="x">×</span></a>`);
+    chips.push(`<a href="${href}" class="chip${nsClass ? " " + nsClass : ""}" title="Clear tag filter">🏷 ${label}<span class="x">×</span></a>`);
   }
   if (activeType) {
     const href = buildHref({ tag: activeTag, final: activeStatus === "final" ? "1" : null, expiring: activeStatus === "expiring" ? "1" : null });
-    chips.push(`<a href="${href}" class="chip" title="Wyczyść filtr typu">type: ${esc(activeType)}<span class="x">×</span></a>`);
+    chips.push(`<a href="${href}" class="chip" title="Clear type filter">type: ${esc(activeType)}<span class="x">×</span></a>`);
   }
   if (activeStatus) {
     const href = buildHref({ tag: activeTag, type: activeType });
-    chips.push(`<a href="${href}" class="chip" title="Wyczyść filtr statusu">${activeStatus === "final" ? "★ final" : "⏱ wygasające 7d"}<span class="x">×</span></a>`);
+    chips.push(`<a href="${href}" class="chip" title="Clear status filter">${activeStatus === "final" ? "★ final" : "⏱ expiring 7d"}<span class="x">×</span></a>`);
   }
   return `
 <div class="v-page" style="padding-top: 12px; padding-bottom: 0;">
   <div class="active-filter">
-    <span class="lbl">filtr aktywny</span>
+    <span class="lbl">active filter</span>
     ${chips.join("")}
-    <a href="/" class="clear-all">wyczyść wszystko</a>
+    <a href="/" class="clear-all">clear all</a>
   </div>
 </div>`;
 }
@@ -489,7 +613,7 @@ function heroCard(n: NoteMeta): string {
     <div class="meta">
       <span class="thread">📂 ${esc(n.thread_id)}</span>
       <span class="pip"></span>
-      <span>${n.word_count} słów</span>
+      <span>${n.word_count} words</span>
       <span class="pip"></span>
       <span>theme: ${esc(n.theme)}</span>
       ${finalChip}
@@ -510,7 +634,7 @@ function noteRow(n: NoteMeta): string {
   const subParts: string[] = [];
   subParts.push(`<span class="thread">📂 ${esc(n.thread_id)}</span>`);
   if (n.theme) subParts.push(`${esc(n.theme)} theme`);
-  if (n.word_count > 0) subParts.push(`${n.word_count} słów`);
+  if (n.word_count > 0) subParts.push(`${n.word_count} words`);
   return `
 <a class="row" href="/n/${n.id}">
   <span class="type ${n.type}">${n.type}</span>
@@ -565,11 +689,11 @@ function clusterCard(t: ThreadHit, exampleTitle?: string, blurb?: string): strin
     })
     .join("");
   const extraN = Math.max(0, t.count - siblings.length);
-  const extraChip = extraN > 0 ? `<span class="chip">+${extraN} wcześniejszych</span>` : "";
+  const extraChip = extraN > 0 ? `<span class="chip">+${extraN} earlier</span>` : "";
   const big = t.count;
   const metaTail = t.final_count > 0 ? `★ final · ${ago(t.latest)}` : ago(t.latest);
   const title = exampleTitle ?? siblings[0]?.slug.replace(/-/g, " ") ?? t.thread_id;
-  const blurbHtml = blurb ?? `Wątek z <strong>${t.count}</strong> ${t.count === 1 ? "notą" : "notatkami"}${t.final_count > 0 ? `, ${t.final_count} oznaczon${t.final_count === 1 ? "a" : "e"} jako <em>final</em>` : ""}. Ostatnia aktualizacja ${ago(t.latest)}.`;
+  const blurbHtml = blurb ?? `Thread of <strong>${t.count}</strong> ${t.count === 1 ? "note" : "notes"}${t.final_count > 0 ? `, ${t.final_count} marked <em>final</em>` : ""}. Last updated ${ago(t.latest)}.`;
   return `
 <a class="cluster" href="/t/${esc(t.thread_id)}">
   <div>
@@ -580,7 +704,7 @@ function clusterCard(t: ThreadHit, exampleTitle?: string, blurb?: string): strin
   </div>
   <div class="cluster-meta">
     <span class="big">${big}</span>
-    <span>${t.count === 1 ? "nota" : "not"}</span>
+    <span>${t.count === 1 ? "note" : "notes"}</span>
     <span>${metaTail}</span>
   </div>
 </a>`;
@@ -601,7 +725,7 @@ function threadCard(t: ThreadHit): string {
     const shown = notes.slice(0, MAX - 1);
     ticks =
       shown.map((n) => `<span class="tick ${n.is_final ? "final" : "has"}"></span>`).join("") +
-      `<span class="more">${notes.length - shown.length} więcej${t.final_count > 0 ? "" : ", brak final"}</span>`;
+      `<span class="more">${notes.length - shown.length} more${t.final_count > 0 ? "" : ", no final"}</span>`;
   }
   // Build title — derive from first note's title to make threads scannable
   const title = db()
@@ -669,10 +793,10 @@ export function pageList(
   }
   const groupsHtml = Array.from(groups.entries())
     .map(([label, items], idx) => {
-      const accent = idx === 0 && label === "Dzisiaj" ? `<span class="spacer"></span><span class="accent">świeże</span>` : "";
+      const accent = idx === 0 && label === "Today" ? `<span class="spacer"></span><span class="accent">fresh</span>` : "";
       const lbl = `<div class="group-lbl">${label} <span class="count">· ${items.length}</span>${accent}</div>`;
-      // For "Dzisiaj" group, first note gets hero treatment
-      if (idx === 0 && label === "Dzisiaj" && items.length > 0) {
+      // For "Today" group, first note gets hero treatment
+      if (idx === 0 && label === "Today" && items.length > 0) {
         const [hero, ...rest] = items;
         return `<div class="group">${lbl}${heroCard(hero!)}${rest.length > 0 ? `<div class="rows">${rest.map(noteRow).join("")}</div>` : ""}</div>`;
       }
@@ -682,21 +806,21 @@ export function pageList(
 
   const tagsSection = popularTags.length > 0 && !activeType && !activeStatus && !activeTag
     ? `<div class="group">
-         <div class="group-lbl">Tagi <span class="count">· ${popularTags.length}</span><span class="spacer"></span><span class="accent">popularne</span></div>
+         <div class="group-lbl">Tags <span class="count">· ${popularTags.length}</span><span class="spacer"></span><span class="accent">popular</span></div>
          ${tagCloud(popularTags, activeTag)}
        </div>`
     : "";
 
   const emptyMsg = activeTag
-    ? `Brak notatek z tagiem <code>${esc(activeTag)}</code>${activeType ? ` w typie <code>${esc(activeType)}</code>` : ""}.`
+    ? `No notes tagged <code>${esc(activeTag)}</code>${activeType ? ` of type <code>${esc(activeType)}</code>` : ""}.`
     : activeType
-    ? `Brak notatek w typie <code>${esc(activeType)}</code>.`
-    : `Stwórz pierwszą notatkę: <code>folio new --title "..." --html @file.html</code>`;
+    ? `No notes of type <code>${esc(activeType)}</code>.`
+    : `Create your first note: <code>folio new --title "..." --html @file.html</code>`;
   const body = notes.length === 0
-    ? `<div class="empty"><h2>Pusto</h2><p class="lead">${emptyMsg}</p></div>`
+    ? `<div class="empty"><h2>Empty</h2><p class="lead">${emptyMsg}</p></div>`
     : `<main class="v-page">${groupsHtml}${tagsSection}</main>`;
 
-  const meta = notes.length > 0 ? `${notes.length} not · ostatnia ${ago(notes[0]!.created)}` : "";
+  const meta = notes.length > 0 ? `${notes.length} ${notes.length === 1 ? "note" : "notes"} · latest ${ago(notes[0]!.created)}` : "";
   return shell("Folio", `${topbar("", "notes")}${filterBar(activeType, activeStatus, counts, meta, activeTag)}${activeFilterStrip(activeTag, activeType, activeStatus)}${body}`);
 }
 
@@ -708,7 +832,7 @@ export function pageTag(tag: string, notes: NoteMeta[], popularTags: { tag: stri
   const otherTags = popularTags.filter((t) => t.tag !== tag).slice(0, 16);
   const otherCloud = otherTags.length > 0
     ? `<div class="group">
-         <div class="group-lbl">Inne popularne tagi <span class="count">· ${otherTags.length}</span></div>
+         <div class="group-lbl">Other popular tags <span class="count">· ${otherTags.length}</span></div>
          ${tagCloud(otherTags)}
        </div>`
     : "";
@@ -727,13 +851,13 @@ export function pageTag(tag: string, notes: NoteMeta[], popularTags: { tag: stri
   const body = `
 <main class="v-page">
   <div class="group">
-    <div class="group-lbl"><a href="/" style="color:var(--vmuted)">← Noty</a> <span class="spacer"></span><span class="accent">tag</span></div>
+    <div class="group-lbl"><a href="/" style="color:var(--vmuted)">← Notes</a> <span class="spacer"></span><span class="accent">tag</span></div>
     <div style="padding: 12px 4px 24px;">
-      <div class="${headerClasses.join(" ")}">${headerInner}<span class="count">${notes.length} ${notes.length === 1 ? "nota" : "not"}</span></div>
-      <div style="font-family: var(--vserif); font-style: italic; font-size: 17px; color: var(--vmuted); margin-top: 12px; line-height: 1.4;">${description ? esc("Notatki oznaczone: ") + description : "Notatki oznaczone tym tagiem."}</div>
+      <div class="${headerClasses.join(" ")}">${headerInner}<span class="count">${notes.length} ${notes.length === 1 ? "note" : "notes"}</span></div>
+      <div style="font-family: var(--vserif); font-style: italic; font-size: 17px; color: var(--vmuted); margin-top: 12px; line-height: 1.4;">${description ? esc("Notes tagged: ") + description : "Notes carrying this tag."}</div>
       <div style="font-family: var(--vmono); font-size: 12px; color: var(--vmuted-2); margin-top: 6px;">
-        ostatnia ${ago(latest)}${finalCount > 0 ? ` · <span style="color:var(--vorange)">★ ${finalCount} final</span>` : ""}
-        · <a href="/?tag=${encodeURIComponent(tag)}" style="color:var(--vmuted); border-bottom: 1px solid var(--vline);">otwórz w głównym feedzie</a>
+        latest ${ago(latest)}${finalCount > 0 ? ` · <span style="color:var(--vorange)">★ ${finalCount} final</span>` : ""}
+        · <a href="/?tag=${encodeURIComponent(tag)}" style="color:var(--vmuted); border-bottom: 1px solid var(--vline);">open in main feed</a>
       </div>
     </div>
     <div class="rows">${rows}</div>
@@ -752,19 +876,19 @@ export function pageSearch(
 ): string {
   const empty = hits.length === 0 && threadHits.length === 0;
   const body = empty
-    ? `<div class="empty"><h2>Brak wyników</h2><p class="lead">Spróbuj innych słów. Albo zobacz <a href="/threads" style="color:var(--vorange);border-bottom:1px solid currentColor">wszystkie wątki</a>.</p></div>`
+    ? `<div class="empty"><h2>No results</h2><p class="lead">Try different words. Or browse <a href="/threads" style="color:var(--vorange);border-bottom:1px solid currentColor">all threads</a>.</p></div>`
     : `<main class="v-page">
          ${threadHits.length ? `<div class="group">
-            <div class="group-lbl">Wątki <span class="count">· ${threadHits.length} ${threadHits.length === 1 ? "trafienie" : "trafień"}</span><span class="spacer"></span><span class="accent">grupy</span></div>
+            <div class="group-lbl">Threads <span class="count">· ${threadHits.length} ${threadHits.length === 1 ? "hit" : "hits"}</span><span class="spacer"></span><span class="accent">groups</span></div>
             ${threadHits.map((t) => clusterCard(t)).join("")}
           </div>` : ""}
          ${hits.length ? `<div class="group">
-            <div class="group-lbl">Notatki <span class="count">· ${hits.length} ${hits.length === 1 ? "trafienie" : "trafień"}</span><span class="spacer"></span><span class="accent">single hits</span></div>
+            <div class="group-lbl">Notes <span class="count">· ${hits.length} ${hits.length === 1 ? "hit" : "hits"}</span><span class="spacer"></span><span class="accent">single hits</span></div>
             <div class="rows">${hits.map(searchRow).join("")}</div>
           </div>` : ""}
        </main>`;
-  const meta = `${hits.length + threadHits.length} trafień · ${durationMs} ms · fts5`;
-  return shell(`Szukaj: ${query}`, `${topbar(query, "notes")}${filterBar(undefined, undefined, counts, meta)}${body}`);
+  const meta = `${hits.length + threadHits.length} ${hits.length + threadHits.length === 1 ? "hit" : "hits"} · ${durationMs} ms · fts5`;
+  return shell(`Search: ${query}`, `${topbar(query, "notes")}${filterBar(undefined, undefined, counts, meta)}${body}`);
 }
 
 export function pageThreads(threads: ThreadHit[], query?: string): string {
@@ -774,21 +898,21 @@ export function pageThreads(threads: ThreadHit[], query?: string): string {
   const sections: string[] = [];
   if (active.length > 0) {
     sections.push(`<div class="group">
-      <div class="group-lbl">${query ? "Dopasowane aktywne" : "Aktywne"} <span class="count">· ${active.length}</span><span class="spacer"></span><span class="accent">w toku</span></div>
+      <div class="group-lbl">${query ? "Matched active" : "Active"} <span class="count">· ${active.length}</span><span class="spacer"></span><span class="accent">in progress</span></div>
       <div class="rows">${active.map(threadCard).join("")}</div>
     </div>`);
   }
   if (withFinal.length > 0) {
     sections.push(`<div class="group">
-      <div class="group-lbl">${query ? "Z finalem" : "Z finalem"} <span class="count">· ${withFinal.length}</span></div>
+      <div class="group-lbl">With final <span class="count">· ${withFinal.length}</span></div>
       <div class="rows">${withFinal.map(threadCard).join("")}</div>
     </div>`);
   }
   const body = threads.length === 0
-    ? `<div class="empty"><h2>Brak wątków</h2><p class="lead">${query ? `Brak dopasowań dla <code>${esc(query)}</code>.` : "Stwórz notatkę z thread_id, żeby zacząć."}</p></div>`
+    ? `<div class="empty"><h2>No threads</h2><p class="lead">${query ? `No matches for <code>${esc(query)}</code>.` : "Create a note with a thread_id to start."}</p></div>`
     : `<main class="v-page">${sections.join("")}</main>`;
-  const meta = `${threads.length} ${threads.length === 1 ? "wątek" : "wątków"} · sort: ostatnia aktywność`;
-  return shell("Wątki", `${topbar(query ?? "", "threads")}${filterBar(undefined, undefined, undefined, meta)}${body}`);
+  const meta = `${threads.length} ${threads.length === 1 ? "thread" : "threads"} · sort: last activity`;
+  return shell("Threads", `${topbar(query ?? "", "threads")}${filterBar(undefined, undefined, undefined, meta)}${body}`);
 }
 
 export function pageThread(threadId: string, notes: NoteMeta[]): string {
@@ -808,7 +932,7 @@ export function pageThread(threadId: string, notes: NoteMeta[]): string {
   <span class="type ${n.type}">v${i + 1} · ${n.type}</span>
   <div>
     <span class="title">${esc(n.title)}</span>
-    <span class="title-sub">${esc(n.theme)} theme · ${n.word_count} słów</span>
+    <span class="title-sub">${esc(n.theme)} theme · ${n.word_count} words</span>
   </div>
   <span class="age">${ago(n.created)}</span>
   ${stat}
@@ -818,25 +942,25 @@ export function pageThread(threadId: string, notes: NoteMeta[]): string {
   const body = `
 <main class="v-page">
   <div class="group">
-    <div class="group-lbl"><a href="/threads" style="color:var(--vmuted)">← Wątki</a> <span class="spacer"></span>${hasFinal ? `<span class="accent">final w wątku</span>` : `<span class="accent">w toku</span>`}</div>
+    <div class="group-lbl"><a href="/threads" style="color:var(--vmuted)">← Threads</a> <span class="spacer"></span>${hasFinal ? `<span class="accent">final in thread</span>` : `<span class="accent">in progress</span>`}</div>
     <div style="padding: 8px 4px 20px;">
       <div style="font-family: var(--vmono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--vbronze); margin-bottom: 8px;">📂 ${esc(threadId)}</div>
-      <h1 style="font-family: var(--vhead); font-weight: 500; font-size: clamp(28px, 3.6vw, 40px); letter-spacing: -0.025em; margin: 0 0 6px; line-height: 1.1;">Wątek</h1>
+      <h1 style="font-family: var(--vhead); font-weight: 500; font-size: clamp(28px, 3.6vw, 40px); letter-spacing: -0.025em; margin: 0 0 6px; line-height: 1.1;">Thread</h1>
       <div style="font-family: var(--vmono); font-size: 12px; color: var(--vmuted);">
-        ${notes.length} ${notes.length === 1 ? "nota" : "not"} · ostatnia ${ago(latest)}${hasFinal ? ` · <span style="color:var(--vorange)">★ final</span>` : ""}
+        ${notes.length} ${notes.length === 1 ? "note" : "notes"} · latest ${ago(latest)}${hasFinal ? ` · <span style="color:var(--vorange)">★ final</span>` : ""}
       </div>
     </div>
     <div class="rows">${rows}</div>
   </div>
 </main>`;
-  return shell(`Wątek: ${threadId}`, `${topbar("", "threads")}${body}`);
+  return shell(`Thread: ${threadId}`, `${topbar("", "threads")}${body}`);
 }
 
 export function pageNote(note: NoteMeta, _themeName: string): string {
   const expiring = note.is_final ? null : daysUntil(note.expires_at);
   const banner = !note.is_final && expiring
     ? `<div class="note-banner">
-        <div><span class="lbl">⏱ Auto-delete za ${expiring}</span>&nbsp; chyba że oznaczysz jako final albo opublikujesz</div>
+        <div><span class="lbl">⏱ Auto-delete in ${expiring}</span>&nbsp; unless you mark final or publish</div>
         <form method="post" action="/api/notes/${note.id}/finalize" style="margin:0"><button class="finalize-btn" type="submit">★ Finalize</button></form>
        </div>`
     : "";
@@ -870,22 +994,22 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
   const actionCard = note.is_final
     ? `<div class="action-card" style="background:var(--vorange-soft);color:var(--vorange);cursor:default">
          <div class="ac-lbl" style="color:var(--vorange)">Status</div>
-         <div class="ac-title"><span class="ac-star">★</span> Final · zachowane</div>
-         <div class="ac-hint" style="color:var(--vmuted)">Wyłączone z auto-cleanup. Bezpiecznie w archiwum wątku.</div>
+         <div class="ac-title"><span class="ac-star">★</span> Final · preserved</div>
+         <div class="ac-hint" style="color:var(--vmuted)">Excluded from auto-cleanup. Safely archived in this thread.</div>
        </div>`
     : `<form method="post" action="/api/notes/${note.id}/finalize" style="margin:0">
          <button class="action-card" type="submit">
            <span class="ac-lbl">Primary action</span>
            <span class="ac-title"><span class="ac-star">★</span> Mark as final</span>
-           <span class="ac-hint">Zatrzymaj auto-delete · zarchiwizuj jako wersję kanoniczną wątku</span>
+           <span class="ac-hint">Stop auto-delete · archive as canonical version of the thread</span>
          </button>
        </form>`;
 
   const tagsHtml = note.tags.length > 0
-    ? `<dt>Tagi</dt><dd><div class="side-tags">${note.tags.map((t) => `<a class="tg" href="/tag/${encodeURIComponent(t)}">${esc(t)}</a>`).join("")}</div></dd>`
+    ? `<dt>Tags</dt><dd><div class="side-tags">${note.tags.map((t) => `<a class="tg" href="/tag/${encodeURIComponent(t)}">${esc(t)}</a>`).join("")}</div></dd>`
     : "";
 
-  const tocHtml = `<nav class="toc" id="folio-toc" hidden><div class="toc-lbl">W tym dokumencie</div><ol class="toc-list"></ol></nav>`;
+  const tocHtml = `<nav class="toc" id="folio-toc" hidden><div class="toc-lbl">In this document</div><ol class="toc-list"></ol></nav>`;
 
   const themes = listThemes();
   const themeOptions = themes
@@ -1003,11 +1127,11 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
           var text = mode === 'markdown' ? content.markdown : content.plain;
           return navigator.clipboard.writeText(text);
         }).then(function(){
-          btn.textContent = '✓ skopiowane';
+          btn.textContent = '✓ copied';
           btn.classList.add('copied');
           setTimeout(function(){ btn.textContent = orig; btn.classList.remove('copied'); }, 1500);
         }).catch(function(){
-          btn.textContent = '✗ błąd';
+          btn.textContent = '✗ error';
           setTimeout(function(){ btn.textContent = orig; }, 1500);
         });
       });
@@ -1018,18 +1142,18 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
 <div class="reading-progress"><div class="reading-progress-fill"></div></div>
 <div class="note-shell">
   <aside class="note-side">
-    <a href="/" class="back">← Wstecz do listy</a>
+    <a href="/" class="back">← Back to list</a>
     <span class="type-pill ${note.type}">${note.type}</span>
     <h1>${esc(note.title)}</h1>
     ${actionCard}
     ${prevNextHtml}
     ${tocHtml}
     <dl class="side-meta">
-      <dt>Wątek</dt><dd class="thread"><a href="/t/${esc(note.thread_id)}">${esc(note.thread_id)}</a></dd>
-      <dt>Status</dt><dd class="${note.is_final ? "final" : "warn"}">${note.is_final ? "★ final" : (expiring ? `⏱ wygasa za ${expiring}` : "aktywna")}</dd>
-      <dt>Utworzona</dt><dd>${ago(note.created)}</dd>
-      <dt>Wersja</dt><dd>v${version} z ${totalInThread}</dd>
-      <dt>Słów</dt><dd>${note.word_count} · ~${readingMin} min</dd>
+      <dt>Thread</dt><dd class="thread"><a href="/t/${esc(note.thread_id)}">${esc(note.thread_id)}</a></dd>
+      <dt>Status</dt><dd class="${note.is_final ? "final" : "warn"}">${note.is_final ? "★ final" : (expiring ? `⏱ expires in ${expiring}` : "active")}</dd>
+      <dt>Created</dt><dd>${ago(note.created)}</dd>
+      <dt>Version</dt><dd>v${version} of ${totalInThread}</dd>
+      <dt>Words</dt><dd>${note.word_count} · ~${readingMin} min</dd>
       <dt>Theme</dt>${themeDd}
       <dt>Profile</dt><dd>${esc(note.theme_profile)}</dd>
       ${tagsHtml}
@@ -1054,10 +1178,10 @@ export function pageStats(s: any): string {
   return shell("Stats", `${topbar("", "stats")}
 <main class="v-page">
   <div class="group">
-    <div class="group-lbl">Stan systemu <span class="count">· live</span></div>
+    <div class="group-lbl">System state <span class="count">· live</span></div>
     <div style="padding: 8px 4px 20px;">
-      <h1 style="font-family: var(--vhead); font-weight: 500; font-size: clamp(28px, 3.6vw, 40px); letter-spacing: -0.025em; margin: 0 0 6px; line-height: 1.1;">Statystyki</h1>
-      <div style="font-family: var(--vserif); font-style: italic; font-size: 18px; color: var(--vmuted); margin-bottom: 12px;">Co Folio wie o sobie samym.</div>
+      <h1 style="font-family: var(--vhead); font-weight: 500; font-size: clamp(28px, 3.6vw, 40px); letter-spacing: -0.025em; margin: 0 0 6px; line-height: 1.1;">Stats</h1>
+      <div style="font-family: var(--vserif); font-style: italic; font-size: 18px; color: var(--vmuted); margin-bottom: 12px;">What Folio knows about itself.</div>
       <div style="font-family: var(--vmono); font-size: 11px; letter-spacing: 0.06em; color: var(--vmuted-2); display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--vbg-2); border: 1px solid var(--vline-2); border-radius: 6px;">
         <span style="color: var(--vorange); font-weight: 600;">●</span> folio
         <span style="color: var(--vink); font-weight: 600;">v${esc(pkg.version)}</span>
@@ -1068,12 +1192,12 @@ export function pageStats(s: any): string {
       <div class="stat-cell"><div class="n acc">${s.total}</div><div class="lbl">Total</div></div>
       <div class="stat-cell"><div class="n good">${s.final}</div><div class="lbl">★ Final</div></div>
       <div class="stat-cell"><div class="n mid">${s.expiring_7d}</div><div class="lbl">Expiring 7d</div></div>
-      <div class="stat-cell"><div class="n">${s.threads}</div><div class="lbl">Wątki</div></div>
+      <div class="stat-cell"><div class="n">${s.threads}</div><div class="lbl">Threads</div></div>
     </div>
   </div>
 
   <div class="group">
-    <div class="group-lbl">Według typu</div>
+    <div class="group-lbl">By type</div>
     <div class="rows">
       ${s.by_type.map((t: any) => `<div class="row" style="cursor:default"><span class="type ${t.type}">${t.type}</span><div><span class="title" style="font-size:15px">${t.type}</span></div><span class="age">${t.n}</span><span class="stat">·</span></div>`).join("")}
     </div>
@@ -1090,9 +1214,9 @@ export function pageStats(s: any): string {
 }
 
 function shell(title: string, body: string): string {
-  return `<!doctype html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · Folio</title><style>${VIEWER_CSS}</style></head><body>${body}${KBD_SHORTCUT_JS}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · Folio</title><style>${VIEWER_CSS}</style></head><body>${body}${KBD_SHORTCUT_JS}</body></html>`;
 }
 
 export function pageError(code: number, msg: string): string {
-  return shell(`${code}`, `${topbar()}<div class="empty"><h2>${code}</h2><p class="lead">${esc(msg)}</p><p style="margin-top:24px;"><a href="/" style="color:var(--vorange);border-bottom:1px solid currentColor;font-family:var(--vmono);font-size:13px">← Wstecz do listy</a></p></div>`);
+  return shell(`${code}`, `${topbar()}<div class="empty"><h2>${code}</h2><p class="lead">${esc(msg)}</p><p style="margin-top:24px;"><a href="/" style="color:var(--vorange);border-bottom:1px solid currentColor;font-family:var(--vmono);font-size:13px">← Back to list</a></p></div>`);
 }

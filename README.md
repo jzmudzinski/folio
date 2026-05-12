@@ -102,6 +102,47 @@ ln -s "$HOME/.local/folio/skills/folio" "$HOME/.openclaw/workspace/skills/folio"
 
 Most MCP-capable clients accept the same shape: command `folio-mcp`, no args. See [`docs/mcp-setup.md`](docs/mcp-setup.md) for details.
 
+### One-command install (Claude Code)
+
+`folio install` wires both the agent skill (so Claude Code knows when + how to use Folio) and the MCP server (so the `create` / `search` / `suggest_thread` tools are available). MCP wiring is per-project — Claude Code stores it under `projects[<path>].mcpServers` in `~/.claude.json`.
+
+```bash
+folio install                          # interactive: prompts for project scope
+folio install --target claude-code     # same; --target is forward-looking
+folio install --scope ~/Projects/app   # non-interactive, named scope
+folio install --skill-only             # skip MCP wiring
+folio install --mcp-only --scope ~/p   # skip skill, just MCP
+folio install --dry-run                # show planned changes, don't apply
+folio install --yes                    # accept all prompts
+
+folio uninstall                        # remove from current project
+folio uninstall --all-scopes           # remove folio MCP from every project
+folio doctor                           # show install state + warnings
+folio doctor --json                    # machine-readable
+```
+
+What it touches:
+
+- `~/.claude/skills/folio` — symlink to the bundled skill. Survives `folio update` because the bundled path is stable.
+- `~/.claude.json` — adds `projects[<scope>].mcpServers.folio`. Atomic write with `.claude.json.folio-backup-<ts>` taken on first touch this session.
+
+After a `folio update`, the install entries are auto-refreshed so the MCP `command:` path catches up to the new binary location. Cursor / Claude Desktop targets are follow-ups.
+
+### Public URL (reverse proxy)
+
+Folio binds to `127.0.0.1:4810` by default. When you reverse-proxy the viewer to a public host (Tailscale Funnel, Caddy, ngrok, …), agents and bots that relay note links — Telegram, email, Slack — should surface that public URL, not `localhost`. Set `viewer_public_url` in `~/Folio/folio.config.json`:
+
+```json
+{
+  "theme": "linen",
+  "viewer_port": 4810,
+  "viewer_host": "127.0.0.1",
+  "viewer_public_url": "https://zeszyt.notibox.local"
+}
+```
+
+Effect: `folio.create` returns `public_url` + a `response_hint` (the `MEDIA:` line) that uses it; `local_url` stays for in-process tooling. Notes' internal links are relative (`/n/<id>`), so existing notes render unchanged behind either base — no migration needed.
+
 ---
 
 ## Themes

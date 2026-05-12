@@ -2,11 +2,11 @@
 
 **User prompt:**
 
-> Napisz formalną notatkę research o emergent capabilities w LLM-ach — academic tone, z metodologią
+> Write a formal research note on emergent capabilities in LLMs — academic tone, with methodology
 
 **Agent decision tree:**
 
-- Topic = serious research, prosi „academic tone" → **theme: atlas** (Crimson Pro + small caps + dropcap)
+- Topic = serious research, asks for "academic tone" → **theme: atlas** (Crimson Pro + small caps + dropcap)
 - Type = research
 - Structure: Abstract → Methodology → Findings → Discussion → References
 

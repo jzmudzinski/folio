@@ -27,7 +27,7 @@
 <% } %>
 
 <% if (it.sources && it.sources.length) { %>
-<h3>Źródła</h3>
+<h3>Sources</h3>
 <ul>
 <% for (const s of it.sources) { %>  <li><a href="<%= s.url %>" target="_blank" rel="noreferrer"><%= s.title || s.url %></a></li>
 <% } %></ul>

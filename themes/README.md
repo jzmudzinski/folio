@@ -2,14 +2,14 @@
 
 ## Flexible width pattern (v2)
 
-Pain point z brief'u: "wszystkie theme ograniczały szerokość contentu". Rozwiązanie wprowadzone w 10 nowych theme'ach (atlas / studio / memo / codex / ledger / sumi / arcade / garden / kraft / prism):
+Pain point from the brief: "every theme capped content width too aggressively." The fix shipped in 10 new themes (atlas / studio / memo / codex / ledger / sumi / arcade / garden / kraft / prism):
 
-**Dwie szerokości zamiast jednej.**
+**Two widths instead of one.**
 
 ```css
 :root {
-  --wrap-max: clamp(720px, 92vw, 1180px);   /* outer chrome — szeroki */
-  --read-max: 66ch;                          /* prose column — wąski */
+  --wrap-max: clamp(720px, 92vw, 1180px);   /* outer chrome — wide */
+  --read-max: 66ch;                          /* prose column — narrow */
 }
 
 .wrap, main {
@@ -17,41 +17,41 @@ Pain point z brief'u: "wszystkie theme ograniczały szerokość contentu". Rozwi
   margin: 0 auto;
 }
 
-/* Prose elements (lewo-wyrównane, narrow) */
+/* Prose elements (left-aligned, narrow) */
 .wrap > p, .wrap > ul, .wrap > ol,
 .wrap > h1, .wrap > h2, .wrap > h3,
 .wrap > .lead, .wrap > blockquote,
 .wrap > .eyebrow { max-width: var(--read-max); }
 
 /* Break-out elements (full wrap) */
-/* tables, pre, .cards, .verdict, hr, figure — domyślnie 100% */
+/* tables, pre, .cards, .verdict, hr, figure — 100% by default */
 ```
 
-Efekt: na 1440px ekranie chrome dyszy, tabele i karty wypełniają całą szerokość, ale prose column zostaje w ergonomicznym 60-72ch. Nie ma "uciętej kartki pośrodku".
+Effect: on a 1440px screen the chrome breathes, tables and cards fill the full width, but the prose column stays at an ergonomic 60-72ch. No more "tiny page in the middle".
 
-Każdy theme dobiera własne `--read-max` zgodnie z vibe:
-- Sumi: 60ch (oddychający, slow read)
+Each theme picks its own `--read-max` to match the vibe:
+- Sumi: 60ch (airy, slow read)
 - Codex: 62ch (manuscript narrow)
 - Studio / Garden / Kraft / Prism: 64ch (standard reading)
 - Atlas / Memo / Arcade: 68-70ch (data-friendly)
 - Ledger: 72ch (numbers-heavy)
 
-`--wrap-max` jest `clamp(MIN, VW, MAX)` — responsywnie skaluje się od mobile do desktop bez media queries. Top wartości:
-- Ledger: 1320px (najszerszy, tabele 5+ kolumn)
+`--wrap-max` uses `clamp(MIN, VW, MAX)` — scales responsively from mobile to desktop without media queries. Top values:
+- Ledger: 1320px (widest, 5+ column tables)
 - Studio: 1240px
 - Prism: 1280px
 - Atlas / Arcade / Garden / Kraft: 1160-1180px
-- Memo: 1100px (memo to bardziej "papier" niż display)
-- Sumi / Codex: 1080-1100px (klasyczne, zwężone z premedytacji)
+- Memo: 1100px (memo feels more "paper" than display)
+- Sumi / Codex: 1080-1100px (classical, deliberately narrow)
 
-**Migration dla starych 8 theme'ów:** dodaj `--read-max` do `:root`, dodaj selektory `.wrap > *` powyżej, możesz zostawić obecne `--wrap-max` albo zwiększyć do `clamp(...)`. Kontrakt utility classes nie zmienia się.
+**Migration for the older 8 themes:** add `--read-max` to `:root`, add the `.wrap > *` selectors above, you can keep the existing `--wrap-max` or widen it to `clamp(...)`. The utility-class contract does not change.
 
-## Lista theme'ów (po v2)
+## Theme list (after v2)
 
-| Theme | Wibe | Best for |
+| Theme | Vibe | Best for |
 |---|---|---|
 | `linen` ⭐ default | Warm cream + orange + Familjen Grotesk | Public reports, polished docs |
-| `folio` (noir) | Dark inverse Linen | Dev-targeted, ADR, system specs |
+| `folio` (noir) | Dark inverse of Linen | Dev-targeted, ADR, system specs |
 | `newsroom` | Source Serif Pro + red | Long-form, formal reports |
 | `notebook` | Caveat handwritten + ruled bg | Brainstorm, journal |
 | `brutalist` | Helvetica 900 ALL CAPS | Manifesto, hot takes |
@@ -69,15 +69,15 @@ Każdy theme dobiera własne `--read-max` zgodnie z vibe:
 | **`kraft`** ✨ | Bricolage + risograph duotone | DIY zines, indie hot takes |
 | **`prism`** ✨ | Space Grotesk + Newsreader italic | Editorial features, opinion essays |
 
-## Kontrakt utility classes (przypomnienie)
+## Utility-class contract (reminder)
 
-Każdy theme musi stylować spójnie:
-- `.eyebrow` — caps label nad H1
-- `.lead`, `p.sub` — duży/italic subtitle pod H1
+Every theme must style these consistently:
+- `.eyebrow` — caps label above H1
+- `.lead`, `p.sub` — large/italic subtitle under H1
 - `.pill` + `.good`/`.bad`/`.mid`/`.acc`/`.info` — inline badges
 - `.card`, `.cards` — content grouping (cards = grid container)
 - `.verdict` — closing recommendation
 
 Plus base selectors: `html`, `body`, `.wrap/main`, `a`, `h1-h3`, `p`, `ul`/`ol`/`li`, `strong`/`em`, `code`/`pre`, `table`/`th`/`td`, `blockquote`, `hr`, `mark`, `footer`.
 
-Pełny stylebook: `skills/folio/STYLEBOOK.md`.
+Full stylebook: `skills/folio/STYLEBOOK.md`.

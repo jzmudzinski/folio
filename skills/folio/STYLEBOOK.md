@@ -4,7 +4,7 @@
 
 ## What you generate
 
-**An HTML fragment for `<article>`** — no `<html>`, `<head>`, `<body>`, `<style>`, `<script>`, `<title>`, `<meta>`. Those live in the template.
+**An HTML fragment for `<article>`** — no `<html>`, `<head>`, `<body>`, `<style>`, `<title>`, `<meta>`. Those live in the template. `<script>` at body level **is** allowed since v0.3 (see "Inline scripts" below).
 
 Standard note structure:
 
@@ -165,41 +165,70 @@ Assets uploaded via `attach_asset` (see SKILL.md) return a stable URL. Reference
 <!-- PDF inline (works on most browsers) -->
 <iframe src="<url>" width="100%" height="600" title="Q3 report"></iframe>
 
-<!-- Interactive SVG — use srcdoc, not <img>, so its script runs sandboxed -->
-<!-- (a static SVG is fine via <img src="<url>" alt="...">) -->
+<!-- SVG: inline <svg> is fine (theme styles apply); attached static SVG via <img> works too -->
 ```
 
 Set `width` / `height` on `<img>` to prevent layout shift while the asset loads. The viewer's lightbox helper (see below) auto-attaches to every `<img>`, so users can zoom — assume the original is full-resolution.
 
-## Iframe embed (sandboxed)
+## Inline scripts (since v0.3)
 
-You may embed interactive content via `<iframe>` — the viewer sanitizes and enforces a safe sandbox. Use cases: CodeSandbox, Observable notebook, YouTube, embedded cards, demos from another service.
+`<script>` at body level **runs**. The note is served from `/raw/:id` into a null-origin sandboxed iframe with CSP `connect-src 'none'`, so a script can build DOM and attach handlers but cannot reach the parent window, cookies, localStorage, or any network endpoint. **This is the default pattern for interactivity — not iframe srcdoc.**
 
 ```html
-<iframe
-  src="https://codesandbox.io/embed/abc123"
-  sandbox="allow-scripts"
-  width="100%"
-  height="400"
-  title="Live demo: useCallback patterns"></iframe>
+<div id="my-widget"></div>
+<script>
+(function () {
+  var root = document.getElementById("my-widget");
+
+  // Build form controls via createElement — the sanitizer strips static
+  // <input>/<select>/<button>/<textarea>/<form>/<label> but doesn't see
+  // runtime-built DOM. Theme.css still applies to .card/.pill/etc.
+  var input = document.createElement("input");
+  input.type = "search";
+  input.placeholder = "filter…";
+  input.style.cssText = "padding:7px 10px; border:1px solid rgba(0,0,0,0.15); border-radius:5px; font: inherit;";
+  root.appendChild(input);
+
+  // Create theme-styled cards via standard classes
+  var grid = document.createElement("div");
+  grid.className = "cards";
+  // …populate, wire up events…
+  root.appendChild(grid);
+})();
+</script>
 ```
 
-**What is enforced automatically:**
-- `src` only `https://` (NOT `data:`, `javascript:`)
-- `sandbox` always present; `allow-same-origin` is **always stripped** (frame is cross-origin to parent — no escape)
+**Pattern advantages over iframe srcdoc:**
+- Theme.css applies natively — `.card`, `.pill`, `.verdict` inherit the user's chosen look
+- Theme preview switcher swaps the styling automatically; iframe srcdoc had its own hardcoded CSS that didn't follow
+- No HTML attribute escaping nightmares (single-quote srcdoc, `&quot;` for inner quotes, etc.)
+- Smaller payload, better copy-as-markdown
+
+**Pattern caveats:**
+- The script runs in null-origin context; `fetch`, `XHR`, `WebSocket` are all blocked by CSP
+- All data must be inline in the script (no external JSON files)
+- For `<script src="…">` only HTTPS CDNs work (CSP `script-src 'self' 'unsafe-inline' https:`)
+
+**Native HTML when sufficient:** for expand/collapse use `<details><summary>...</summary>...</details>` — no JS needed, theme-styled.
+
+## Iframe embed (third-party only)
+
+Use `<iframe>` for **third-party widgets** — YouTube, CodeSandbox, Observable, Loom, Vimeo. For your own HTML/JS, use an inline `<script>` (above) instead — that was the pre-v0.3 workaround, not the recommended pattern.
+
+```html
+<iframe src="https://codesandbox.io/embed/abc123"
+        sandbox="allow-scripts"
+        width="100%" height="400"
+        title="Live demo: useCallback patterns"></iframe>
+```
+
+Sanitizer enforces automatically:
+- `src` only `https://` (no `data:`, no `javascript:`)
+- `sandbox` always present; `allow-same-origin` **always stripped**
 - Default sandbox if omitted: `allow-scripts allow-popups allow-forms`
-- `on*` event handlers dropped
-- `referrerpolicy="no-referrer"` forced
+- `on*` handlers dropped, `referrerpolicy="no-referrer"` forced
 
-**When to iframe:**
-- ✅ Embed a third-party demo (CodeSandbox, Observable, Loom, YouTube)
-- ✅ Custom interactive widget from a trusted URL
-- ✅ Live chart from another origin (D3, ECharts demo page)
-
-**When NOT to iframe:**
-- ❌ Inline interactive — use `<details>`/`<summary>` (CSS-only accordion works everywhere)
-- ❌ Your own JS in the note body — there is no `<script>` at body level; use iframe srcdoc if you must
-- ❌ Auth-wrapped content — the agent has no user session
+**When iframe srcdoc is still acceptable:** isolated third-party widget output you don't want inheriting the theme (rare). Otherwise default to inline `<script>` in body.
 
 ## What the user gets automatically (viewer helpers)
 
@@ -223,11 +252,11 @@ Your note renders in the viewer with helpers attached parent-side. **Design cont
 
 ❌ **Hex colors in attributes** — use classes like `.pill.good` instead of `style="background:#34c759"`
 
-❌ **`<style>` in body_html** — that's the template's job (theme.css)
-
-❌ **`<script>`** — the sanitizer drops it. Not even commented out.
+❌ **`<style>` in body_html** — that's the template's job (theme.css). For one-off layout tweaks use the allowed inline `style` props on the element itself.
 
 ❌ **`<font>`, `<center>`, `<u>`** — deprecated HTML4
+
+❌ **Reaching for iframe srcdoc when an inline `<script>` would do** — see "Inline scripts" above. The note iframe is already a sandboxed null-origin trust boundary; an inner srcdoc is a second sandbox you almost never need.
 
 ❌ **`<div style="display:flex; gap:10px">`** — use `.cards` if it's a card grid, or leave the natural flow
 

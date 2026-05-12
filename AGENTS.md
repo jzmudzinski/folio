@@ -50,7 +50,7 @@ Strategy + ADRs are mirrored from the maintainer's Obsidian vault and intentiona
 │   │   ├── themes.ts           loadThemes() — no cache, fs-scan per call
 │   │   ├── templates.ts        Eta wrapper — _base.html.eta + per-type
 │   │   └── types.ts            NoteMeta, CreateNoteInput, etc.
-│   ├── mcp/server.ts           10 tools + 6 resources (or per-thread)
+│   ├── mcp/server.ts           12 tools + 4 base resources (+ one per thread)
 │   └── viewer/
 │       ├── server.ts           Bun.serve(...) — routes for /, /search,
 │       │                         /threads, /n/:id, /raw/:id, /api/*, etc.
@@ -142,30 +142,53 @@ Wide-chrome / narrow-prose pattern (from `themes/README.md`):
 
 ### A new viewer helper
 
-Most helpers run in the parent context attaching to `iframe.contentDocument` on load. Pattern:
+The outer note iframe has `sandbox="allow-scripts allow-popups allow-forms"` **without** `allow-same-origin`. That means:
+
+- Scripts inside `/raw/:id` (the note body + the injected bootstrap) **run** in a null-origin document
+- The parent **cannot** read `iframe.contentDocument` (cross-origin)
+- Parent ↔ iframe communication is **postMessage only**, namespaced with `{ ns: "folio", type, ... }`
+
+Two halves of the helper system:
+
+**Inside the iframe** — `src/viewer/note-bootstrap.ts` is injected into every `/raw/:id` response. It runs in the null-origin context, owns the DOM there, and posts events out:
 
 ```js
-// In src/viewer/render.ts noteScript const:
-function attachMyHelper(doc) {
-  doc.querySelectorAll('selector').forEach(el => {
+// inside note-bootstrap.ts
+function attachMyHelper() {
+  document.querySelectorAll('selector').forEach(function (el) {
     if (el.dataset.myBound) return;
     el.dataset.myBound = '1';
-    el.addEventListener('click', () => { /* ... */ });
+    el.addEventListener('click', function () { /* … */ });
   });
 }
-// Add to onIframeLoad() body.
+// call from init() in the bootstrap IIFE
 ```
 
-Inject CSS into iframe via `injectStyles(doc)`. Don't try to bind in the iframe document directly — outer iframe sandbox doesn't include `allow-same-origin allow-scripts` in a way that would let *our* scripts run in iframe context (and it shouldn't; agent body shouldn't run scripts).
+Inject CSS via the bootstrap's `injectStyles()` (adds a `<style id="folio-helpers-css">` to the iframe's `<head>`). Emit events out with `post({ type: 'my-event', payload })`.
 
-Wait — actually outer iframe DOES have `allow-scripts` now (commit `5f0839d`) so nested iframe srcdoc JS runs. Parent JS access to iframe contentDocument also works because `allow-same-origin` is set. **Helpers attached from parent — that's the canonical pattern.**
+**Outside, in viewer chrome** — `src/viewer/render.ts` `noteScript` listens on `window.addEventListener('message', ...)`, filters by `data.ns === 'folio'`, and dispatches:
+
+```js
+window.addEventListener('message', function (e) {
+  var d = e.data; if (!d || d.ns !== 'folio') return;
+  if (iframe && e.source && e.source !== iframe.contentWindow) return; // source-check
+  switch (d.type) {
+    case 'my-event': /* react in parent chrome */ break;
+  }
+});
+```
+
+Parent commands sent into the iframe via `iframe.contentWindow.postMessage({ ns: 'folio', type: '…', … })`.
+
+**Note bodies can also ship their own `<script>`** since v0.3 — they share the same null-origin sandbox as the bootstrap, and can talk to parent the same way if they want. See `skills/folio/STYLEBOOK.md` "Inline scripts" for the user-facing contract.
 
 ---
 
 ## Hard rules — don't break these
 
-- **No top-level `<script>` in body_html.** Sanitizer strips them; tests in `tests/sanitize.test.ts` enforce. Agents embed JS via `<iframe sandbox="allow-scripts" srcdoc="...">` instead.
-- **`allow-same-origin` is always stripped from nested iframes** in `sanitize.ts transformTags.iframe`. Don't relax this — it's the single check preventing iframe-escape on same actual origin.
+- **`<script>` IS allowed in body_html** (since v0.3). The note runs inside a null-origin sandboxed iframe with `connect-src 'none'`, so isolation comes from the outer sandbox + CSP, not the sanitizer. Don't re-introduce a script ban — agents will start wrapping everything in iframe srcdoc again (an atavism v0.7.1 SKILL.md actively pushes back on).
+- **The outer note iframe must NEVER have `allow-same-origin`.** In `src/viewer/render.ts` look for the `<iframe class="note-iframe" ... sandbox="...">` — keep it without `allow-same-origin`. That null-origin property is the single check making body-level scripts safe.
+- **`allow-same-origin` is always stripped from agent-supplied nested iframes** in `sanitize.ts transformTags.iframe`. Don't relax this — same reasoning at the second level.
 - **Append-only (ADR-014).** No `folio.update` MCP tool, no in-place note mutation. New iteration = new note in same thread folder.
 - **Themes are filesystem-backed, no cache** (`src/core/themes.ts loadThemes()`). Drop folder, viewer picks it up on next request. Don't reintroduce in-memory cache.
 - **Test before commit.** `bun test` must stay green. CI runs the same suite.

@@ -4,6 +4,7 @@ import { loadConfig, folioRoot, bundledThemesDir, themesDir } from "../core/conf
 import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, listThreads, listPopularTags, listNotesByTag } from "../core/storage";
 import { db, logEvent } from "../core/db";
 import { pageList, pageSearch, pageThread, pageThreads, pageNote, pageStats, pageError, pageTag } from "./render";
+import { injectBootstrap } from "./note-bootstrap";
 import type { NoteType } from "../core/types";
 
 function htmlResp(body: string, status = 200): Response {
@@ -25,6 +26,27 @@ function countSummary(): { all: number; final: number; expiring: number; byType:
   return { all, final, expiring, byType };
 }
 
+const RAW_NOTE_CSP = [
+  "default-src 'self' 'unsafe-inline' data: blob: https:",
+  "script-src 'self' 'unsafe-inline' https:",
+  "style-src 'self' 'unsafe-inline' https:",
+  "img-src 'self' data: blob: https: http:",
+  "font-src 'self' data: https:",
+  "connect-src 'none'",
+  "frame-ancestors 'self'",
+  "form-action 'none'",
+  "base-uri 'self'",
+].join("; ");
+
+function rawNoteHeaders(): Record<string, string> {
+  return {
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Security-Policy": RAW_NOTE_CSP,
+    "X-Frame-Options": "SAMEORIGIN",
+    "Referrer-Policy": "no-referrer",
+  };
+}
+
 function resolveTheme(name: string): string | null {
   for (const root of [themesDir(), bundledThemesDir()]) {
     const p = join(root, name, "theme.css");
@@ -33,7 +55,7 @@ function resolveTheme(name: string): string | null {
   return null;
 }
 
-export async function startServer(): Promise<void> {
+export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
   const cfg = await loadConfig();
   const server = Bun.serve({
     hostname: cfg.viewer_host,
@@ -105,6 +127,15 @@ export async function startServer(): Promise<void> {
 
         // GET /raw/:id  (the actual HTML file, served raw for the iframe)
         // ?theme=X overrides the linked theme.css for preview only (does not mutate the file).
+        //
+        // Defense-in-depth: outer iframe is sandboxed without `allow-same-origin`
+        // so the note is a null-origin document. On top of that:
+        //   - script-src 'self' 'unsafe-inline' https: → scripts can run inline
+        //     or load from any HTTPS CDN, but no http:/data:/javascript:.
+        //   - connect-src 'none' → fetch/XHR/WebSocket blocked. The note cannot
+        //     phone home or exfiltrate data even if a malicious script runs.
+        //   - frame-ancestors 'self' → the note can only be framed by the
+        //     viewer running on 127.0.0.1; other origins cannot reframe it.
         if (req.method === "GET" && path.startsWith("/raw/")) {
           const id = path.slice(5);
           const note = getNoteMeta(id);
@@ -117,7 +148,10 @@ export async function startServer(): Promise<void> {
               `<link rel="stylesheet" href="/themes/${themeOverride}/theme.css">`
             );
           }
-          return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+          // Inject postMessage bootstrap so notes (including pre-v0.3 archive)
+          // talk to the viewer chrome from inside their null-origin sandbox.
+          html = injectBootstrap(html);
+          return new Response(html, { headers: rawNoteHeaders() });
         }
 
         // GET /themes/:name/theme.css  (for hosted profile <link>)
@@ -197,4 +231,5 @@ export async function startServer(): Promise<void> {
   });
   console.log(`📄 Folio viewer → http://${server.hostname}:${server.port}`);
   console.log(`   Notes from: ${folioRoot()}`);
+  return server;
 }

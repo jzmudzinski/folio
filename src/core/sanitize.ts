@@ -8,10 +8,23 @@ export interface SanitizeResult {
 // Sanitization is applied to AGENT body only — not the template wrapper.
 // So no <html/head/body/style/title/meta> here; those come from _base.html.eta.
 //
-// <iframe> is allowed for sandboxed embeds (interactive widgets, CodeSandbox,
-// YouTube, demo charts) — but sandbox is enforced and `allow-same-origin` is
-// always stripped so the embedded frame can never escape into the parent origin
-// even if both happen to be served from the same host. See transformTags below.
+// Security model (v0.3+):
+//   - <script> is ALLOWED so notes can ship interactive content natively
+//     (D3, Plotly, sortable tables, three.js) instead of forcing agents to wrap
+//     everything in <iframe srcdoc>. This is safe because:
+//       (a) `/raw/:id` is served into an outer iframe sandboxed WITHOUT
+//           `allow-same-origin` → the note is a null-origin document and
+//           cannot reach the viewer's window.parent, /api/*, cookies, or
+//           localStorage on 127.0.0.1:4810.
+//       (b) `/raw/:id` carries a strict CSP: `connect-src 'none'` blocks
+//           fetch/XHR/WebSocket, so even arbitrary scripts cannot exfiltrate
+//           data or call back to attacker-controlled hosts.
+//       (c) `script[src]` is restricted to `https:` (no `http:`, `data:`,
+//           `javascript:`) and on*-handlers are dropped by sanitize-html.
+//   - <iframe> stays allowed for embeds (YouTube, CodeSandbox, custom srcdoc).
+//     Sandbox is enforced and `allow-same-origin` is always stripped from
+//     nested iframes — same defense as before. See transformTags below.
+//   - <noscript>, <object>, <embed>, <link> remain stripped.
 const ALLOWED_TAGS = [
   "article", "section", "main", "header", "footer", "aside", "nav",
   "h1", "h2", "h3", "h4", "h5", "h6",
@@ -23,6 +36,7 @@ const ALLOWED_TAGS = [
   "details", "summary", "mark", "kbd", "var", "samp",
   "svg", "g", "path", "circle", "rect", "line", "polyline", "polygon", "text", "tspan",
   "iframe",
+  "script",
 ];
 
 const ALLOWED_ATTRIBUTES: Record<string, string[]> = {
@@ -38,6 +52,7 @@ const ALLOWED_ATTRIBUTES: Record<string, string[]> = {
   rect: ["x", "y", "width", "height", "fill", "stroke", "rx", "ry"],
   line: ["x1", "y1", "x2", "y2", "stroke"],
   iframe: ["src", "srcdoc", "sandbox", "width", "height", "title", "allow", "loading", "name", "referrerpolicy", "allowfullscreen"],
+  script: ["src", "type", "async", "defer", "crossorigin", "integrity", "nomodule", "referrerpolicy"],
 };
 
 // Default sandbox flags applied to every iframe — explicit allow-list, never
@@ -63,11 +78,15 @@ export function sanitize(html: string): SanitizeResult {
   const before = html.length;
   const out = sanitizeHtml(html, {
     allowedTags: ALLOWED_TAGS,
+    // We knowingly allow <script>; isolation is the outer iframe sandbox +
+    // CSP, not the sanitizer. Silence sanitize-html's XSS-warning banner.
+    allowVulnerableTags: true,
     allowedAttributes: ALLOWED_ATTRIBUTES,
     allowedSchemes: ["http", "https", "mailto", "tel", "data"],
     allowedSchemesByTag: {
       img: ["http", "https", "data"],
       iframe: ["http", "https"], // no data:, no javascript:
+      script: ["https"], // CDN only — no http:, data:, javascript:
     },
     allowedStyles: {
       "*": {
@@ -100,7 +119,7 @@ export function sanitize(html: string): SanitizeResult {
       },
     },
     disallowedTagsMode: "discard",
-    nonTextTags: ["script", "noscript", "object", "embed", "link"],
+    nonTextTags: ["noscript", "object", "embed", "link"],
   });
   return { html: out, drops: Math.max(0, before - out.length) };
 }

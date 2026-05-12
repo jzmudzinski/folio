@@ -1,10 +1,40 @@
 import { expect, test } from "bun:test";
 import { sanitize } from "../src/core/sanitize";
 
-test("strips <script>", () => {
-  const r = sanitize(`<p>ok</p><script>alert(1)</script>`);
-  expect(r.html).not.toContain("<script");
+test("preserves inline <script> (v0.3+ allows scripts — note is null-origin sandboxed)", () => {
+  const r = sanitize(`<p>ok</p><script>const x = 1; document.body.dataset.x = x;</script>`);
+  expect(r.html).toContain("<script");
+  expect(r.html).toContain("const x = 1");
   expect(r.html).toContain("<p>ok</p>");
+});
+
+test("preserves <script src=https://...> for CDN imports", () => {
+  const r = sanitize(`<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>`);
+  expect(r.html).toContain('src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"');
+});
+
+test("preserves script attributes type/async/defer/integrity", () => {
+  const r = sanitize(`<script type="module" src="https://esm.sh/three" async defer integrity="sha384-foo" crossorigin="anonymous"></script>`);
+  expect(r.html).toContain('type="module"');
+  expect(r.html).toContain("async");
+  expect(r.html).toContain("defer");
+  expect(r.html).toContain('integrity="sha384-foo"');
+  expect(r.html).toContain('crossorigin="anonymous"');
+});
+
+test("blocks script[src=http://...] (https only)", () => {
+  const r = sanitize(`<script src="http://insecure.example/x.js"></script>`);
+  expect(r.html).not.toContain("http://insecure.example");
+});
+
+test("blocks script[src=javascript:...]", () => {
+  const r = sanitize(`<script src="javascript:alert(1)"></script>`);
+  expect(r.html).not.toContain("javascript:");
+});
+
+test("blocks script[src=data:...]", () => {
+  const r = sanitize(`<script src="data:text/javascript,alert(1)"></script>`);
+  expect(r.html).not.toContain("data:");
 });
 
 test("strips on* event handlers", () => {

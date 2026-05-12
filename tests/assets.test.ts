@@ -74,14 +74,14 @@ test("attach_asset with source_path reads from disk", async () => {
 test("attach_asset uses viewer_public_url when configured", async () => {
   const { saveConfig, loadConfig } = await import("../src/core/config");
   const cfg = await loadConfig();
-  await saveConfig({ ...cfg, viewer_public_url: "https://zeszyt.example.test" });
+  await saveConfig({ ...cfg, viewer_public_url: "https://notes.example.com" });
   const res = await callTool("attach_asset", {
     thread_id: "pub",
     filename: "a.png",
     content_base64: PNG_1x1.toString("base64"),
   });
   const data = JSON.parse(res.content[0].text);
-  expect(data.url).toBe("https://zeszyt.example.test/t/pub/asset/a.png");
+  expect(data.url).toBe("https://notes.example.com/t/pub/asset/a.png");
   expect(data.local_url).toContain("127.0.0.1");
 });
 

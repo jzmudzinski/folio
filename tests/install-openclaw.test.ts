@@ -143,7 +143,7 @@ test("install preserves existing env (e.g. FOLIO_HOME) on MCP entry update", () 
         folio: {
           command: "/old/folio-mcp",
           args: [],
-          env: { FOLIO_HOME: "/Users/jarek/Folio-custom" },
+          env: { FOLIO_HOME: "/tmp/folio-test-home" },
         },
       },
     },
@@ -151,7 +151,7 @@ test("install preserves existing env (e.g. FOLIO_HOME) on MCP entry update", () 
   const plan = planInstall({ target: "openclaw" }, paths());
   applyPlan(plan);
   const cfg = readJsonConfig<any>(paths().configJson);
-  expect(cfg.mcp.servers.folio.env.FOLIO_HOME).toBe("/Users/jarek/Folio-custom");
+  expect(cfg.mcp.servers.folio.env.FOLIO_HOME).toBe("/tmp/folio-test-home");
   expect(cfg.mcp.servers.folio.command).not.toBe("/old/folio-mcp");
 });
 

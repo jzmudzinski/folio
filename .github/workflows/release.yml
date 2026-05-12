@@ -36,8 +36,9 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Test
-        # Cross-compile target (linux-arm64 na ubuntu-latest) — skip testów na
-        # x64 hoście, runtime tested w produkcji (NotiBox Jetson Orin Nano).
+        # Cross-compile target (linux-arm64 from an x64 ubuntu host) — skip
+        # tests on the host because the cross-built binary can't execute here.
+        # The host-native build above already ran the full suite.
         if: matrix.bun_target == ''
         run: bun test
 

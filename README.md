@@ -1,4 +1,7 @@
-# Folio
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/wordmark-dark.svg">
+  <img src="assets/wordmark-light.svg" alt="folio. — visual comm for agents" width="420">
+</picture>
 
 > Visual communication layer between AI agents and humans.
 

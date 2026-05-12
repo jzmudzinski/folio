@@ -66,6 +66,7 @@ Requires Bun 1.3+ for source install. Release tarballs ship pre-compiled single-
 | `folio reindex` | Rebuild FTS index from files on disk |
 | `folio stats` | Counts + analytics |
 | `folio serve` | Local viewer on `:4810` |
+| `folio update [--check] [--force] [--pre] [--json]` | Self-update from GitHub releases |
 | `folio-mcp` | Stdio MCP server for agent clients |
 
 Environment: `FOLIO_HOME=/path` overrides storage root. `FOLIO_DEBUG=1` for stack traces.

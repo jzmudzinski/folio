@@ -199,24 +199,39 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
             const { subscribe } = await import("../core/sse-hub");
             const jsonl = entriesPath(join(folioRoot(), note.path));
 
+            // EventSource auto-reconnects on transport hiccups and sets
+            // Last-Event-ID to the most recent `id:` line it received. We
+            // use that to skip backlog the client already has, avoiding
+            // duplicate frames after a reconnect.
+            const lastEventId = req.headers.get("last-event-id") ?? "";
+
             const stream = new ReadableStream({
               start(controller) {
                 const encoder = new TextEncoder();
-                // Emit backlog first so a fresh subscriber gets a
-                // deterministic point-in-time snapshot before live
-                // events. Each entry is its own SSE frame.
-                for (const entry of readEntries(jsonl)) {
-                  controller.enqueue(encoder.encode(`event: entry\ndata: ${JSON.stringify(entry)}\n\n`));
-                }
-                // Now subscribe for live updates. The hub seeds offset
-                // at current file size, so backlog won't replay.
-                const unsubscribe = subscribe(id, jsonl, (entry) => {
+                // Each frame carries `id: <entry.id>` so EventSource
+                // sets Last-Event-ID on subsequent reconnects.
+                const emit = (entry: any) => {
                   try {
-                    controller.enqueue(encoder.encode(`event: entry\ndata: ${JSON.stringify(entry)}\n\n`));
+                    controller.enqueue(encoder.encode(`id: ${entry.id}\nevent: entry\ndata: ${JSON.stringify(entry)}\n\n`));
                   } catch {
                     // Stream closed mid-write — cleanup happens via cancel().
                   }
-                });
+                };
+
+                // Emit backlog. On a fresh connection lastEventId is "",
+                // we send everything. On a reconnect, find the position
+                // of the last delivered entry and send only what's after.
+                const backlog = readEntries(jsonl);
+                let startFrom = 0;
+                if (lastEventId) {
+                  const idx = backlog.findIndex((e) => e.id === lastEventId);
+                  if (idx >= 0) startFrom = idx + 1;
+                }
+                for (let i = startFrom; i < backlog.length; i++) emit(backlog[i]!);
+
+                // Now subscribe for live updates. The hub seeds offset
+                // at current file size, so backlog won't replay.
+                const unsubscribe = subscribe(id, jsonl, emit);
                 // Hold the unsubscribe so we can call it on cancel.
                 (controller as any).__folioUnsub = unsubscribe;
               },

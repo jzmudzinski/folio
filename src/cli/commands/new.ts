@@ -39,13 +39,17 @@ export async function newNote(opts: NewOpts): Promise<number> {
     body_html = readFileSync(opts.htmlFile, "utf-8");
   } else if (opts.htmlInline) {
     body_html = opts.htmlInline;
+  } else if (opts.live) {
+    // Live notes start with empty body — feed becomes the content.
+    // Check --live BEFORE the stdin fallback: in a non-TTY shell (CI,
+    // scripts, `bun run … | …`) stdin.isTTY is false even though the
+    // user didn't intend to pipe anything, and reading from stdin would
+    // block forever.
+    body_html = "";
   } else if (!process.stdin.isTTY) {
     const chunks: Uint8Array[] = [];
     for await (const chunk of process.stdin) chunks.push(chunk as Uint8Array);
     body_html = Buffer.concat(chunks).toString("utf-8");
-  } else if (opts.live) {
-    // Live notes start with empty body — feed becomes the content.
-    body_html = "";
   } else {
     process.stderr.write(c.err("✗ no body — pass --html @file, --html-inline 'string', --live, or pipe stdin\n"));
     return 3;

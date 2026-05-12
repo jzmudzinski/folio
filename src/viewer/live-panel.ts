@@ -108,7 +108,8 @@ export const LIVE_CHROME_JS = `<script>
   var iframe = document.querySelector(".live-panel-iframe");
   if (!iframe) return;
 
-  var entries = [];   // raw LiveEntry[]
+  var entries = [];          // raw LiveEntry[] (deduped)
+  var seenIds = Object.create(null);  // id → true; prevents duplicate inserts
   var panelReady = false;
 
   // Client-side mirror of src/core/live.ts compile().
@@ -187,8 +188,15 @@ export const LIVE_CHROME_JS = `<script>
   es.addEventListener("entry", function (e) {
     try {
       var entry = JSON.parse(e.data);
-      entries.push(entry);
-      if (panelReady) sendCompiled();
+      // Dedupe by entry.id. EventSource auto-reconnects on transport
+      // hiccups and the server re-emits the full backlog on every fresh
+      // subscription — without this guard, every reconnect would push
+      // duplicates of every entry into the compiled feed.
+      if (entry && entry.id && !seenIds[entry.id]) {
+        seenIds[entry.id] = true;
+        entries.push(entry);
+        if (panelReady) sendCompiled();
+      }
     } catch (_) { /* ignore corrupt frame */ }
   });
   // EventSource auto-reconnects on transport errors; no handler needed.

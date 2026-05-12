@@ -66,6 +66,7 @@ const VIEWER_CSS = `
   --vgood:     #2f9050;
   --vblue:     #2c4ad9;
   --vbronze:   #8b6535;
+  --vpurple:   #6b3e9a;
 
   --vhead:  'Familjen Grotesk', 'Inter', system-ui, sans-serif;
   --vbody:  'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -183,14 +184,54 @@ a { color: inherit; text-decoration: none; }
 .cluster .cluster-meta .big { font-family: var(--vhead); font-weight: 500; font-size: 32px; line-height: 1; color: var(--vink); letter-spacing: -0.02em; }
 
 .tag-cloud { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 4px 8px; }
-.tag-cloud .tag-chip { display: inline-flex; align-items: baseline; gap: 8px; font-family: var(--vmono); font-size: 12px; padding: 5px 12px; border-radius: 999px; background: var(--vpanel); border: 1px solid var(--vline); color: var(--vink-2); transition: color .12s, border-color .12s, background .12s; }
+.tag-cloud .tag-chip { display: inline-flex; align-items: baseline; gap: 8px; font-family: var(--vmono); font-size: 12px; padding: 5px 12px; border-radius: 999px; background: var(--vpanel); border: 1px solid var(--vline); color: var(--vink-2); transition: color .12s, border-color .12s, background .12s, box-shadow .12s; }
 .tag-cloud .tag-chip:hover { color: var(--vorange); border-color: var(--vorange); }
-.tag-cloud .tag-chip.on { background: var(--vink); border-color: var(--vink); color: var(--vbg); }
-.tag-cloud .tag-chip .ns { color: var(--vbronze); }
-.tag-cloud .tag-chip.on .ns { color: var(--vamber); }
+.tag-cloud .tag-chip.on { background: var(--vink); border-color: var(--vink); color: var(--vbg); box-shadow: 0 0 0 3px var(--vorange-soft); }
+.tag-cloud .tag-chip .ns { color: var(--vbronze); opacity: 0.65; font-weight: 400; }
+.tag-cloud .tag-chip .val { font-weight: 600; }
+.tag-cloud .tag-chip.on .ns { color: var(--vamber); opacity: 0.9; }
 .tag-cloud .tag-chip .count { font-size: 10.5px; color: var(--vmuted); }
 .tag-cloud .tag-chip.on .count { color: var(--vbg); opacity: 0.7; }
 .tag-cloud .more { font-family: var(--vmono); font-size: 11px; color: var(--vmuted-2); padding: 5px 4px; align-self: center; }
+
+/* Namespace coloring — color-mix gives the chip a soft tint of the accent
+   without sacrificing contrast against linen-warm viewer chrome.
+   ns-klient → niebieski, ns-projekt → zielony, ns-temat → bursztynowy,
+   ns-type → fioletowy, ns-unknown / no namespace → muted neutral. */
+.tag-cloud .tag-chip.ns-klient   { background: color-mix(in srgb, var(--vblue)   12%, var(--vpanel)); border-color: color-mix(in srgb, var(--vblue)   28%, var(--vline));  color: color-mix(in srgb, var(--vblue)   80%, var(--vink)); }
+.tag-cloud .tag-chip.ns-projekt  { background: color-mix(in srgb, var(--vgood)   12%, var(--vpanel)); border-color: color-mix(in srgb, var(--vgood)   28%, var(--vline));  color: color-mix(in srgb, var(--vgood)   80%, var(--vink)); }
+.tag-cloud .tag-chip.ns-temat    { background: color-mix(in srgb, var(--vamber)  14%, var(--vpanel)); border-color: color-mix(in srgb, var(--vamber)  30%, var(--vline));  color: color-mix(in srgb, var(--vamber)  85%, var(--vink)); }
+.tag-cloud .tag-chip.ns-type     { background: color-mix(in srgb, var(--vpurple) 12%, var(--vpanel)); border-color: color-mix(in srgb, var(--vpurple) 28%, var(--vline));  color: color-mix(in srgb, var(--vpurple) 80%, var(--vink)); }
+.tag-cloud .tag-chip.ns-klient   .ns { color: color-mix(in srgb, var(--vblue)   75%, var(--vink)); }
+.tag-cloud .tag-chip.ns-projekt  .ns { color: color-mix(in srgb, var(--vgood)   75%, var(--vink)); }
+.tag-cloud .tag-chip.ns-temat    .ns { color: color-mix(in srgb, var(--vamber)  80%, var(--vink)); }
+.tag-cloud .tag-chip.ns-type     .ns { color: color-mix(in srgb, var(--vpurple) 75%, var(--vink)); }
+.tag-cloud .tag-chip:hover.ns-klient,
+.tag-cloud .tag-chip:hover.ns-projekt,
+.tag-cloud .tag-chip:hover.ns-temat,
+.tag-cloud .tag-chip:hover.ns-type { color: currentColor; filter: brightness(0.95); border-color: currentColor; }
+/* Large header chip variant for /tag/:slug page */
+.tag-header { display: inline-flex; align-items: baseline; gap: 12px; font-family: var(--vmono); font-size: 18px; padding: 10px 22px; border-radius: 999px; background: var(--vpanel); border: 1.5px solid var(--vline); color: var(--vink-2); }
+.tag-header .ns { color: var(--vbronze); opacity: 0.7; font-weight: 400; }
+.tag-header .val { font-weight: 600; letter-spacing: -0.01em; }
+.tag-header .count { font-family: var(--vmono); font-size: 12px; color: var(--vmuted); font-weight: 400; letter-spacing: 0.04em; padding-left: 8px; border-left: 1px solid var(--vline); }
+.tag-header.ns-klient  { background: color-mix(in srgb, var(--vblue)   12%, var(--vpanel)); border-color: color-mix(in srgb, var(--vblue)   35%, var(--vline)); color: color-mix(in srgb, var(--vblue)   80%, var(--vink)); }
+.tag-header.ns-projekt { background: color-mix(in srgb, var(--vgood)   12%, var(--vpanel)); border-color: color-mix(in srgb, var(--vgood)   35%, var(--vline)); color: color-mix(in srgb, var(--vgood)   80%, var(--vink)); }
+.tag-header.ns-temat   { background: color-mix(in srgb, var(--vamber)  14%, var(--vpanel)); border-color: color-mix(in srgb, var(--vamber)  35%, var(--vline)); color: color-mix(in srgb, var(--vamber)  85%, var(--vink)); }
+.tag-header.ns-type    { background: color-mix(in srgb, var(--vpurple) 12%, var(--vpanel)); border-color: color-mix(in srgb, var(--vpurple) 35%, var(--vline)); color: color-mix(in srgb, var(--vpurple) 80%, var(--vink)); }
+.tag-header.ns-klient  .ns { color: color-mix(in srgb, var(--vblue)   75%, var(--vink)); }
+.tag-header.ns-projekt .ns { color: color-mix(in srgb, var(--vgood)   75%, var(--vink)); }
+.tag-header.ns-temat   .ns { color: color-mix(in srgb, var(--vamber)  80%, var(--vink)); }
+.tag-header.ns-type    .ns { color: color-mix(in srgb, var(--vpurple) 75%, var(--vink)); }
+
+/* Active filter strip shown above the date groups when ?tag= and/or ?type= is set */
+.active-filter { display: flex; align-items: center; gap: 10px; padding: 10px 4px 14px; margin-bottom: 4px; flex-wrap: wrap; font-family: var(--vmono); font-size: 11.5px; color: var(--vmuted); }
+.active-filter .lbl { letter-spacing: 0.14em; text-transform: uppercase; color: var(--vmuted-2); font-size: 10.5px; }
+.active-filter .chip { display: inline-flex; align-items: baseline; gap: 8px; padding: 4px 10px 4px 12px; border-radius: 999px; background: var(--vpanel); border: 1px solid var(--vline); color: var(--vink-2); font-size: 12px; }
+.active-filter .chip .x { color: var(--vmuted-2); padding-left: 6px; border-left: 1px solid var(--vline-2); margin-left: 4px; transition: color .12s; }
+.active-filter .chip:hover .x { color: var(--vorange); }
+.active-filter .clear-all { color: var(--vmuted-2); padding: 3px 8px; border-radius: 4px; transition: color .12s, background .12s; }
+.active-filter .clear-all:hover { color: var(--vorange); background: var(--vbg-2); }
 
 .thread-card { display: grid; grid-template-columns: 1fr auto auto; gap: 22px; align-items: center; padding: 18px 8px 18px 30px; border-bottom: 1px solid var(--vline-2); position: relative; transition: background .12s; }
 .thread-card:hover { background: var(--vbg-2); }
@@ -370,21 +411,62 @@ interface CountSummary {
   byType: Record<string, number>;
 }
 
-function filterBar(activeType?: string, activeStatus?: string, counts?: CountSummary, resultsMeta?: string): string {
+function buildHref(params: Record<string, string | undefined | null>): string {
+  const usp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== "") usp.set(k, v);
+  }
+  const qs = usp.toString();
+  return qs ? `/?${qs}` : "/";
+}
+
+function filterBar(activeType?: string, activeStatus?: string, counts?: CountSummary, resultsMeta?: string, activeTag?: string): string {
   const cs = counts ?? { all: 0, final: 0, expiring: 0, byType: {} };
   const on = (cond: boolean) => (cond ? " on" : "");
+  // Type/status chips preserve the active tag so combined filter works
+  const withTag = (extra: Record<string, string>) => buildHref({ tag: activeTag ?? null, ...extra });
   return `
 <div class="v-strip">
   <div class="v-strip-inner">
-    <a href="/" class="fp${on(!activeType && !activeStatus)}">Wszystkie <span class="count">${cs.all}</span></a>
-    <a href="/?type=research" class="fp${on(activeType === "research")}">Research <span class="count">${cs.byType.research ?? 0}</span></a>
-    <a href="/?type=comparison" class="fp${on(activeType === "comparison")}">Comparison <span class="count">${cs.byType.comparison ?? 0}</span></a>
-    <a href="/?type=technical" class="fp${on(activeType === "technical")}">Technical <span class="count">${cs.byType.technical ?? 0}</span></a>
-    ${cs.byType.journal ? `<a href="/?type=journal" class="fp${on(activeType === "journal")}">Journal <span class="count">${cs.byType.journal}</span></a>` : ""}
+    <a href="${withTag({})}" class="fp${on(!activeType && !activeStatus)}">Wszystkie <span class="count">${cs.all}</span></a>
+    <a href="${withTag({ type: "research" })}" class="fp${on(activeType === "research")}">Research <span class="count">${cs.byType.research ?? 0}</span></a>
+    <a href="${withTag({ type: "comparison" })}" class="fp${on(activeType === "comparison")}">Comparison <span class="count">${cs.byType.comparison ?? 0}</span></a>
+    <a href="${withTag({ type: "technical" })}" class="fp${on(activeType === "technical")}">Technical <span class="count">${cs.byType.technical ?? 0}</span></a>
+    ${cs.byType.journal ? `<a href="${withTag({ type: "journal" })}" class="fp${on(activeType === "journal")}">Journal <span class="count">${cs.byType.journal}</span></a>` : ""}
     <span class="sep"></span>
-    <a href="/?final=1" class="fp${on(activeStatus === "final")}"><span class="star">★</span> Final <span class="count">${cs.final}</span></a>
-    <a href="/?expiring=1" class="fp warn${on(activeStatus === "expiring")}">⏱ Wygasające 7d <span class="count">${cs.expiring}</span></a>
+    <a href="${withTag({ final: "1" })}" class="fp${on(activeStatus === "final")}"><span class="star">★</span> Final <span class="count">${cs.final}</span></a>
+    <a href="${withTag({ expiring: "1" })}" class="fp warn${on(activeStatus === "expiring")}">⏱ Wygasające 7d <span class="count">${cs.expiring}</span></a>
     ${resultsMeta ? `<span class="results-meta">${esc(resultsMeta)}</span>` : ""}
+  </div>
+</div>`;
+}
+
+function activeFilterStrip(activeTag?: string, activeType?: string, activeStatus?: string): string {
+  if (!activeTag && !activeType && !activeStatus) return "";
+  const chips: string[] = [];
+  if (activeTag) {
+    const { ns, value, nsClass } = parseTagNs(activeTag);
+    const label = ns !== null
+      ? `<span class="ns" style="color:var(--vmuted-2)">${esc(ns)}:</span>${esc(value)}`
+      : esc(activeTag);
+    // Remove tag, keep other filters
+    const href = buildHref({ type: activeType, final: activeStatus === "final" ? "1" : null, expiring: activeStatus === "expiring" ? "1" : null });
+    chips.push(`<a href="${href}" class="chip${nsClass ? " " + nsClass : ""}" title="Wyczyść filtr tagu">🏷 ${label}<span class="x">×</span></a>`);
+  }
+  if (activeType) {
+    const href = buildHref({ tag: activeTag, final: activeStatus === "final" ? "1" : null, expiring: activeStatus === "expiring" ? "1" : null });
+    chips.push(`<a href="${href}" class="chip" title="Wyczyść filtr typu">type: ${esc(activeType)}<span class="x">×</span></a>`);
+  }
+  if (activeStatus) {
+    const href = buildHref({ tag: activeTag, type: activeType });
+    chips.push(`<a href="${href}" class="chip" title="Wyczyść filtr statusu">${activeStatus === "final" ? "★ final" : "⏱ wygasające 7d"}<span class="x">×</span></a>`);
+  }
+  return `
+<div class="v-page" style="padding-top: 12px; padding-bottom: 0;">
+  <div class="active-filter">
+    <span class="lbl">filtr aktywny</span>
+    ${chips.join("")}
+    <a href="/" class="clear-all">wyczyść wszystko</a>
   </div>
 </div>`;
 }
@@ -537,12 +619,29 @@ function threadCard(t: ThreadHit): string {
 </a>`;
 }
 
+const KNOWN_NAMESPACES = new Set(["klient", "projekt", "temat", "type"]);
+
+/** Parse `klient:foo` → { ns: "klient", value: "foo", nsClass: "ns-klient" }.
+ *  Unknown namespaces and bare tags get `nsClass: ""` so they keep the
+ *  neutral muted styling (no jarring color for arbitrary prefixes). */
+function parseTagNs(tag: string): { ns: string | null; value: string; nsClass: string } {
+  const i = tag.indexOf(":");
+  if (i <= 0 || i === tag.length - 1) return { ns: null, value: tag, nsClass: "" };
+  const ns = tag.slice(0, i);
+  const value = tag.slice(i + 1);
+  const nsClass = KNOWN_NAMESPACES.has(ns) ? `ns-${ns}` : "";
+  return { ns, value, nsClass };
+}
+
 function tagChip(t: { tag: string; count: number }, active = false): string {
-  const colonIdx = t.tag.indexOf(":");
-  const label = colonIdx > 0
-    ? `<span class="ns">${esc(t.tag.slice(0, colonIdx + 1))}</span>${esc(t.tag.slice(colonIdx + 1))}`
-    : esc(t.tag);
-  return `<a class="tag-chip${active ? " on" : ""}" href="/tag/${encodeURIComponent(t.tag)}">${label}<span class="count">${t.count}</span></a>`;
+  const { ns, value, nsClass } = parseTagNs(t.tag);
+  const label = ns !== null
+    ? `<span class="ns">${esc(ns)}:</span><span class="val">${esc(value)}</span>`
+    : `<span class="val">${esc(value)}</span>`;
+  const classes = ["tag-chip"];
+  if (nsClass) classes.push(nsClass);
+  if (active) classes.push("on");
+  return `<a class="${classes.join(" ")}" href="/tag/${encodeURIComponent(t.tag)}">${label}<span class="count">${t.count}</span></a>`;
 }
 
 function tagCloud(tags: { tag: string; count: number }[], activeTag?: string): string {
@@ -555,7 +654,8 @@ export function pageList(
   counts: CountSummary,
   activeType?: string,
   activeStatus?: string,
-  popularTags: { tag: string; count: number }[] = []
+  popularTags: { tag: string; count: number }[] = [],
+  activeTag?: string
 ): string {
   const groups = new Map<string, NoteMeta[]>();
   for (const n of notes) {
@@ -577,19 +677,24 @@ export function pageList(
     })
     .join("");
 
-  const tagsSection = popularTags.length > 0 && !activeType && !activeStatus
+  const tagsSection = popularTags.length > 0 && !activeType && !activeStatus && !activeTag
     ? `<div class="group">
          <div class="group-lbl">Tagi <span class="count">· ${popularTags.length}</span><span class="spacer"></span><span class="accent">popularne</span></div>
-         ${tagCloud(popularTags)}
+         ${tagCloud(popularTags, activeTag)}
        </div>`
     : "";
 
+  const emptyMsg = activeTag
+    ? `Brak notatek z tagiem <code>${esc(activeTag)}</code>${activeType ? ` w typie <code>${esc(activeType)}</code>` : ""}.`
+    : activeType
+    ? `Brak notatek w typie <code>${esc(activeType)}</code>.`
+    : `Stwórz pierwszą notatkę: <code>folio new --title "..." --html @file.html</code>`;
   const body = notes.length === 0
-    ? `<div class="empty"><h2>Pusto</h2><p class="lead">Stwórz pierwszą notatkę: <code>folio new --title "..." --html @file.html</code></p></div>`
+    ? `<div class="empty"><h2>Pusto</h2><p class="lead">${emptyMsg}</p></div>`
     : `<main class="v-page">${groupsHtml}${tagsSection}</main>`;
 
   const meta = notes.length > 0 ? `${notes.length} not · ostatnia ${ago(notes[0]!.created)}` : "";
-  return shell("Folio", `${topbar("", "notes")}${filterBar(activeType, activeStatus, counts, meta)}${body}`);
+  return shell("Folio", `${topbar("", "notes")}${filterBar(activeType, activeStatus, counts, meta, activeTag)}${activeFilterStrip(activeTag, activeType, activeStatus)}${body}`);
 }
 
 export function pageTag(tag: string, notes: NoteMeta[], popularTags: { tag: string; count: number }[] = []): string {
@@ -605,20 +710,27 @@ export function pageTag(tag: string, notes: NoteMeta[], popularTags: { tag: stri
        </div>`
     : "";
 
-  const colonIdx = tag.indexOf(":");
-  const headerLabel = colonIdx > 0
-    ? `<span style="color:var(--vbronze)">${esc(tag.slice(0, colonIdx + 1))}</span>${esc(tag.slice(colonIdx + 1))}`
-    : esc(tag);
+  const { ns, value, nsClass } = parseTagNs(tag);
+  // Description: <prefix>: <value-with-spaces> — fact-only, no prose
+  const description = ns !== null
+    ? `${esc(ns)}: ${esc(value.replace(/-/g, " "))}`
+    : "";
+  const headerInner = ns !== null
+    ? `<span class="ns">${esc(ns)}:</span><span class="val">${esc(value)}</span>`
+    : `<span class="val">${esc(tag)}</span>`;
+  const headerClasses = ["tag-header"];
+  if (nsClass) headerClasses.push(nsClass);
 
   const body = `
 <main class="v-page">
   <div class="group">
     <div class="group-lbl"><a href="/" style="color:var(--vmuted)">← Noty</a> <span class="spacer"></span><span class="accent">tag</span></div>
-    <div style="padding: 8px 4px 20px;">
-      <div style="font-family: var(--vmono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--vbronze); margin-bottom: 8px;">🏷 tag</div>
-      <h1 style="font-family: var(--vhead); font-weight: 500; font-size: clamp(28px, 3.6vw, 40px); letter-spacing: -0.025em; margin: 0 0 6px; line-height: 1.1;">${headerLabel}</h1>
-      <div style="font-family: var(--vmono); font-size: 12px; color: var(--vmuted);">
-        ${notes.length} ${notes.length === 1 ? "nota" : "not"} · ostatnia ${ago(latest)}${finalCount > 0 ? ` · <span style="color:var(--vorange)">★ ${finalCount} final</span>` : ""}
+    <div style="padding: 12px 4px 24px;">
+      <div class="${headerClasses.join(" ")}">${headerInner}<span class="count">${notes.length} ${notes.length === 1 ? "nota" : "not"}</span></div>
+      <div style="font-family: var(--vserif); font-style: italic; font-size: 17px; color: var(--vmuted); margin-top: 12px; line-height: 1.4;">${description ? esc("Notatki oznaczone: ") + description : "Notatki oznaczone tym tagiem."}</div>
+      <div style="font-family: var(--vmono); font-size: 12px; color: var(--vmuted-2); margin-top: 6px;">
+        ostatnia ${ago(latest)}${finalCount > 0 ? ` · <span style="color:var(--vorange)">★ ${finalCount} final</span>` : ""}
+        · <a href="/?tag=${encodeURIComponent(tag)}" style="color:var(--vmuted); border-bottom: 1px solid var(--vline);">otwórz w głównym feedzie</a>
       </div>
     </div>
     <div class="rows">${rows}</div>

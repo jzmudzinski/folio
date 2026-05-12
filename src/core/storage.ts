@@ -171,29 +171,36 @@ export function readNoteHtml(meta: NoteMeta): string {
 export interface ListOptions {
   type?: NoteType;
   thread_id?: string;
+  tag?: string;
   is_final?: boolean;
   limit?: number;
   offset?: number;
 }
 
 export function listNotes(opts: ListOptions = {}): NoteMeta[] {
-  const where: string[] = ["status = 'active'"];
+  const where: string[] = ["notes.status = 'active'"];
   const params: any[] = [];
+  // Tag filter via JOIN to the indexed tags table (tags_by_tag covers it)
+  const joinClause = opts.tag ? "JOIN tags ON tags.note_id = notes.id" : "";
+  if (opts.tag) {
+    where.push("tags.tag = ?");
+    params.push(opts.tag);
+  }
   if (opts.type) {
-    where.push("type = ?");
+    where.push("notes.type = ?");
     params.push(opts.type);
   }
   if (opts.thread_id) {
-    where.push("thread_id = ?");
+    where.push("notes.thread_id = ?");
     params.push(opts.thread_id);
   }
   if (opts.is_final !== undefined) {
-    where.push("is_final = ?");
+    where.push("notes.is_final = ?");
     params.push(opts.is_final ? 1 : 0);
   }
   const limit = opts.limit ?? 50;
   const offset = opts.offset ?? 0;
-  const sql = `SELECT * FROM notes WHERE ${where.join(" AND ")} ORDER BY created DESC LIMIT ? OFFSET ?`;
+  const sql = `SELECT notes.* FROM notes ${joinClause} WHERE ${where.join(" AND ")} ORDER BY notes.created DESC LIMIT ? OFFSET ?`;
   const rows = db()
     .query<Record<string, any>, any[]>(sql)
     .all(...params, limit, offset);

@@ -68,6 +68,14 @@ jobs:
           cp -r folio folio-mcp themes templates skills README.md LICENSE "$DEST/"
           [ -d docs ] && cp -r docs "$DEST/"
           chmod +x "$DEST/folio" "$DEST/folio-mcp"
+          # macOS: the adhoc signature applied by `bun build --compile` survives
+          # cross-machine transit but Gatekeeper rejects it as "invalid signature"
+          # → SIGKILL when stdin is a pipe (e.g. MCP stdio mode). Re-sign locally
+          # to fix. Linux: no codesign, nothing to do.
+          if [ "$(uname -s)" = "Darwin" ] && command -v codesign >/dev/null 2>&1; then
+            codesign --force --sign - "$DEST/folio"     >/dev/null 2>&1 || true
+            codesign --force --sign - "$DEST/folio-mcp" >/dev/null 2>&1 || true
+          fi
           echo "✓ Folio installed at $DEST"
           echo
           echo "Add to PATH (one of):"

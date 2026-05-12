@@ -1,6 +1,7 @@
 import type { NoteMeta, SearchHit } from "../core/types";
 import { db } from "../core/db";
 import { listThemes } from "../core/themes";
+import pkg from "../../package.json" with { type: "json" };
 
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -96,6 +97,8 @@ a { color: inherit; text-decoration: none; }
 .v-logo .mark .dot { color: var(--vorange); }
 .v-logo .div { width: 1px; height: 18px; background: var(--vline); align-self: center; }
 .v-logo .tagline { font-family: var(--vmono); font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--vmuted-2); font-weight: 400; }
+.v-top-inner .ver { font-family: var(--vmono); font-size: 10px; color: var(--vmuted-2); font-weight: 400; opacity: 0.6; align-self: center; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 4px; transition: opacity .12s, color .12s, background .12s; }
+.v-top-inner .ver:hover { opacity: 1; color: var(--vorange); background: var(--vbg-2); }
 .v-search { flex: 1; max-width: 520px; background: var(--vpanel); border: 1px solid var(--vline); border-radius: 10px; padding: 8px 14px; display: flex; align-items: center; gap: 10px; font-family: var(--vmono); font-size: 13px; transition: border-color .15s, box-shadow .15s, background .15s; }
 .v-search:focus-within { border-color: var(--vorange); box-shadow: 0 0 0 4px var(--vorange-soft); background: #fff; }
 .v-search .ico { color: var(--vmuted-2); font-size: 12px; }
@@ -345,6 +348,7 @@ function topbar(query = "", active?: "notes" | "threads" | "stats"): string {
       <span class="div"></span>
       <span class="tagline">Visual comm for agents</span>
     </a>
+    <a href="/stats" class="ver" title="Folio v${esc(pkg.version)} — system info">v${esc(pkg.version)}</a>
     <form class="v-search" role="search" action="/search" method="get">
       <span class="ico">⌕</span>
       <input type="search" name="q" placeholder="Szukaj notatek i wątków…" value="${esc(query)}" autocomplete="off">
@@ -939,6 +943,11 @@ export function pageStats(s: any): string {
     <div style="padding: 8px 4px 20px;">
       <h1 style="font-family: var(--vhead); font-weight: 500; font-size: clamp(28px, 3.6vw, 40px); letter-spacing: -0.025em; margin: 0 0 6px; line-height: 1.1;">Statystyki</h1>
       <div style="font-family: var(--vserif); font-style: italic; font-size: 18px; color: var(--vmuted); margin-bottom: 12px;">Co Folio wie o sobie samym.</div>
+      <div style="font-family: var(--vmono); font-size: 11px; letter-spacing: 0.06em; color: var(--vmuted-2); display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--vbg-2); border: 1px solid var(--vline-2); border-radius: 6px;">
+        <span style="color: var(--vorange); font-weight: 600;">●</span> folio
+        <span style="color: var(--vink); font-weight: 600;">v${esc(pkg.version)}</span>
+        · ${esc(pkg.name)}
+      </div>
     </div>
     <div class="stat-grid">
       <div class="stat-cell"><div class="n acc">${s.total}</div><div class="lbl">Total</div></div>

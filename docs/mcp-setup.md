@@ -1,6 +1,6 @@
 # Folio MCP Server — agent setup
 
-`folio-mcp` is a stdio MCP server exposing **10 tools** and **6 resources** to any MCP-capable agent: `create`, `get`, `list`, `search`, `finalize`, `unfinalize`, `suggest_thread`, `list_expiring`, `list_themes`, `export`.
+`folio-mcp` is a stdio MCP server exposing **11 tools** and **6 resources** to any MCP-capable agent: `create`, `get`, `list`, `search`, `finalize`, `unfinalize`, `suggest_thread`, `list_expiring`, `list_themes`, `export`, `version`.
 
 The MCP server is registered under the name `folio`, so clients that namespace tools (mcporter, OpenClaw) invoke them as `folio.create`, `folio.search`, etc. The raw tool names themselves carry no prefix — that's a v0.2.0 change.
 
@@ -14,7 +14,7 @@ The MCP server is registered under the name `folio`, so clients that namespace t
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | folio-mcp
 ```
 
-Returns a JSON-RPC response listing all 10 tools.
+Returns a JSON-RPC response listing all 11 tools.
 
 ---
 

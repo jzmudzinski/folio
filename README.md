@@ -74,7 +74,7 @@ Environment: `FOLIO_HOME=/path` overrides storage root. `FOLIO_DEBUG=1` for stac
 
 ## Agent integration
 
-Folio is built around the MCP protocol. The server (`folio-mcp`) exposes **10 tools** (`create`, `get`, `list`, `search`, `finalize`, `unfinalize`, `suggest_thread`, `list_expiring`, `list_themes`, `export`) and **6 resources** for context-loading. The server name is `folio`, so mcporter-style clients invoke them as `folio.create`, `folio.search`, etc.
+Folio is built around the MCP protocol. The server (`folio-mcp`) exposes **11 tools** (`create`, `get`, `list`, `search`, `finalize`, `unfinalize`, `suggest_thread`, `list_expiring`, `list_themes`, `export`, `version`) and **6 resources** for context-loading. The server name is `folio`, so mcporter-style clients invoke them as `folio.create`, `folio.search`, etc.
 
 ### OpenClaw + mcporter
 

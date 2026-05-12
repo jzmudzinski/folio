@@ -51,7 +51,7 @@ async function readResource(uri: string) {
   return await handler({ method: "resources/read", params: { uri } });
 }
 
-test("ListTools returns 10 folio tools", async () => {
+test("ListTools returns 11 folio tools", async () => {
   const res = await listTools();
   const names = res.tools.map((t: any) => t.name);
   expect(names).toContain("create");
@@ -64,6 +64,19 @@ test("ListTools returns 10 folio tools", async () => {
   expect(names).toContain("list_themes");
   expect(names).toContain("export");
   expect(names).toContain("unfinalize");
+  expect(names).toContain("version");
+});
+
+test("version tool returns package.json version + system info", async () => {
+  const res = await callTool("version", {});
+  expect(res.isError).toBeFalsy();
+  const data = JSON.parse(res.content[0].text);
+  expect(data.name).toBe("folio");
+  expect(data.version).toMatch(/^\d+\.\d+\.\d+$/);
+  expect(typeof data.folio_root).toBe("string");
+  expect(data.viewer_url).toMatch(/^http:\/\//);
+  expect(data.default_theme).toBe("linen");
+  expect(typeof data.default_lifespan_days).toBe("number");
 });
 
 test("export standalone inlines theme CSS", async () => {

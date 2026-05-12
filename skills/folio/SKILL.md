@@ -13,7 +13,7 @@ description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp)
 - **Storage:** `$FOLIO_HOME` (default `~/Folio/`)
 - **MCP:** `folio-mcp` (see `docs/mcp-setup.md`)
 - **Viewer:** `folio serve` → http://127.0.0.1:4810
-- **Tools:** `create`, `get`, `list`, `search`, `finalize`, `unfinalize`, `suggest_thread`, `list_expiring`, `list_themes`, `export`, `version` (MCP server name `folio` → mcporter syntax: `folio.create`, `folio.search`, …)
+- **Tools:** `create`, `get`, `list`, `search`, `finalize`, `unfinalize`, `suggest_thread`, `list_expiring`, `list_themes`, `export`, `attach_asset`, `version` (MCP server name `folio` → mcporter syntax: `folio.create`, `folio.search`, …)
 - **Stylebook:** `skills/folio/STYLEBOOK.md` (class contract with theme.css)
 - **Examples:** `skills/folio/examples/<type>/`
 
@@ -49,13 +49,19 @@ description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp)
 2.  (optional) list_themes()
     ↳ Only when unsure about the theme. Cache in-session — don't re-call.
 
-3.  Generate body_html consistent with STYLEBOOK.md for the chosen theme.
+3.  (optional) attach_asset({ thread_id, filename, content_base64 | source_path })
+    ↳ For every image / PDF / video you want embedded in the note. Returns
+      `{url, local_url, ...}` — use `url` directly in body_html below.
 
-4.  create({ type, title, body_html, thread_id, theme?, tags? })
+4.  Generate body_html consistent with STYLEBOOK.md for the chosen theme.
+    Reference any asset URLs from step 3 as <img src="<url>" alt="...">,
+    <video src="<url>" controls>, or <a href="<url>"> for PDFs.
+
+5.  create({ type, title, body_html, thread_id, theme?, tags? })
     ↳ Theme from user config (default linen) unless you override deliberately.
     ↳ Leave theme_profile at its default ("hosted").
 
-5.  Respond to the user with:
+6.  Respond to the user with:
 
     MEDIA:<public_url>          // public_url falls back to local_url
                                 // when no viewer_public_url is configured
@@ -64,7 +70,7 @@ description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp)
     
     <Tags: tag1, tag2>  ← optional, when non-obvious
 
-6.  REMEMBER the `id` in session context — when the user asks for an iteration
+7.  REMEMBER the `id` in session context — when the user asks for an iteration
     ("different version", "polish this"), reuse the same `thread_id` for
     the new note (do NOT edit the old one — ADR-014 append-only).
 ```
@@ -200,6 +206,52 @@ Sanitizer ENFORCED:
 
 ---
 
+## Attaching assets to threads (v0.7.0+)
+
+`attach_asset` drops a binary (image, PDF, video) into `threads/<thread_id>/assets/<filename>` and returns a stable URL you can paste into `body_html`. Use it instead of inlining base64 in HTML — base64 bloats the note, breaks copy-as-markdown, and the file gets buried.
+
+**When to attach:**
+- ✅ Agent generated a chart / diagram and wants it visible in the note
+- ✅ User dropped a photo into chat ("save this to today's journal")
+- ✅ Long PDF user wants kept beside the research summary
+- ✅ Telegram / email bot relaying media → assetize it, then reference the URL in the note body
+
+**Call shape:**
+```
+attach_asset({
+  thread_id: "morning-ride-2026-05-12",
+  filename: "speed-chart.png",
+  content_base64: "<base64>"     // OR source_path: "/abs/path/file.png"
+})
+↳ returns { thread_id, filename, path, url, local_url, size_bytes }
+```
+
+Use `url` in `body_html`. It already uses `viewer_public_url` (if configured), so the link works for relayed contexts (Telegram bot, email) and falls back to `127.0.0.1` otherwise.
+
+**Embed patterns:**
+```html
+<img src="<url>" alt="Speed over time — peaks at 38 km/h around km 14" width="800">
+<video src="<url>" controls></video>
+<a href="<url>" target="_blank">↗ Open PDF</a>
+```
+
+Always write a real `alt` — binary content is NOT FTS-indexed; the alt text is what makes the asset searchable. Set `width`/`height` on `<img>` to prevent layout shift.
+
+**Filename rules** (enforced server-side, errors loudly):
+- ASCII alphanumeric + `.` `_` `-`, ≤ 200 chars
+- No leading/trailing dot, no `..`, no path separators
+- Extension allowlist: `jpg / jpeg / png / webp / gif / svg / pdf / mp4`
+- Use slug-style names: `speed-chart.png`, `route-map-v2.svg`, `q3-report.pdf`
+
+**Overwrite vs versioning:**
+- Same `filename` = overwrites in place (idempotent upload — useful for retrying)
+- Want to keep both versions? Use a new filename (`chart-v2.png`). The note that referenced `chart.png` keeps pointing to whatever bytes are at that path
+- Note files themselves stay append-only (ADR-014). Asset overwrite is a separate convention
+
+**Order with `create`:** attach first (you need the URL), then `create` with `body_html` that references it. Same `thread_id` in both calls.
+
+---
+
 ## Anti-patterns
 
 - ❌ **Spamming `create`** for things that should live in agent memory or chat (short answers like "what's RAG?")
@@ -209,6 +261,8 @@ Sanitizer ENFORCED:
 - ❌ **Writing inline-styled HTML like it's 2005** — use the classes from theme.css
 - ❌ **Editing**: if the user asks "fix this" → create a NEW note in the same thread (append-only, ADR-014)
 - ❌ **Marking `is_final: true` on your own** — that's the user's call (from the viewer / CLI / explicit request)
+- ❌ **Inlining base64 binaries in `body_html`** — bloats the note, breaks copy-as-markdown, no FTS lift. Use `attach_asset` then reference the returned URL
+- ❌ **Calling `attach_asset` without thinking about the filename** — `IMG_4521.jpg` from a phone camera is fine, but generated assets deserve a slug name (`speed-chart.png` beats `chart1.png`). The filename is forever for that URL
 
 ---
 

@@ -148,6 +148,29 @@ theme.css formats it. No inline `style="font-family:monospace"`.
 
 In newsroom-type themes it gets more weight.
 
+## Embedding attached assets
+
+Assets uploaded via `attach_asset` (see SKILL.md) return a stable URL. Reference it directly:
+
+```html
+<!-- Image: alt is REQUIRED — it feeds FTS (binary content is not indexed) -->
+<img src="<url>" alt="Speed-over-time chart, peaks at 38 km/h" width="800">
+
+<!-- Video -->
+<video src="<url>" controls width="100%"></video>
+
+<!-- PDF as a download link -->
+<a href="<url>" target="_blank">↗ Open PDF</a>
+
+<!-- PDF inline (works on most browsers) -->
+<iframe src="<url>" width="100%" height="600" title="Q3 report"></iframe>
+
+<!-- Interactive SVG — use srcdoc, not <img>, so its script runs sandboxed -->
+<!-- (a static SVG is fine via <img src="<url>" alt="...">) -->
+```
+
+Set `width` / `height` on `<img>` to prevent layout shift while the asset loads. The viewer's lightbox helper (see below) auto-attaches to every `<img>`, so users can zoom — assume the original is full-resolution.
+
 ## Iframe embed (sandboxed)
 
 You may embed interactive content via `<iframe>` — the viewer sanitizes and enforces a safe sandbox. Use cases: CodeSandbox, Observable notebook, YouTube, embedded cards, demos from another service.

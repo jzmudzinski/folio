@@ -1,7 +1,17 @@
+import { existsSync } from "node:fs";
 import { c, out, err, json } from "../io";
 import { askString, askYesNo } from "../install/prompts";
-import { planInstall, applyPlan, claudeCodePaths } from "../install/claude-code";
-import type { InstallOptions, InstallPlan, PlanAction } from "../install/types";
+import {
+  planInstall as planInstallClaudeCode,
+  applyPlan,
+  claudeCodePaths,
+} from "../install/claude-code";
+import {
+  planInstall as planInstallOpenclaw,
+  openclawPaths,
+  isOpenclawPresent,
+} from "../install/openclaw";
+import type { InstallOptions, InstallPlan, InstallTarget, PlanAction } from "../install/types";
 
 export interface InstallCliOptions {
   target?: string;
@@ -13,78 +23,139 @@ export interface InstallCliOptions {
   jsonOut?: boolean;
 }
 
-const SUPPORTED = new Set(["claude-code"]);
-// Targets we know about but haven't implemented yet — surface a useful hint
-// instead of a generic "unknown target" error.
+const SUPPORTED: InstallTarget[] = ["claude-code", "openclaw"];
 const FUTURE: Record<string, string> = {
   cursor: "Cursor support is a follow-up; will write .cursor/rules/folio.mdc to the current project.",
   "claude-desktop": "Claude Desktop support is a follow-up — Custom Skills support varies by version.",
-  openclaw: "OpenClaw / Ryszard manages its own skill registry; install via the OpenClaw side.",
 };
 
+/** Detect which agent clients exist on this machine. */
+function detectTargets(): InstallTarget[] {
+  const found: InstallTarget[] = [];
+  if (existsSync(claudeCodePaths().claudeDir)) found.push("claude-code");
+  if (isOpenclawPresent()) found.push("openclaw");
+  return found;
+}
+
+/** Resolve `--target` flag to a concrete target list. */
+async function resolveTargets(raw: string | undefined, isInteractive: boolean): Promise<InstallTarget[] | { error: string }> {
+  const norm = (raw ?? "").toLowerCase().trim();
+
+  // Explicit "all" → every supported target, regardless of detection.
+  if (norm === "all") return [...SUPPORTED];
+
+  // Explicit single target.
+  if (norm && norm !== "auto") {
+    if (FUTURE[norm]) return { error: `${norm}: not yet supported. ${FUTURE[norm]}` };
+    if (!SUPPORTED.includes(norm as InstallTarget)) {
+      return { error: `Unknown target: ${norm}. Supported: ${SUPPORTED.join(", ")} | all` };
+    }
+    return [norm as InstallTarget];
+  }
+
+  // No --target: detect, then default-or-prompt.
+  const detected = detectTargets();
+  if (detected.length === 0) {
+    // Nothing detected — default to claude-code so the command does something
+    // sensible (and shows a useful "OpenClaw not detected" warning if relevant).
+    return ["claude-code"];
+  }
+  if (detected.length === 1) {
+    return detected;
+  }
+
+  // Both detected. In non-interactive mode: install everywhere ("both"
+  // semantics, per design). In interactive mode: ask.
+  if (!isInteractive) return detected;
+
+  out(c.dim("Detected agent clients on this machine:"));
+  for (const t of detected) out(c.dim(`  ✓ ${t}`));
+  const answer = (await askString(
+    c.bold(`Install to which? [a]ll / [c]laude-code / [o]penclaw`),
+    "a",
+  )).trim().toLowerCase();
+  if (answer === "" || answer === "a" || answer === "all" || answer === "both") {
+    return detected;
+  }
+  if (answer === "c" || answer === "claude-code") return ["claude-code"];
+  if (answer === "o" || answer === "openclaw") return ["openclaw"];
+  return { error: `Unrecognized answer: ${answer}` };
+}
+
 export async function installCmd(opts: InstallCliOptions): Promise<number> {
-  const target = (opts.target ?? "claude-code").toLowerCase();
-
-  if (FUTURE[target] && !SUPPORTED.has(target)) {
-    err(c.warn(`! ${target}: not yet supported. ${FUTURE[target]}`));
-    return 2;
-  }
-  if (!SUPPORTED.has(target)) {
-    err(c.err(`✗ Unknown target: ${target}. Supported: ${[...SUPPORTED].join(", ")}.`));
-    return 1;
-  }
-
   if (opts.skillOnly && opts.mcpOnly) {
     err(c.err("✗ --skill-only and --mcp-only are mutually exclusive."));
     return 1;
   }
 
-  // Resolve scope (interactive when missing + not --yes).
+  const isInteractive = !opts.yes && process.stdin.isTTY;
+  const targetsOrErr = await resolveTargets(opts.target, isInteractive);
+  if ("error" in targetsOrErr) {
+    err(c.err(`✗ ${targetsOrErr.error}`));
+    return 1;
+  }
+  const targets = targetsOrErr;
+
+  // Resolve Claude Code per-project scope upfront (shared across runs if
+  // claude-code is one of the targets; openclaw ignores scope).
   let scope = opts.scope;
-  if (!opts.mcpOnly && opts.skillOnly) {
-    // skill-only: scope is irrelevant
-  } else if (!scope) {
+  const needsScope = targets.includes("claude-code") && !opts.skillOnly;
+  if (needsScope && !scope) {
     if (opts.yes || !process.stdin.isTTY) {
       scope = process.cwd();
     } else {
       const proposed = process.cwd();
-      out(c.dim(`MCP wiring is per-project in Claude Code (one entry per directory).`));
-      scope = await askString(c.bold(`Which project directory should Folio MCP be wired to?`), proposed);
+      out(c.dim(`MCP wiring is per-project in Claude Code (one entry per directory). OpenClaw is global.`));
+      scope = await askString(c.bold(`Which project directory should Claude Code's Folio MCP be wired to?`), proposed);
     }
   }
 
-  const installOpts: InstallOptions = {
-    target: "claude-code",
-    skill: !opts.mcpOnly,
-    mcp: !opts.skillOnly,
-    scope,
-    dryRun: opts.dryRun,
-    yes: opts.yes,
-    jsonOut: opts.jsonOut,
-  };
-
-  const paths = claudeCodePaths();
-  const plan = planInstall(installOpts, paths);
+  // Build plan per target.
+  const plans: InstallPlan[] = [];
+  for (const target of targets) {
+    const installOpts: InstallOptions = {
+      target,
+      skill: !opts.mcpOnly,
+      mcp: !opts.skillOnly,
+      scope,
+      dryRun: opts.dryRun,
+      yes: opts.yes,
+      jsonOut: opts.jsonOut,
+    };
+    if (target === "claude-code") plans.push(planInstallClaudeCode(installOpts));
+    else if (target === "openclaw") plans.push(planInstallOpenclaw(installOpts));
+  }
 
   if (opts.jsonOut) {
+    const out_ = plans.map((p) => ({ target: p.target, plan: serializePlan(p) }));
     if (opts.dryRun) {
-      json({ target: plan.target, dry_run: true, plan: serializePlan(plan) });
+      json({ dry_run: true, targets: out_ });
       return 0;
     }
-    const report = applyPlan(plan, paths);
-    json({ target: report.target, dry_run: false, plan: serializePlan(plan), applied: report.applied, errors: report.errors });
-    return report.errors.length === 0 ? 0 : 1;
+    const reports = plans.map((p) => applyPlan(p));
+    json({
+      dry_run: false,
+      targets: plans.map((p, i) => ({
+        target: p.target,
+        plan: serializePlan(p),
+        applied: reports[i]!.applied,
+        errors: reports[i]!.errors,
+      })),
+    });
+    return reports.some((r) => r.errors.length > 0) ? 1 : 0;
   }
 
-  printPlan(plan);
+  // Human-readable output: print all plans first, then ask once, then apply.
+  for (const plan of plans) printPlan(plan);
 
   if (opts.dryRun) {
     out(c.dim("\n(dry-run — no changes written)"));
     return 0;
   }
 
-  if (!hasMutations(plan)) {
-    out(c.ok("\n✓ Nothing to do — already installed."));
+  const anyMutation = plans.some(hasMutations);
+  if (!anyMutation) {
+    out(c.ok("\n✓ Nothing to do — already installed everywhere requested."));
     return 0;
   }
 
@@ -96,19 +167,26 @@ export async function installCmd(opts: InstallCliOptions): Promise<number> {
     }
   }
 
-  const report = applyPlan(plan, paths);
-  if (report.errors.length > 0) {
-    err(c.err(`\n✗ ${report.errors.length} action(s) failed:`));
-    for (const e of report.errors) err(c.err(`  - ${e.message}`));
-    return 1;
+  let totalErrors = 0;
+  for (const plan of plans) {
+    const report = applyPlan(plan);
+    if (report.errors.length > 0) {
+      err(c.err(`\n✗ [${plan.target}] ${report.errors.length} action(s) failed:`));
+      for (const e of report.errors) err(c.err(`  - ${e.message}`));
+      totalErrors += report.errors.length;
+    } else if (hasMutations(plan)) {
+      out(c.ok(`\n✓ Installed for ${plan.target}.`));
+    }
   }
-  out(c.ok(`\n✓ Installed for ${target}.`));
-  out(c.dim("  Restart Claude Code to pick up the skill + MCP entry."));
-  return 0;
+  if (totalErrors === 0) {
+    if (targets.includes("claude-code")) out(c.dim("  Restart Claude Code to pick up the skill + MCP entry."));
+    if (targets.includes("openclaw")) out(c.dim("  Restart OpenClaw to pick up the new skill + MCP entry."));
+  }
+  return totalErrors === 0 ? 0 : 1;
 }
 
 function printPlan(plan: InstallPlan): void {
-  out(c.bold(`Plan for ${plan.target}:`));
+  out(c.bold(`\nPlan for ${plan.target}:`));
   if (plan.actions.length === 0) {
     out(c.dim("  (no actions)"));
   } else {

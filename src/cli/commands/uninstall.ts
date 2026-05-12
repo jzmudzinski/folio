@@ -1,7 +1,16 @@
+import { existsSync } from "node:fs";
 import { c, out, err, json } from "../io";
 import { askYesNo } from "../install/prompts";
-import { planUninstall, applyPlan, claudeCodePaths } from "../install/claude-code";
-import type { UninstallOptions, InstallPlan, PlanAction } from "../install/types";
+import {
+  planUninstall as planUninstallClaudeCode,
+  applyPlan,
+  claudeCodePaths,
+} from "../install/claude-code";
+import {
+  planUninstall as planUninstallOpenclaw,
+  isOpenclawPresent,
+} from "../install/openclaw";
+import type { InstallPlan, InstallTarget, PlanAction, UninstallOptions } from "../install/types";
 
 export interface UninstallCliOptions {
   target?: string;
@@ -14,52 +23,91 @@ export interface UninstallCliOptions {
   jsonOut?: boolean;
 }
 
-const SUPPORTED = new Set(["claude-code"]);
+const SUPPORTED: InstallTarget[] = ["claude-code", "openclaw"];
+
+function detectTargets(): InstallTarget[] {
+  const found: InstallTarget[] = [];
+  if (existsSync(claudeCodePaths().claudeDir)) found.push("claude-code");
+  if (isOpenclawPresent()) found.push("openclaw");
+  return found;
+}
+
+function resolveTargets(raw: string | undefined): InstallTarget[] | { error: string } {
+  const norm = (raw ?? "").toLowerCase().trim();
+  if (norm === "all") return [...SUPPORTED];
+  if (norm && norm !== "auto") {
+    if (!SUPPORTED.includes(norm as InstallTarget)) {
+      return { error: `Unknown target: ${norm}. Supported: ${SUPPORTED.join(", ")} | all` };
+    }
+    return [norm as InstallTarget];
+  }
+  // No target: default to claude-code (back-compat). User must say --target all
+  // or --target openclaw explicitly to touch openclaw on uninstall.
+  return ["claude-code"];
+}
 
 export async function uninstallCmd(opts: UninstallCliOptions): Promise<number> {
-  const target = (opts.target ?? "claude-code").toLowerCase();
-  if (!SUPPORTED.has(target)) {
-    err(c.err(`✗ Unknown target: ${target}. Supported: ${[...SUPPORTED].join(", ")}.`));
-    return 1;
-  }
   if (opts.skillOnly && opts.mcpOnly) {
     err(c.err("✗ --skill-only and --mcp-only are mutually exclusive."));
     return 1;
   }
 
-  const uOpts: UninstallOptions = {
-    target: "claude-code",
-    skill: !opts.mcpOnly,
-    mcp: !opts.skillOnly,
-    scope: opts.scope,
-    allScopes: opts.allScopes,
-    dryRun: opts.dryRun,
-    yes: opts.yes,
-    jsonOut: opts.jsonOut,
-  };
-  if (!uOpts.scope && !uOpts.allScopes && !opts.skillOnly) {
-    uOpts.scope = process.cwd();
+  const targetsOrErr = resolveTargets(opts.target);
+  if ("error" in targetsOrErr) {
+    err(c.err(`✗ ${targetsOrErr.error}`));
+    return 1;
+  }
+  const targets = targetsOrErr;
+
+  // Detected-but-not-asked-for openclaw → hint, don't act.
+  const detected = detectTargets();
+  if (!targets.includes("openclaw") && detected.includes("openclaw") && opts.target !== "claude-code") {
+    out(c.dim("(OpenClaw detected — pass --target openclaw or --target all to uninstall there too.)"));
   }
 
-  const paths = claudeCodePaths();
-  const plan = planUninstall(uOpts, paths);
+  const plans: InstallPlan[] = [];
+  for (const target of targets) {
+    const uOpts: UninstallOptions = {
+      target,
+      skill: !opts.mcpOnly,
+      mcp: !opts.skillOnly,
+      scope: opts.scope,
+      allScopes: opts.allScopes,
+      dryRun: opts.dryRun,
+      yes: opts.yes,
+      jsonOut: opts.jsonOut,
+    };
+    if (target === "claude-code" && !uOpts.scope && !uOpts.allScopes && !opts.skillOnly) {
+      uOpts.scope = process.cwd();
+    }
+    if (target === "claude-code") plans.push(planUninstallClaudeCode(uOpts));
+    else if (target === "openclaw") plans.push(planUninstallOpenclaw(uOpts));
+  }
 
   if (opts.jsonOut) {
     if (opts.dryRun) {
-      json({ target: plan.target, dry_run: true, plan: serializePlan(plan) });
+      json({ dry_run: true, targets: plans.map((p) => ({ target: p.target, plan: serializePlan(p) })) });
       return 0;
     }
-    const report = applyPlan(plan, paths);
-    json({ target: report.target, dry_run: false, applied: report.applied, errors: report.errors });
-    return report.errors.length === 0 ? 0 : 1;
+    const reports = plans.map((p) => applyPlan(p));
+    json({
+      dry_run: false,
+      targets: plans.map((p, i) => ({
+        target: p.target,
+        applied: reports[i]!.applied,
+        errors: reports[i]!.errors,
+      })),
+    });
+    return reports.some((r) => r.errors.length > 0) ? 1 : 0;
   }
 
-  printPlan(plan);
+  for (const plan of plans) printPlan(plan);
   if (opts.dryRun) {
     out(c.dim("\n(dry-run — no changes written)"));
     return 0;
   }
-  if (plan.actions.every((a) => a.kind === "noop")) {
+  const anyAction = plans.some((p) => p.actions.some((a) => a.kind !== "noop"));
+  if (!anyAction) {
     out(c.dim("\nNothing to remove."));
     return 0;
   }
@@ -70,18 +118,22 @@ export async function uninstallCmd(opts: UninstallCliOptions): Promise<number> {
       return 0;
     }
   }
-  const report = applyPlan(plan, paths);
-  if (report.errors.length > 0) {
-    err(c.err(`\n✗ ${report.errors.length} action(s) failed:`));
-    for (const e of report.errors) err(c.err(`  - ${e.message}`));
-    return 1;
+  let totalErrors = 0;
+  for (const plan of plans) {
+    const report = applyPlan(plan);
+    if (report.errors.length > 0) {
+      err(c.err(`\n✗ [${plan.target}] ${report.errors.length} action(s) failed:`));
+      for (const e of report.errors) err(c.err(`  - ${e.message}`));
+      totalErrors += report.errors.length;
+    } else if (plan.actions.some((a) => a.kind !== "noop")) {
+      out(c.ok(`\n✓ Uninstalled from ${plan.target}.`));
+    }
   }
-  out(c.ok(`\n✓ Uninstalled from ${target}.`));
-  return 0;
+  return totalErrors === 0 ? 0 : 1;
 }
 
 function printPlan(plan: InstallPlan): void {
-  out(c.bold(`Uninstall plan for ${plan.target}:`));
+  out(c.bold(`\nUninstall plan for ${plan.target}:`));
   if (plan.actions.length === 0) {
     out(c.dim("  (no actions)"));
   } else {
@@ -99,6 +151,8 @@ function formatAction(a: PlanAction): string {
       return `${c.warn("rmlink")}     ${a.dst}${a.currentTarget ? c.dim(`  # (was → ${a.currentTarget})`) : ""}`;
     case "deleteJson":
       return `${c.warn("delete")}     ${a.file} ${c.dim(a.jsonPointer)}  ${c.dim("# " + a.reason)}`;
+    case "writeJson":
+      return `${c.cyan("write")}      ${a.file} ${c.dim(a.jsonPointer)}  ${c.dim("# " + a.reason)}`;
     case "noop":
       return `${c.dim("noop")}       ${c.dim(a.reason)}`;
     default:

@@ -68,9 +68,9 @@ function help(): number {
   out(`  ${c.cyan("export <id>")}       Export note as HTML (--standalone inlines theme CSS, --out path to file or stdout)`);
   out(`  ${c.cyan("serve")}             Start local viewer on http://127.0.0.1:4810`);
   out(`  ${c.cyan("update")}            Check + install latest release from GitHub (--check, --force, --pre, --json)`);
-  out(`  ${c.cyan("install")}           Wire Folio into an agent client (--target claude-code, --skill-only, --mcp-only, --scope, --dry-run, --yes)`);
-  out(`  ${c.cyan("uninstall")}         Remove Folio wiring (--target, --skill-only, --mcp-only, --scope, --all-scopes, --dry-run, --yes)`);
-  out(`  ${c.cyan("doctor")}            Show install state + warn on stale paths or version conflicts (--json)`);
+  out(`  ${c.cyan("install")}           Wire Folio into an agent client (--target claude-code | openclaw | all, --skill-only, --mcp-only, --scope, --dry-run, --yes)`);
+  out(`  ${c.cyan("uninstall")}         Remove Folio wiring (--target claude-code | openclaw | all, --skill-only, --mcp-only, --scope, --all-scopes, --dry-run, --yes)`);
+  out(`  ${c.cyan("doctor")}            Show install state for every detected target + warnings (--json)`);
   out(`  ${c.cyan("version")}           Print Folio version + system info (--json) — also: --version, -v`);
   out(`  ${c.cyan("help")}              This help`);
   out("");

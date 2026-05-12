@@ -9,9 +9,12 @@
 import { existsSync, readlinkSync, lstatSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { c, out, err, json } from "../io";
-import { check, claudeCodePaths, mcpCommand, skillSourcePath } from "../install/claude-code";
+import { check as checkClaudeCode, claudeCodePaths, mcpCommand, skillSourcePath } from "../install/claude-code";
+import { check as checkOpenclaw, openclawPaths, isOpenclawPresent } from "../install/openclaw";
 import { bundledSkillsDir } from "../../core/config";
 import pkg from "../../../package.json" with { type: "json" };
+
+type CheckResult = ReturnType<typeof checkClaudeCode>;
 
 export interface DoctorOptions {
   jsonOut?: boolean;
@@ -23,14 +26,18 @@ interface DoctorReport {
   bundled_skills_dir: string;
   skill_source: string;
   mcp_command: { command: string; args: string[] };
-  claude_code: ReturnType<typeof check>;
+  claude_code: CheckResult;
+  openclaw: CheckResult | { present: false };
   warnings: { level: "warn" | "error"; message: string }[];
   conflicts: { kind: string; detail: string }[];
 }
 
 export async function doctorCmd(opts: DoctorOptions = {}): Promise<number> {
-  const paths = claudeCodePaths();
-  const cc = check(paths);
+  const ccPaths = claudeCodePaths();
+  const ocPaths = openclawPaths();
+  const cc = checkClaudeCode(ccPaths);
+  const ocPresent = isOpenclawPresent(ocPaths);
+  const oc = ocPresent ? checkOpenclaw(ocPaths) : null;
   const warnings: DoctorReport["warnings"] = [];
   const conflicts: DoctorReport["conflicts"] = [];
 
@@ -40,35 +47,35 @@ export async function doctorCmd(opts: DoctorOptions = {}): Promise<number> {
     warnings.push({ level: "error", message: `bundled skill missing at ${skillSrc} — Folio install is incomplete.` });
   }
 
-  // ── Skill symlink state ──
-  switch (cc.skill.state) {
-    case "ok":
-      break;
-    case "missing":
-      // Not an error — just means skill is not installed for Claude Code.
-      break;
-    case "wrong-target":
-      warnings.push({
-        level: "warn",
-        message: cc.skill.installedAt
-          ? `Skill symlink ${cc.skill.installedAt} points elsewhere (${cc.skill.currentTarget ?? "non-symlink"}); run \`folio install\` to refresh.`
-          : `Skill expected at ${cc.skill.expected}; run \`folio install\`.`,
-      });
-      break;
-    case "stale":
-      warnings.push({ level: "warn", message: `Skill symlink target ${cc.skill.expected} does not exist on disk.` });
-      break;
-  }
-
-  // ── MCP entries ──
-  for (const e of cc.mcp.entries) {
-    if (e.state === "stale") {
-      warnings.push({
-        level: "warn",
-        message: `MCP entry in ${paths.configJson} for scope ${e.scope} points to ${e.command} which differs from this binary (${cc.mcp.expectedCommand}). Run \`folio install --scope ${e.scope}\` to refresh.`,
-      });
+  // ── Per-target skill + MCP analysis ──
+  function analyzeTarget(label: string, cr: CheckResult, refreshHint: string): void {
+    switch (cr.skill.state) {
+      case "ok":
+      case "missing":
+        break;
+      case "wrong-target":
+        warnings.push({
+          level: "warn",
+          message: cr.skill.installedAt
+            ? `[${label}] skill symlink ${cr.skill.installedAt} points elsewhere (${cr.skill.currentTarget ?? "non-symlink"}); ${refreshHint}`
+            : `[${label}] skill expected at ${cr.skill.expected}; ${refreshHint}`,
+        });
+        break;
+      case "stale":
+        warnings.push({ level: "warn", message: `[${label}] skill symlink target ${cr.skill.expected} does not exist on disk.` });
+        break;
+    }
+    for (const e of cr.mcp.entries) {
+      if (e.state === "stale") {
+        warnings.push({
+          level: "warn",
+          message: `[${label}] MCP entry for scope ${e.scope} points to ${e.command}; differs from this binary (${cr.mcp.expectedCommand}). ${refreshHint}`,
+        });
+      }
     }
   }
+  analyzeTarget("claude-code", cc, "run `folio install --target claude-code` to refresh.");
+  if (oc) analyzeTarget("openclaw", oc, "run `folio install --target openclaw` to refresh.");
 
   // ── Conflicts: multiple folio binaries on $PATH ──
   const found = findFolioBinariesOnPath();
@@ -87,6 +94,7 @@ export async function doctorCmd(opts: DoctorOptions = {}): Promise<number> {
     skill_source: skillSrc,
     mcp_command: mcpCommand(),
     claude_code: cc,
+    openclaw: oc ?? { present: false },
     warnings,
     conflicts,
   };
@@ -100,18 +108,14 @@ export async function doctorCmd(opts: DoctorOptions = {}): Promise<number> {
   out(c.dim(`  binary:         ${process.execPath}`));
   out(c.dim(`  skill source:   ${skillSrc}${existsSync(skillSrc) ? "" : c.err(" (MISSING)")}`));
   out(c.dim(`  mcp command:    ${mcpCommand().command} ${mcpCommand().args.join(" ")}`));
-  out("");
-  out(c.bold("Claude Code"));
-  out(`  skill: ${formatSkillState(cc.skill)}`);
-  if (cc.mcp.entries.length === 0) {
-    out(`  mcp:   ${c.dim("(no entries)")}`);
+
+  printTargetSection("Claude Code", cc);
+  if (oc) {
+    printTargetSection("OpenClaw", oc);
   } else {
-    out(`  mcp:`);
-    for (const e of cc.mcp.entries) {
-      const tag = e.state === "ok" ? c.ok("ok") : c.warn("stale");
-      out(`    [${tag}] ${e.scope}`);
-      out(`           ${c.dim("→ " + e.command)}`);
-    }
+    out("");
+    out(c.bold("OpenClaw"));
+    out(c.dim("  not detected (no ~/.openclaw/openclaw.json)"));
   }
 
   if (conflicts.length > 0) {
@@ -134,7 +138,23 @@ export async function doctorCmd(opts: DoctorOptions = {}): Promise<number> {
   return 0;
 }
 
-function formatSkillState(s: ReturnType<typeof check>["skill"]): string {
+function printTargetSection(title: string, cr: CheckResult): void {
+  out("");
+  out(c.bold(title));
+  out(`  skill: ${formatSkillState(cr.skill)}`);
+  if (cr.mcp.entries.length === 0) {
+    out(`  mcp:   ${c.dim("(no entries)")}`);
+  } else {
+    out(`  mcp:`);
+    for (const e of cr.mcp.entries) {
+      const tag = e.state === "ok" ? c.ok("ok") : c.warn("stale");
+      out(`    [${tag}] ${e.scope}`);
+      out(`           ${c.dim("→ " + e.command)}`);
+    }
+  }
+}
+
+function formatSkillState(s: CheckResult["skill"]): string {
   switch (s.state) {
     case "ok":
       return `${c.ok("ok")} ${c.dim(s.installedAt + " → " + s.currentTarget)}`;

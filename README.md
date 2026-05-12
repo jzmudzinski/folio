@@ -102,31 +102,40 @@ ln -s "$HOME/.local/folio/skills/folio" "$HOME/.openclaw/workspace/skills/folio"
 
 Most MCP-capable clients accept the same shape: command `folio-mcp`, no args. See [`docs/mcp-setup.md`](docs/mcp-setup.md) for details.
 
-### One-command install (Claude Code)
+### One-command install
 
-`folio install` wires both the agent skill (so Claude Code knows when + how to use Folio) and the MCP server (so the `create` / `search` / `suggest_thread` tools are available). MCP wiring is per-project — Claude Code stores it under `projects[<path>].mcpServers` in `~/.claude.json`.
+`folio install` wires both the agent skill and the MCP server into a supported client. Two targets ship today:
+
+- **`--target claude-code`** — symlinks the skill to `~/.claude/skills/folio` and adds an entry under `projects[<scope>].mcpServers.folio` in `~/.claude.json`. MCP wiring is per-project (Claude Code's model).
+- **`--target openclaw`** — symlinks the skill to `~/.openclaw/workspace/skills/folio` and adds an entry under `mcp.servers.folio` in `~/.openclaw/openclaw.json`. Global, no per-project scope.
+- **`--target all`** — both. Default in non-interactive mode (e.g. CI) when both clients are detected.
 
 ```bash
-folio install                          # interactive: prompts for project scope
-folio install --target claude-code     # same; --target is forward-looking
-folio install --scope ~/Projects/app   # non-interactive, named scope
+folio install                          # interactive: detects clients, asks if both present
+folio install --target claude-code     # explicit single target
+folio install --target openclaw        # explicit single target
+folio install --target all             # wire to every supported target
+folio install --scope ~/Projects/app   # Claude Code per-project scope (ignored for openclaw)
 folio install --skill-only             # skip MCP wiring
-folio install --mcp-only --scope ~/p   # skip skill, just MCP
+folio install --mcp-only               # skip skill, just MCP
 folio install --dry-run                # show planned changes, don't apply
-folio install --yes                    # accept all prompts
+folio install --yes                    # accept all prompts (skips interactive scope question)
 
-folio uninstall                        # remove from current project
-folio uninstall --all-scopes           # remove folio MCP from every project
-folio doctor                           # show install state + warnings
+folio uninstall                        # remove from current project (claude-code default)
+folio uninstall --target all           # remove from every supported client
+folio uninstall --all-scopes           # remove folio MCP from every Claude Code project
+folio doctor                           # show install state for every detected target
 folio doctor --json                    # machine-readable
 ```
 
-What it touches:
+What `install` touches per target:
 
-- `~/.claude/skills/folio` — symlink to the bundled skill. Survives `folio update` because the bundled path is stable.
-- `~/.claude.json` — adds `projects[<scope>].mcpServers.folio`. Atomic write with `.claude.json.folio-backup-<ts>` taken on first touch this session.
+| Target | Skill path | MCP config | Notes |
+|---|---|---|---|
+| `claude-code` | `~/.claude/skills/folio` (symlink) | `~/.claude.json` → `projects[<scope>].mcpServers.folio` | Per-project. Cursor / Claude Desktop are follow-ups. |
+| `openclaw` | `~/.openclaw/workspace/skills/folio` (symlink) | `~/.openclaw/openclaw.json` → `mcp.servers.folio` | Global. Also strips stale `skills.load.extraDirs` entries ending in `/skills/folio`. Preserves any `env` you set (e.g. `FOLIO_HOME`). |
 
-After a `folio update`, the install entries are auto-refreshed so the MCP `command:` path catches up to the new binary location. Cursor / Claude Desktop targets are follow-ups.
+Both targets get atomic JSON writes with a `.folio-backup-<ts>` taken on first touch this session. After a `folio update`, install entries on every wired target are auto-refreshed so the MCP `command:` path follows the binary.
 
 ### Public URL (reverse proxy)
 

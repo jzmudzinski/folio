@@ -24,6 +24,7 @@
  */
 
 import { cloudDb } from "./db";
+import { subscribe as subscribeLiveStream } from "./sse-hub";
 import {
   authenticate,
   consumePairingCode,
@@ -299,9 +300,16 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
       }
 
       // Auth: public paths skip; everything else needs a valid bearer.
+      // SSE live-stream is a special case: EventSource can't send custom
+      // headers (browser API), so the token rides in a query param. We
+      // accept either header or query param ONLY for that route, and only
+      // for that route — every other path stays bearer-header-only.
       let device: Device | null = null;
       if (!isPublicPath(path)) {
-        const token = extractBearer(req);
+        let token = extractBearer(req);
+        if (!token && path === "/v1/sync/live-stream") {
+          token = url.searchParams.get("token");
+        }
         if (!token) return unauthorized();
         device = authenticate(token);
         if (!device) return unauthorized();
@@ -459,6 +467,68 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
           const payload = await readJsonBody<PushPayload>(req);
           const result = handlePush(payload, device.id);
           return json(result);
+        }
+
+        // SSE stream of live entries for a single note. Subscribers (PWA,
+        // CLI `curl -N …`) get fanout from handlePush whenever a fresh
+        // live_entry arrives for that uuid. No historical replay — the
+        // caller should fetch /raw/:uuid for the current state and use
+        // the stream for what's new SINCE the connection opened.
+        if (path === "/v1/sync/live-stream" && method === "GET") {
+          const noteUuid = url.searchParams.get("note_uuid");
+          if (!noteUuid) return badRequest("note_uuid query param required");
+          // Verify the note exists + is live + not finalized. Skip subscribers
+          // for non-live or finalized notes — they'd just hang forever.
+          const row = cloudDb()
+            .query<{ live: number; is_final: number }, [string]>(
+              "SELECT live, is_final FROM notes WHERE uuid = ?"
+            )
+            .get(noteUuid);
+          if (!row) return notFound("note not found");
+          if (row.live !== 1) return badRequest("note is not a live note");
+          if (row.is_final === 1) return badRequest("note is finalized");
+
+          const stream = new ReadableStream({
+            start(controller) {
+              const enc = new TextEncoder();
+              // Initial "ready" so the client knows the connection is live.
+              controller.enqueue(enc.encode(":ok\n\n"));
+              const unsub = subscribeLiveStream(noteUuid, (frame) => {
+                try {
+                  // event: entry — matches what the local viewer emits, so
+                  // client code can be shared.
+                  const data = JSON.stringify(frame);
+                  controller.enqueue(enc.encode(`event: entry\nid: ${frame.id}\ndata: ${data}\n\n`));
+                } catch {
+                  // controller closed; unsubscribe handled by cancel below.
+                }
+              });
+              // Heartbeat every 25s — keeps proxies from idling out the
+              // connection on quiet streams (Caddy default is ~60s).
+              const heartbeat = setInterval(() => {
+                try { controller.enqueue(enc.encode(":hb\n\n")); } catch {}
+              }, 25_000);
+              (controller as any)._folioCleanup = () => {
+                clearInterval(heartbeat);
+                unsub();
+              };
+            },
+            cancel() {
+              // Cancel fires when the client disconnects. Tear down the
+              // subscription so the channel can be GC'd.
+              const ctrl = this as any;
+              if (ctrl._folioCleanup) ctrl._folioCleanup();
+            },
+          });
+          return new Response(stream, {
+            status: 200,
+            headers: {
+              "Content-Type": "text/event-stream; charset=utf-8",
+              "Cache-Control": "no-cache, no-transform",
+              "X-Accel-Buffering": "no", // disable buffering at nginx if present
+              Connection: "keep-alive",
+            },
+          });
         }
 
         if (path === "/v1/sync/pull" && method === "GET") {
@@ -654,14 +724,26 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
           const m = path.match(/^\/raw\/([0-9A-Za-z-]+)$/);
           if (m && method === "GET") {
             const row = cloudDb()
-              .query<{ title: string; theme: string; body_html: string }, [string]>(
-                "SELECT title, theme, body_html FROM notes WHERE uuid = ?"
+              .query<
+                { title: string; theme: string; body_html: string; live: number; is_final: number },
+                [string]
+              >(
+                "SELECT title, theme, body_html, live, is_final FROM notes WHERE uuid = ?"
               )
               .get(m[1]!);
             if (!row) return notFound("note not found");
+            // Expose live/is_final via response headers so the /n/:uuid
+            // shell can decide whether to open the SSE stream without an
+            // extra metadata roundtrip. Custom X-Folio-* names — never
+            // collide with anything Caddy/Traefik care about.
+            const headers: Record<string, string> = {
+              ...rawNoteHeaders(),
+              "X-Folio-Live": row.live === 1 ? "1" : "0",
+              "X-Folio-Final": row.is_final === 1 ? "1" : "0",
+            };
             return new Response(
               renderStandaloneNote({ title: row.title, theme: row.theme, bodyHtml: row.body_html }),
-              { status: 200, headers: rawNoteHeaders() }
+              { status: 200, headers }
             );
           }
         }

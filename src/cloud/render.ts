@@ -205,18 +205,38 @@ export function renderNotePage(uuid: string, _title: string): string {
   <title>Folio</title>
   <style>
     html, body { margin: 0; padding: 0; height: 100%; background: #1a1a1a; color: #aaa; font-family: 'Familjen Grotesk', system-ui, sans-serif; }
+    body.has-live { display: flex; flex-direction: column; }
     iframe { width: 100%; height: 100vh; border: 0; display: block; background: #fff; }
+    body.has-live iframe { flex: 1; height: auto; min-height: 0; }
     .state { padding: 20vh 20px; text-align: center; font-size: 14px; line-height: 1.6; }
     .state a { color: #ff5a1f; text-decoration: none; }
     .state a:hover { text-decoration: underline; }
     .state .err { color: #ff7a5f; font-size: 13px; margin-top: 8px; opacity: 0.7; }
-    .back { position: fixed; top: env(safe-area-inset-top, 0) ; left: 0; padding: 10px 14px; color: #888; text-decoration: none; font-size: 14px; z-index: 10; }
+    .back { position: fixed; top: env(safe-area-inset-top, 0); left: 0; padding: 10px 14px; color: #888; text-decoration: none; font-size: 14px; z-index: 10; }
+    /* Live entries panel — slides up from the bottom on live notes. */
+    .live-panel { display: none; background: #1a1a1a; color: #ddd; border-top: 1px solid #333; max-height: 38vh; overflow-y: auto; padding: 12px 16px env(safe-area-inset-bottom, 12px); }
+    body.has-live .live-panel { display: block; }
+    .live-panel .lp-h { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: #888; margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
+    .live-panel .lp-h .dot { width: 7px; height: 7px; border-radius: 50%; background: #ff5a1f; animation: pulse 1.6s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+    .live-panel .lp-list { display: flex; flex-direction: column; gap: 8px; }
+    .live-panel .lp-entry { padding: 8px 10px; background: #232323; border-radius: 6px; font-size: 13px; line-height: 1.45; }
+    .live-panel .lp-entry .lp-ts { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; color: #777; margin-bottom: 4px; }
+    .live-panel .lp-entry .lp-c { color: #ddd; }
+    .live-panel .lp-entry .lp-c p { margin: 0; }
+    .live-panel .lp-empty { color: #666; font-style: italic; font-size: 12px; }
   </style>
 </head>
 <body>
   <a href="/" class="back" id="back">‹ back</a>
   <div id="state" class="state">Loading…</div>
   <iframe id="frame" sandbox="allow-scripts allow-popups allow-forms" referrerpolicy="no-referrer" style="display: none;"></iframe>
+  <aside class="live-panel" id="live-panel" aria-label="Live entries">
+    <div class="lp-h"><span class="dot"></span><span>Live</span><span id="lp-count" style="color:#666;">(0)</span></div>
+    <div class="lp-list" id="lp-list">
+      <div class="lp-empty">Waiting for entries…</div>
+    </div>
+  </aside>
   <script>
 (function () {
   var UUID = ${JSON.stringify(uuid)};
@@ -248,10 +268,59 @@ export function renderNotePage(uuid: string, _title: string): string {
     });
   }
 
+  // Live entries panel state.
+  var liveEntries = [];
+  function escHtml(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function renderLiveEntries() {
+    var list = document.getElementById('lp-list');
+    var count = document.getElementById('lp-count');
+    if (count) count.textContent = '(' + liveEntries.length + ')';
+    if (!list) return;
+    if (liveEntries.length === 0) {
+      list.innerHTML = '<div class="lp-empty">Waiting for entries…</div>';
+      return;
+    }
+    // Newest first.
+    list.innerHTML = liveEntries.slice().reverse().map(function(e){
+      var t = new Date(e.ts);
+      var ts = t.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+      return (
+        '<div class="lp-entry">' +
+          '<div class="lp-ts">' + ts + '</div>' +
+          '<div class="lp-c">' + (e.content_html || '') + '</div>' +
+        '</div>'
+      );
+    }).join('');
+  }
+  function openLiveStream(token) {
+    try {
+      // EventSource can't send headers; pass token as query param.
+      // The cloud accepts query-param auth ONLY for /v1/sync/live-stream.
+      var url = '/v1/sync/live-stream?note_uuid=' + encodeURIComponent(UUID) +
+                '&token=' + encodeURIComponent(token);
+      var es = new EventSource(url);
+      es.addEventListener('entry', function(ev){
+        try {
+          var entry = JSON.parse(ev.data);
+          liveEntries.push(entry);
+          renderLiveEntries();
+        } catch(_){}
+      });
+      es.onerror = function() {
+        // Browser auto-retries with backoff. No-op here; if connection
+        // permanently breaks, panel keeps last-rendered entries.
+      };
+      // Best-effort close on navigation.
+      window.addEventListener('beforeunload', function(){ es.close(); });
+    } catch(_){}
+  }
+
   kvGet('token').then(function (token) {
     if (!token) {
       setError('Not paired on this device.', '<a href="/pair">Pair now</a>');
-      return;
+      return null;
     }
     return fetch('/raw/' + encodeURIComponent(UUID), {
       method: 'GET',
@@ -269,11 +338,20 @@ export function renderNotePage(uuid: string, _title: string): string {
         setError('Could not load note.', 'HTTP ' + r.status);
         return null;
       }
-      return r.text();
+      // Capture live/is_final via the X-Folio-* response headers so we
+      // can decide whether to open the SSE stream below. Heading-based
+      // signaling avoids a separate metadata roundtrip per note view.
+      var live = r.headers.get('X-Folio-Live') === '1';
+      var fin = r.headers.get('X-Folio-Final') === '1';
+      return r.text().then(function(html){ return { html: html, live: live, fin: fin, token: token }; });
     });
-  }).then(function (html) {
-    if (!html) return;
-    var blob = new Blob([html], { type: 'text/html' });
+  }).then(function (out) {
+    if (!out) return;
+    if (out.live && !out.fin) {
+      document.body.classList.add('has-live');
+      openLiveStream(out.token);
+    }
+    var blob = new Blob([out.html], { type: 'text/html' });
     var blobUrl = URL.createObjectURL(blob);
     frame.onload = function () {
       stateEl.style.display = 'none';

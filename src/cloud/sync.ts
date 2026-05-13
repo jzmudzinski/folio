@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { createHash } from "node:crypto";
 import { cloudDb, cloudAssetsDir, nextSeq } from "./db";
+import { publish as publishLiveEntry } from "./sse-hub";
 
 export interface PushNote {
   uuid: string;
@@ -232,6 +233,19 @@ export function handlePush(payload: PushPayload, originDeviceId: string, db: Dat
       );
       accepted.live_entries.push({ id: e.id, note_uuid: e.note_uuid });
       accepted.cursor = Math.max(accepted.cursor, seq);
+      // Fan out to any /v1/sync/live-stream subscribers on this note.
+      // No-op if nobody's listening, so safe to call unconditionally.
+      publishLiveEntry(e.note_uuid, {
+        id: e.id,
+        note_uuid: e.note_uuid,
+        ts: e.ts,
+        content_html: e.content_html,
+        tags: e.tags ?? [],
+        occurred_at: e.occurred_at ?? null,
+        refs: e.refs ?? [],
+        importance: e.importance ?? null,
+        source_ref: e.source_ref ?? null,
+      });
     }
     // Deletes are processed last so they don't fight with concurrent pushes
     // of the same uuid (idempotent push then delete = empty after).

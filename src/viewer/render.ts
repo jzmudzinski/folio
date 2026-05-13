@@ -329,9 +329,12 @@ a { color: inherit; text-decoration: none; }
 .pn-btn.disabled { opacity: 0.3; pointer-events: none; }
 .pn-btn .pn-label { display: block; font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--vmuted-2); margin-bottom: 2px; }
 
-.side-action { font-family: var(--vmono); font-size: 11px; color: var(--vmuted); letter-spacing: 0.06em; padding: 4px 0; transition: color .12s; background: transparent; border: 0; text-align: left; cursor: pointer; width: 100%; }
+.side-action { font-family: var(--vmono); font-size: 11px; color: var(--vmuted); letter-spacing: 0.06em; padding: 4px 0; transition: color .12s; background: transparent; border: 0; text-align: left; cursor: pointer; width: 100%; display: block; }
 .side-action:hover { color: var(--vorange); }
 .side-action.copied { color: var(--vgood); }
+.side-action.danger { color: var(--vmuted); margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--vline-2); }
+.side-action.danger:hover { color: #c0392b; }
+.side-action.danger.confirming { color: #c0392b; font-weight: 500; }
 
 .lightbox { position: fixed; inset: 0; background: rgba(0,0,0,0.92); z-index: 9999; display: flex; align-items: center; justify-content: center; cursor: zoom-out; animation: lb-in .15s ease-out; }
 .lightbox img { max-width: 95vw; max-height: 95vh; box-shadow: 0 8px 32px rgba(0,0,0,0.6); border-radius: 4px; }
@@ -1153,6 +1156,53 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
         });
       });
     });
+
+    // Delete button — two-step inline confirmation (no modal dialog). First
+    // click flips label + colour; second click within 5s POSTs the delete
+    // and navigates to the thread index. Resets if the user mouses away or
+    // 5s elapse, so a stray double-tap can't fire it.
+    (function(){
+      var btn = document.getElementById('folio-delete-btn');
+      if (!btn) return;
+      var armedTimer = 0;
+      var armed = false;
+      function disarm(){
+        armed = false;
+        btn.classList.remove('confirming');
+        btn.textContent = btn.dataset.defaultLabel || '✕ Delete note';
+        if (armedTimer) { clearTimeout(armedTimer); armedTimer = 0; }
+      }
+      btn.addEventListener('click', function(){
+        if (!armed) {
+          armed = true;
+          btn.classList.add('confirming');
+          btn.textContent = btn.dataset.confirmLabel || '✕ Click again to confirm';
+          armedTimer = setTimeout(disarm, 5000);
+          return;
+        }
+        var id = btn.dataset.noteId;
+        var thread = btn.dataset.threadId;
+        btn.disabled = true;
+        btn.textContent = '… deleting';
+        fetch('/api/notes/' + encodeURIComponent(id) + '/delete', {
+          method: 'POST',
+          headers: { 'X-Folio-Thread': '/t/' + thread },
+        }).then(function(r){
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        }).then(function(body){
+          window.location.href = body.thread_redirect || ('/t/' + thread);
+        }).catch(function(e){
+          btn.disabled = false;
+          btn.classList.remove('confirming');
+          btn.textContent = '✗ error: ' + e.message;
+          setTimeout(disarm, 2500);
+        });
+      });
+      btn.addEventListener('mouseleave', function(){
+        if (armed) disarm();
+      });
+    })();
   })();</script>`;
 
   // Live notes: inject a side panel iframe with the compiled feed plus
@@ -1198,6 +1248,11 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
       <button class="side-action" data-copy="markdown" data-label="⎘ Copy as markdown">⎘ Copy as markdown</button>
       <a href="/raw/${note.id}" target="_blank">↗ View raw HTML</a>
       <a href="#" onclick="window.print();return false">↗ Print / PDF</a>
+      <button class="side-action danger" id="folio-delete-btn"
+              data-note-id="${esc(note.id)}"
+              data-thread-id="${esc(note.thread_id)}"
+              data-default-label="✕ Delete note"
+              data-confirm-label="✕ Click again to confirm">✕ Delete note</button>
     </nav>
   </aside>
   <main class="note-main">

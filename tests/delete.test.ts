@@ -169,3 +169,45 @@ test("CLI folio delete: happy path with --yes bypasses prompt", async () => {
   expect(existsSync(join(homeDir, note.path))).toBe(false);
   expect(existsSync(join(homeDir, ".trash", note.id, "note.html"))).toBe(true);
 });
+
+test("viewer /api/notes/:id/delete: POST returns deleted + soft-deletes the note", async () => {
+  // Spin up a viewer alongside the cloud server (port 0).
+  const { writeFileSync, readFileSync } = await import("node:fs");
+  const cfgPath = join(homeDir, "folio.config.json");
+  const parsed = JSON.parse(readFileSync(cfgPath, "utf-8"));
+  parsed.viewer_port = 0;
+  writeFileSync(cfgPath, JSON.stringify(parsed));
+
+  const { createNote } = await import("../src/core/storage");
+  const note = await createNote({
+    type: "snippet",
+    title: "via viewer",
+    body_html: "<p>x</p>",
+    thread_id: "viewer-del",
+  });
+
+  const { startServer } = await import("../src/viewer/server");
+  const viewer = (await startServer()) as any;
+  try {
+    const res = await fetch(
+      `http://${viewer.hostname}:${viewer.port}/api/notes/${note.id}/delete`,
+      { method: "POST" }
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { deleted: string };
+    expect(body.deleted).toBe(note.id);
+
+    // File moved.
+    expect(existsSync(join(homeDir, note.path))).toBe(false);
+    expect(existsSync(join(homeDir, ".trash", note.id, "note.html"))).toBe(true);
+
+    // Second delete returns 404 (already trashed, getNoteMeta returns null).
+    const res2 = await fetch(
+      `http://${viewer.hostname}:${viewer.port}/api/notes/${note.id}/delete`,
+      { method: "POST" }
+    );
+    expect(res2.status).toBe(404);
+  } finally {
+    try { viewer.stop(); } catch {}
+  }
+});

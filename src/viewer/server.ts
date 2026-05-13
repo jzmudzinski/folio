@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig, folioRoot, bundledThemesDir, themesDir, viewerPublicBaseUrl, threadAssetsDir, isSafeAssetFilename } from "../core/config";
-import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, listThreads, listPopularTags, listNotesByTag } from "../core/storage";
+import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, deleteNote, listThreads, listPopularTags, listNotesByTag } from "../core/storage";
 import { db, logEvent } from "../core/db";
 import { pageList, pageSearch, pageThread, pageThreads, pageNote, pageStats, pageError, pageTag } from "./render";
 import { injectBootstrap } from "./note-bootstrap";
@@ -306,6 +306,26 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
           const ref = req.headers.get("referer");
           if (ref) return Response.redirect(ref, 303);
           return jsonResp({ ok: true });
+        }
+
+        // POST /api/notes/:id/delete  (soft-delete; mirrors `folio delete <id>`)
+        // Same semantics as the CLI: file moves to ~/Folio/.trash/<id>/,
+        // status='trashed', FTS row removed. Recoverable for 7 days via the
+        // cleanup grace window. Sync daemon propagates the delete to cloud
+        // on next run; viewer doesn't talk to the cloud directly here.
+        if (req.method === "POST" && /^\/api\/notes\/[^/]+\/delete$/.test(path)) {
+          const id = path.split("/")[3]!;
+          const res = deleteNote(id);
+          if (!res.ok) return jsonResp({ error: res.reason ?? "delete failed" }, 404);
+          // The deleted note's URL is now stale, so don't redirect back to it.
+          // Send the caller to the thread index. JS callers can ignore and
+          // navigate themselves.
+          const note = getNoteMeta(id);
+          if (note) return jsonResp({ deleted: id });
+          // After delete, getNoteMeta returns null (filters status='active').
+          // Pull the thread from the original side-channel header if present.
+          const fallback = req.headers.get("x-folio-thread");
+          return jsonResp({ deleted: id, thread_redirect: fallback ?? "/" });
         }
 
         // GET /api/list

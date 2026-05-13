@@ -234,6 +234,10 @@ export function isPublicPath(pathname: string): boolean {
   if (pathname === "/healthz") return true;
   if (pathname === "/v1/version") return true;
   if (pathname === "/manifest.webmanifest") return true;
+  // App shell is public — it contains no data, only a JS bootstrap that
+  // reads the token from IndexedDB on the client. If no token, the shell
+  // redirects to /pair. If token present, it fetches /v1/feed (authed).
+  if (pathname === "/") return true;
   if (pathname === "/pair") return true;
   if (pathname.startsWith("/p/")) return true;
   // POST /v1/auth/pair is the entry point — also unauthed.

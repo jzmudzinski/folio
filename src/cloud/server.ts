@@ -41,6 +41,7 @@ import {
   type PushPayload,
 } from "./sync";
 import { renderNotePage, renderStandaloneNote } from "./render";
+import { renderHome, renderPair, serviceWorkerJs, manifestJson, FOLIO_ICON_SVG, SW_VERSION } from "./pwa";
 import { rawNoteHeaders } from "../core/csp";
 import pkg from "../../package.json" with { type: "json" };
 
@@ -125,21 +126,47 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
         }
 
         if (path === "/manifest.webmanifest") {
-          // W3 will fill this in. For W1, serve a minimal stub so paths exist.
-          return json({
-            name: "Folio",
-            short_name: "Folio",
-            display: "standalone",
-            start_url: "/",
-            icons: [],
+          return new Response(JSON.stringify(manifestJson(publicUrl), null, 2), {
+            status: 200,
+            headers: {
+              "Content-Type": "application/manifest+json; charset=utf-8",
+              "Cache-Control": "public, max-age=300",
+            },
           });
         }
 
         if (path === "/sw.js") {
-          // W3 will fill this in. For W1, no-op SW so /sw.js doesn't 404.
-          return new Response("// folio-cloud service worker stub (W3)\nself.addEventListener('install', () => self.skipWaiting());\n", {
+          return new Response(serviceWorkerJs(), {
             status: 200,
-            headers: { "Content-Type": "application/javascript; charset=utf-8" },
+            headers: {
+              "Content-Type": "application/javascript; charset=utf-8",
+              "Service-Worker-Allowed": "/",
+              "Cache-Control": "no-cache",
+            },
+          });
+        }
+
+        if (path === "/icons/folio.svg") {
+          return new Response(FOLIO_ICON_SVG, {
+            status: 200,
+            headers: {
+              "Content-Type": "image/svg+xml; charset=utf-8",
+              "Cache-Control": "public, max-age=86400, immutable",
+            },
+          });
+        }
+
+        if (path === "/" && method === "GET") {
+          return new Response(renderHome(publicUrl), {
+            status: 200,
+            headers: { "Content-Type": "text/html; charset=utf-8" },
+          });
+        }
+
+        if (path === "/pair" && method === "GET") {
+          return new Response(renderPair(publicUrl), {
+            status: 200,
+            headers: { "Content-Type": "text/html; charset=utf-8" },
           });
         }
 
@@ -180,6 +207,54 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
           const since = Number(url.searchParams.get("since") ?? 0);
           if (!Number.isFinite(since) || since < 0) return badRequest("invalid since cursor");
           return json(handlePull(since));
+        }
+
+        if (path === "/v1/feed" && method === "GET") {
+          // Lightweight list for the PWA home screen — no body_html, no
+          // plain_text. Capped to keep first paint snappy.
+          const limit = Math.min(Number(url.searchParams.get("limit") ?? 100), 500);
+          const notes = cloudDb()
+            .query<
+              {
+                uuid: string;
+                slug: string;
+                title: string;
+                type: string;
+                theme: string;
+                thread_id: string;
+                created_at: string;
+                updated_at: string;
+                is_final: number;
+                live: number;
+              },
+              [number]
+            >(
+              `SELECT uuid, slug, title, type, theme, thread_id, created_at, updated_at, is_final, live
+                 FROM notes ORDER BY created_at DESC LIMIT ?`
+            )
+            .all(limit);
+          const threads = cloudDb()
+            .query<{ thread_id: string; count: number; latest: string }, []>(
+              `SELECT thread_id, COUNT(*) AS count, MAX(created_at) AS latest
+                 FROM notes GROUP BY thread_id ORDER BY latest DESC LIMIT 50`
+            )
+            .all();
+          return json({
+            notes: notes.map((n) => ({
+              uuid: n.uuid,
+              slug: n.slug,
+              title: n.title,
+              type: n.type,
+              theme: n.theme,
+              thread_id: n.thread_id,
+              created_at: n.created_at,
+              updated_at: n.updated_at,
+              is_final: n.is_final === 1,
+              live: n.live === 1,
+            })),
+            threads,
+            sw_version: SW_VERSION,
+          });
         }
 
         {

@@ -23,14 +23,18 @@ When your agent has something to show — research, comparison, technical doc, s
 
 ## Status
 
-**v0.8.0 — early but functional.** Public release: 2026-05-12.
+**v0.10.1 — functional, multi-device, shippable.** Public release: 2026-05-13.
 
-- ✅ Core flow works end-to-end: agent calls MCP `create` → note lands on disk → browser opens at `/n/<id>` → renders in the chosen theme
-- ✅ Used daily by the author for ~2 weeks of agent research, comparisons, and decision notes
-- ✅ Pre-compiled tarballs published per release for all three target triples; `folio update` self-updates from GitHub Releases
-- ⚠️ Expect rough edges on error paths and uncommon configurations — issues and PRs welcome
+- ✅ Core flow: agent → MCP `create` → note on disk → `/n/<id>` renders
+- ✅ Sync daemon (`folio sync`) mirrors `~/Folio/` to an optional cloud relay
+- ✅ Read-only PWA on phone — install Folio from `https://<your-cloud>`
+- ✅ `folio publish` mints capability URLs to share a note (or whole thread) with someone who has no Folio install
+- ✅ Soft-delete (`folio delete`, `.trash/` with 7-day grace) plus sidebar button in the viewer
+- ✅ Append-only (ADR-014) preserved end-to-end: agents iterate via new sibling notes, never edits
+- ✅ Pre-compiled tarballs for darwin-arm64 / linux-x64 / linux-arm64; `folio update` self-updates from GitHub Releases
+- ⚠️ Live note SSE forwarding through cloud is post-MVP — phone shows last-synced snapshot, not the streaming feed
 
-This is the first day the repo is public. The MCP contract (tool names, args, response shape) is stable for v0.x but may still change before 1.0 based on real-world usage.
+The MCP contract is stable for v0.x. Cloud + PWA + publish ride on the same machinery — opting in to one doesn't lock you out of the others.
 
 ---
 
@@ -92,13 +96,22 @@ Requires Bun 1.3+ for source install. Release tarballs ship pre-compiled single-
 | `folio new --title T --type X --html @file.html` | Create a note from an HTML fragment |
 | `folio list [--type] [--thread] [--final] [--json]` | List recent notes |
 | `folio search "query" [--type] [--json]` | FTS5 full-text search (Polish-aware) |
-| `folio finalize <id>` | Mark as final — skip auto-cleanup |
+| `folio append <id> [--content @file] [--tags] [--refs]` | Append entry to a live note (ADR-020) |
+| `folio finalize <id>` | Mark as final — skip auto-cleanup; live → static body |
+| `folio delete <id> [--yes]` | Soft-delete to `~/Folio/.trash/` (recoverable 7d), propagates to cloud on next sync |
 | `folio open <id\|slug>` | Open note URL in default browser |
 | `folio export <id> [--standalone] [--out path]` | Export a single self-contained HTML |
 | `folio cleanup [--dry-run]` | Trash non-final notes past expiry (30d default) |
 | `folio reindex` | Rebuild FTS index from files on disk |
 | `folio stats` | Counts + analytics |
 | `folio serve` | Local viewer on `:4810` |
+| `folio sync pair --remote <url> --code <6-digit>` | Pair this device with a Folio Cloud relay |
+| `folio sync [--once] [--interval 30]` | Push/pull daemon (or one-shot) against the paired cloud |
+| `folio sync status` / `unpair` | Inspect / clear local sync state |
+| `folio publish <id\|thread:slug> [--expires-days 7] [--max-views N]` | Mint a capability URL share |
+| `folio shares list` / `revoke <token>` | Manage active shares |
+| `folio cloud {init\|serve\|pair-code}` | Run a cloud relay (operator side) |
+| `folio doctor [--offline] [--json]` | Install + storage + cloud sync diagnostics |
 | `folio update [--check] [--force] [--pre] [--json]` | Self-update from GitHub releases |
 | `folio version [--json]` | Print Folio version + storage / viewer / theme info (alias: `--version`, `-v`) |
 | `folio-mcp` | Stdio MCP server for agent clients |
@@ -221,6 +234,66 @@ Re-attaching the same filename overwrites in place (idempotent uploads). Notes t
 
 ---
 
+## Cloud sync (optional)
+
+`folio serve` keeps everything on `127.0.0.1:4810` — but if you want notes on your phone (offline-capable PWA) or to share a note with someone over the internet, point a small relay at an existing VPS and tie devices to it.
+
+The relay is the same Folio binary in a different mode:
+
+```bash
+# On a VPS (the operator side):
+sudo ./deploy/install.sh        # systemd unit, bare-metal, no docker — see deploy/README.md
+sudo systemctl edit folio-cloud # set FOLIO_CLOUD_PUBLIC_URL=https://folio.example.com
+sudo systemctl restart folio-cloud
+sudo -u folio /opt/folio/folio cloud pair-code     # first pairing code (10-min TTL)
+```
+
+```bash
+# On the laptop (operator), first pair:
+folio sync pair --remote https://folio.example.com --code 482910
+# Or via the local viewer: http://127.0.0.1:4810/cloud (form for code paste)
+
+# Run the daemon (in the background):
+folio sync
+# Or one-shot in cron / before a flight:
+folio sync --once
+```
+
+Every subsequent device pairs through the UI — no SSH:
+
+```
+laptop /cloud → "Generate code for another device" → 482910
+phone /pair  → enter 482910 → done
+```
+
+Phone gets `https://folio.example.com` as a PWA — install to home screen from Safari/Chrome, browse notes offline, tap a thread name to filter. Read-only by design: notes are created on the writer device, the PWA never writes.
+
+### `folio publish` — share with someone who has no Folio
+
+```bash
+folio publish <note-id> --expires-days 7
+# → https://folio.example.com/p/Hk3xQ.../n/<note-id>
+folio publish thread:morning-review --max-views 50
+folio shares list
+folio shares revoke Hk3xQ...
+```
+
+Recipients click the link, see the note rendered in its theme. No login, no app, no account. Capability URL gets `Referrer-Policy: no-referrer` + `X-Robots-Tag: noindex` so it stays out of search indexes and external Referer logs. Token-bound expiry + max-views + revoke. Asset URLs in the body rewrite through the same `/p/<token>/` prefix so images work without paired devices.
+
+### Diagnostics
+
+When something looks off, `folio doctor` checks install, storage, and cloud sync state in one pass:
+
+```bash
+folio doctor                     # full report
+folio doctor --offline           # skip network probes
+folio doctor --json              # machine-readable
+```
+
+Surfaces the common failure modes: cloud unreachable, token rejected, last sync > 7 days, themes missing next to a compiled binary, MCP install symlinks stale.
+
+---
+
 ## Themes
 
 18 themes ship bundled, each with two files:
@@ -239,11 +312,14 @@ Full theme list and contract: [`themes/README.md`](themes/README.md).
 ## Architecture
 
 - **Bun** runtime + TypeScript (no build step in dev; `bun build --compile` for release binaries)
-- **`bun:sqlite`** with FTS5 for storage and search (Polish-aware tokenizer + suffix stemmer)
-- **`sanitize-html`** for agent body sanitization — drops top-level `<script>`, forces safe sandboxes on `<iframe>` (no `allow-same-origin` ever passes through, `https:` only, `on*` handlers stripped)
-- **Eta** templates wrap agent-supplied HTML in a theme-linked document
-- **Vanilla viewer** — server-rendered HTML + ~300 LOC of vanilla JS for the helpers (lightbox, copy-code, heading anchors, TOC with scroll spy, reading progress, theme preview switcher, prev/next in thread)
-- **MCP SDK** for the stdio server
+- **`bun:sqlite`** with FTS5 for local storage + search (Polish-aware tokenizer + suffix stemmer). Two-phase schema bootstrap with migrations between (`src/core/migrations.ts`); BASE_SCHEMA never references a column added in the same release.
+- **`sanitize-html`** for agent body sanitization — forces safe sandboxes on `<iframe>` (no `allow-same-origin` ever passes through, `https:` only, `on*` handlers stripped). Note: `<script>` IS allowed at body level since v0.3 because notes render inside a null-origin sandboxed iframe with `connect-src: 'none'` — isolation comes from the outer iframe + CSP, not the sanitizer.
+- **Eta** templates wrap agent-supplied HTML in a theme-linked document.
+- **Vanilla viewer** — server-rendered HTML + ~300 LOC of vanilla JS for the helpers (lightbox, copy-code, heading anchors, TOC with scroll spy, reading progress, theme preview switcher, prev/next in thread, print via postMessage so chrome doesn't leak into the PDF).
+- **One Folio binary, three modes:** `folio serve` (local viewer, default), `folio sync` (push/pull daemon against a cloud relay), `folio cloud serve` (the relay itself — reuses the same viewer + theme stack with bearer auth on top).
+- **PWA** = stateless JS shells served by the cloud relay. Token lives in IndexedDB only; service worker SWR-caches notes for offline reads.
+- **Capability URLs** are 32-byte b64url tokens server-side; scope is enforced per-request (note vs thread). Body asset URLs rewrite through `/p/<token>/` so shared notes render with images and the iframe sandbox stays null-origin.
+- **MCP SDK** for the stdio server (`folio-mcp` over stdio for OpenClaw / Claude Desktop / Claude Code).
 
 No React, no frontend framework, no build step at runtime. Notes are pure HTML files; the viewer renders them through an iframe so theme.css is isolated from viewer chrome.
 
@@ -253,7 +329,11 @@ No React, no frontend framework, no build step at runtime. Notes are pure HTML f
 
 [`AGENTS.md`](AGENTS.md) is the canonical "how to work on this codebase" guide — file layout, conventions, hard rules, common pitfalls. Read it before adding tools, themes, or viewer helpers.
 
-Tests: `bun test` (a few dozen, ~700ms). Branch protection on `main` means changes flow through PRs.
+Tests:
+- `bun test` runs the unit suite (270+ tests, ~3s). Covers storage, MCP tools, viewer routes, cloud auth + sync, share validation, doctor diagnostics.
+- `bun run test:pwa` runs the Playwright headless-browser suite (~2s after first browser install via `bun run test:pwa:install`). Covers pair flow, IDB token, blob-URL iframe handshake, sandbox attribute integrity.
+
+Branch protection on `main` means changes flow through PRs. Release flow: PR merge → `git tag v0.X.Y` on the merge commit → `git push origin v0.X.Y` triggers `.github/workflows/release.yml` which builds the three target triples and publishes a GitHub Release.
 
 ---
 

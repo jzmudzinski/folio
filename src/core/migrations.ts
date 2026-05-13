@@ -65,9 +65,10 @@ export const MIGRATIONS: Migration[] = [
       if (!hasColumn(db, "notes", "owner_device_id")) {
         db.exec("ALTER TABLE notes ADD COLUMN owner_device_id TEXT");
       }
-      // Index AFTER ALTER, never in BASE_SCHEMA — index references a column
-      // that doesn't exist until the ALTER above runs on pre-existing dbs.
-      db.exec("CREATE INDEX IF NOT EXISTS notes_by_origin ON notes(origin_device_id)");
+      // notes_by_origin index lives in PHASE2_SCHEMA (db.ts) — runs after
+      // this migration has added the column. v0.9.1's two-phase bootstrap
+      // makes this safe for greenfield (column from CREATE TABLE) and
+      // upgrades (column from this ALTER) alike.
       // Backfill: existing notes were created on this device (nobody else
       // had access to ~/Folio/ prior to W2 sync). Live notes also get
       // owner_device_id = self so append_entry continues to work for them.

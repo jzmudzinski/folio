@@ -1,0 +1,290 @@
+/**
+ * Minimal cloud-side note rendering. Wraps body_html with the requested
+ * theme.css and a minimal `<!doctype>` shell. Intentionally simpler than the
+ * local viewer (src/viewer/render.ts) — no sidebar, no TOC, no theme switcher,
+ * no prev/next-in-thread. The PWA in W3 provides chrome around an iframe that
+ * points at /raw/:uuid; capability URLs in W4 render the standalone HTML
+ * directly.
+ *
+ * Theme.css is loaded from the bundled themes dir on the cloud host. If the
+ * requested theme is missing, fall back to linen — never 500 on missing theme.
+ */
+
+import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { bundledThemesDir } from "../core/config";
+
+function readThemeCss(theme: string): string {
+  const candidate = join(bundledThemesDir(), theme, "theme.css");
+  if (existsSync(candidate)) return readFileSync(candidate, "utf-8");
+  const fallback = join(bundledThemesDir(), "linen", "theme.css");
+  if (existsSync(fallback)) return readFileSync(fallback, "utf-8");
+  return "";
+}
+
+export interface RenderNoteInput {
+  title: string;
+  theme: string;
+  bodyHtml: string;
+}
+
+/**
+ * Build a standalone HTML page (theme.css inlined, body_html slotted in).
+ * This is what cloud serves at /raw/:uuid behind the iframe-isolation CSP.
+ * `iframe-isolation` here means: the PWA wraps this in an iframe with
+ * sandbox="allow-scripts allow-popups allow-forms" (no allow-same-origin),
+ * matching how the local viewer works.
+ */
+export function renderStandaloneNote(input: RenderNoteInput): string {
+  const css = readThemeCss(input.theme);
+  const esc = (s: string): string =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return `<!doctype html>
+<html lang="en" data-theme="${esc(input.theme)}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${esc(input.title)}</title>
+  <style>${css}</style>
+</head>
+<body class="theme theme-${esc(input.theme)}">
+  <main class="wrap">
+    <article data-folio-content>
+${input.bodyHtml}
+    </article>
+  </main>
+</body>
+</html>`;
+}
+
+/**
+ * Outer page for /p/:token/n/:uuid — server-rendered. Unlike /n/:uuid
+ * (which is a JS shell that reads token from IDB), capability URLs carry
+ * the token in the URL path itself. No JS needed for auth — server
+ * validates the token on each request and renders the iframe pointed at
+ * /p/<token>/raw/<uuid>. Sandbox attributes match the authed /n/ flow.
+ *
+ * Headers: same CSP as /raw/, plus X-Robots-Tag: noindex,nofollow and
+ * Referrer-Policy: no-referrer. These reduce capability-URL leakage via
+ * search indexes and external Referer logs.
+ */
+export function renderSharedNotePage(token: string, uuid: string, title: string): string {
+  const esc = (s: string): string =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="theme-color" content="#1a1a1a">
+  <title>${esc(title || "Folio")}</title>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #1a1a1a; }
+    iframe { width: 100%; height: 100vh; border: 0; display: block; background: #fff; }
+  </style>
+</head>
+<body>
+  <iframe
+    src="/p/${esc(token)}/raw/${esc(uuid)}"
+    sandbox="allow-scripts allow-popups allow-forms"
+    referrerpolicy="no-referrer"
+    title="${esc(title || "Folio note")}"></iframe>
+</body>
+</html>`;
+}
+
+/**
+ * Thread list page for /p/:token/t/:thread_id — server-rendered HTML
+ * listing of notes in that thread. Each link points at /p/<token>/n/<uuid>.
+ * No JS needed.
+ */
+export interface SharedThreadNote {
+  uuid: string;
+  title: string;
+  type: string;
+  created_at: string;
+  is_final: boolean;
+}
+
+export function renderSharedThreadPage(token: string, threadId: string, notes: SharedThreadNote[]): string {
+  const esc = (s: string): string =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const rows = notes
+    .map((n) => {
+      const ago = relativeTime(n.created_at);
+      return `<a class="note" href="/p/${esc(token)}/n/${esc(n.uuid)}">
+        <div class="title">${esc(n.title)}${n.is_final ? ' <span class="final">★</span>' : ""}</div>
+        <div class="meta"><span class="type ${esc(n.type)}">${esc(n.type)}</span> <span class="ago">${esc(ago)}</span></div>
+      </a>`;
+    })
+    .join("\n");
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="theme-color" content="#f5f3ee">
+  <title>${esc(threadId)} · Folio</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400..700&family=Instrument+Serif:ital@0;1&display=swap');
+    :root { --bg: #f5f3ee; --bg-2: #efeae0; --ink: #0a0a0a; --muted: #6b6b66; --line: rgba(10,10,10,0.10); --accent: #ff5a1f; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: 'Familjen Grotesk', system-ui, sans-serif; font-size: 17px; line-height: 1.5; }
+    header { padding: 14px 20px; border-bottom: 1px solid var(--line); background: #fdfcf9; }
+    header h1 { font-family: 'Instrument Serif', serif; font-style: italic; font-weight: 400; margin: 0; font-size: 22px; letter-spacing: -0.5px; color: var(--ink); }
+    header .sub { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
+    main { max-width: 760px; margin: 0 auto; padding: 16px 20px 60px; }
+    .note { display: block; padding: 14px 12px; border-radius: 10px; text-decoration: none; color: inherit; }
+    .note:hover { background: var(--bg-2); }
+    .note .title { font-size: 17px; font-weight: 500; margin-bottom: 4px; }
+    .note .final { color: var(--accent); }
+    .note .meta { font-size: 13px; color: var(--muted); display: flex; gap: 10px; align-items: center; }
+    .note .type { font-size: 10.5px; padding: 1px 6px; border: 1px solid var(--line); border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .empty { text-align: center; color: var(--muted); padding: 60px 20px; font-style: italic; font-family: 'Instrument Serif', serif; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>${esc(threadId)}</h1>
+    <div class="sub">${notes.length} note${notes.length === 1 ? "" : "s"} · shared via folio.</div>
+  </header>
+  <main>
+    ${notes.length === 0 ? '<div class="empty">No notes in this thread.</div>' : rows}
+  </main>
+</body>
+</html>`;
+}
+
+function relativeTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} hr ago`;
+  const d = Math.floor(h / 24);
+  return d === 1 ? "yesterday" : `${d} days ago`;
+}
+
+/**
+ * Outer page for cloud /n/:uuid — JS-driven shell. PUBLIC route (no auth
+ * required) that returns this HTML, which then:
+ *   1. Reads the bearer token from IndexedDB (origin-scoped, set during pair)
+ *   2. Fetches /raw/:uuid with Authorization: Bearer ...
+ *   3. Wraps the response body in a Blob and loads it into a sandboxed
+ *      iframe via blob: URL.
+ *
+ * Why not let SW inject the Authorization header for direct iframe src?
+ * Two reasons:
+ *   - First-navigation race: on a freshly-installed PWA, the user can tap
+ *     a note before the SW takes control. Direct fetch in this page avoids
+ *     that race entirely — works the moment the JS runs.
+ *   - Some browsers reconstruct/normalize navigation requests in ways that
+ *     drop the SW-added header. Doing the fetch explicitly sidesteps that.
+ *
+ * Blob URL + sandbox without `allow-same-origin` = null origin for the
+ * iframe content. Body scripts run with no access to folio.notibox.ai
+ * cookies/IDB. CSP on the raw response still applies if we set
+ * Content-Security-Policy as meta tag in the rendered content. The current
+ * raw response is theme'd standalone HTML; we keep the same isolation
+ * guarantees as before because the iframe sandbox attribute is the
+ * load-bearing piece, not the response headers.
+ */
+export function renderNotePage(uuid: string, _title: string): string {
+  const esc = (s: string): string =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1a1a1a">
+  <title>Folio</title>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #1a1a1a; color: #aaa; font-family: 'Familjen Grotesk', system-ui, sans-serif; }
+    iframe { width: 100%; height: 100vh; border: 0; display: block; background: #fff; }
+    .state { padding: 20vh 20px; text-align: center; font-size: 14px; line-height: 1.6; }
+    .state a { color: #ff5a1f; text-decoration: none; }
+    .state a:hover { text-decoration: underline; }
+    .state .err { color: #ff7a5f; font-size: 13px; margin-top: 8px; opacity: 0.7; }
+    .back { position: fixed; top: env(safe-area-inset-top, 0) ; left: 0; padding: 10px 14px; color: #888; text-decoration: none; font-size: 14px; z-index: 10; }
+  </style>
+</head>
+<body>
+  <a href="/" class="back" id="back">‹ back</a>
+  <div id="state" class="state">Loading…</div>
+  <iframe id="frame" sandbox="allow-scripts allow-popups allow-forms" referrerpolicy="no-referrer" style="display: none;"></iframe>
+  <script>
+(function () {
+  var UUID = ${JSON.stringify(uuid)};
+  var stateEl = document.getElementById('state');
+  var frame = document.getElementById('frame');
+
+  function setError(msg, hint) {
+    stateEl.innerHTML = msg + (hint ? '<div class="err">' + hint + '</div>' : '');
+    stateEl.style.display = '';
+    frame.style.display = 'none';
+  }
+
+  function openDb() {
+    return new Promise(function (resolve, reject) {
+      var req = indexedDB.open('folio-pwa', 1);
+      req.onupgradeneeded = function () { req.result.createObjectStore('kv'); };
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { reject(req.error); };
+    });
+  }
+  function kvGet(key) {
+    return openDb().then(function (db) {
+      return new Promise(function (resolve) {
+        var tx = db.transaction('kv', 'readonly');
+        var req = tx.objectStore('kv').get(key);
+        req.onsuccess = function () { resolve(req.result); };
+        req.onerror = function () { resolve(undefined); };
+      });
+    });
+  }
+
+  kvGet('token').then(function (token) {
+    if (!token) {
+      setError('Not paired on this device.', '<a href="/pair">Pair now</a>');
+      return;
+    }
+    return fetch('/raw/' + encodeURIComponent(UUID), {
+      method: 'GET',
+      headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'text/html' }
+    }).then(function (r) {
+      if (r.status === 401) {
+        setError('Session expired or device revoked.', '<a href="/pair">Pair this device again</a>');
+        return null;
+      }
+      if (r.status === 404) {
+        setError('Note not found.', '<a href="/">‹ back to list</a>');
+        return null;
+      }
+      if (!r.ok) {
+        setError('Could not load note.', 'HTTP ' + r.status);
+        return null;
+      }
+      return r.text();
+    });
+  }).then(function (html) {
+    if (!html) return;
+    var blob = new Blob([html], { type: 'text/html' });
+    var blobUrl = URL.createObjectURL(blob);
+    frame.onload = function () {
+      stateEl.style.display = 'none';
+      frame.style.display = 'block';
+    };
+    frame.src = blobUrl;
+  }).catch(function (e) {
+    setError('Could not load note.', String(e && e.message || e));
+  });
+})();
+  </script>
+</body>
+</html>`;
+}

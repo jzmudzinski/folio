@@ -1,0 +1,31 @@
+# Caddy site config for Folio Cloud — auto-TLS via Let's Encrypt, gzip/zstd
+# encoding. Drop into your existing Caddyfile (or include from one).
+#
+# Replace `cloud.example.com` with your subdomain. Caddy must be able to reach
+# 127.0.0.1:8081 on the same host (folio-cloud binds loopback by default —
+# never expose it directly to the internet).
+
+cloud.example.com {
+    encode gzip zstd
+
+    # Optional: cap upload size if you're concerned about agents pushing huge
+    # assets. Cloud's own per-asset limit is whatever the extension allowlist
+    # permits, but a global belt-and-braces 100MB is reasonable.
+    request_body {
+        max_size 100MB
+    }
+
+    reverse_proxy 127.0.0.1:8081 {
+        # Pass through Authorization unchanged; Caddy does that by default.
+        # Keep the trailing slash off; folio-cloud expects bare paths.
+        header_up X-Real-IP {remote_host}
+    }
+
+    # Optional security headers — folio-cloud already sets its own CSP on
+    # /raw/:uuid, but these add edge-level defense for the rest.
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+}

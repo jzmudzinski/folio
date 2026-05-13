@@ -47,13 +47,22 @@ CREATE TABLE IF NOT EXISTS notes (
   summary TEXT,
   status TEXT NOT NULL DEFAULT 'active',
   live INTEGER NOT NULL DEFAULT 0,
-  last_entry_at TEXT
+  last_entry_at TEXT,
+  -- W2 multi-writer sync: device id that created the note, and (for live
+  -- notes only) the device id allowed to append entries. Both populated by
+  -- createNote() and backfilled by migrations.ts v2→v3.
+  origin_device_id TEXT,
+  owner_device_id TEXT
 );
 CREATE INDEX IF NOT EXISTS notes_by_type ON notes(type, created DESC);
 CREATE INDEX IF NOT EXISTS notes_by_thread ON notes(thread_id, created DESC);
 CREATE INDEX IF NOT EXISTS notes_by_created ON notes(created DESC);
 CREATE INDEX IF NOT EXISTS notes_by_expires ON notes(expires_at) WHERE expires_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS notes_by_live ON notes(live, last_entry_at) WHERE live = 1;
+-- v2→v3: needs origin_device_id column which is added by the migration
+-- BEFORE this phase runs. Greenfield installs get the column from the
+-- CREATE TABLE above, then this index.
+CREATE INDEX IF NOT EXISTS notes_by_origin ON notes(origin_device_id);
 
 CREATE TABLE IF NOT EXISTS tags (
   note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,

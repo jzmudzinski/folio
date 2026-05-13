@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { getNoteMeta, updateLastEntryAt } from "../../core/storage";
 import { folioRoot } from "../../core/config";
 import { logEvent } from "../../core/db";
-import { entriesPath, readEntries, appendEntry } from "../../core/live";
+import { entriesPath, readEntries, appendEntry, assertCanAppend } from "../../core/live";
 import { c, out, err, json } from "../io";
 
 export interface AppendOpts {
@@ -42,6 +42,12 @@ export async function appendCmd(opts: AppendOpts): Promise<number> {
   if (note.is_final) {
     err(c.err(`✗ Note ${opts.id} is final; cannot append.\n`));
     return 6;
+  }
+  try {
+    assertCanAppend(note);
+  } catch (e: any) {
+    err(c.err(`✗ ${e?.message ?? e}\n`));
+    return 9;
   }
 
   // Resolve content_html: --content @file, --content "inline", or stdin.

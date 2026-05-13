@@ -79,7 +79,7 @@ function help(): number {
   out(`  ${c.cyan("update")}            Check + install latest release from GitHub (--check, --force, --pre, --json)`);
   out(`  ${c.cyan("install")}           Wire Folio into an agent client (--target claude-code | openclaw | all, --skill-only, --mcp-only, --scope, --dry-run, --yes)`);
   out(`  ${c.cyan("uninstall")}         Remove Folio wiring (--target claude-code | openclaw | all, --skill-only, --mcp-only, --scope, --all-scopes, --dry-run, --yes)`);
-  out(`  ${c.cyan("doctor")}            Show install state for every detected target + warnings (--json)`);
+  out(`  ${c.cyan("doctor")}            Show install + storage + cloud sync state (--json, --offline)`);
   out(`  ${c.cyan("cloud <sub>")}       Cloud relay: init | serve | pair-code (see deploy/ for systemd unit)`);
   out(`  ${c.cyan("sync <sub>")}        Sync with cloud: pair | status | unpair | run (default) — flags: --remote, --code, --once, --interval`);
   out(`  ${c.cyan("publish <id>")}      Create a capability URL share — flags: --expires-days, --max-views, --scope=note|thread`);
@@ -235,7 +235,10 @@ export async function main(argv = process.argv): Promise<number> {
           jsonOut: flagBool(flags.json),
         });
       case "doctor":
-        return await doctorCmd({ jsonOut: flagBool(flags.json) });
+        return await doctorCmd({
+          jsonOut: flagBool(flags.json),
+          offline: flagBool(flags.offline),
+        });
       case "cloud":
         return await cloudCmd(positional[0], positional.slice(1));
       case "sync":

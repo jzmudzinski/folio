@@ -38,6 +38,20 @@ test("/ serves app shell HTML without auth", async () => {
   expect(body).toContain("/v1/feed");
 });
 
+test("/ exposes install banner markup + install-prompt handlers", async () => {
+  const res = await fetch(`${baseUrl}/`);
+  const body = await res.text();
+  // Banner is server-rendered; JS toggles .shown only when applicable.
+  expect(body).toContain('id="install-banner"');
+  expect(body).toContain('id="install-btn"');
+  expect(body).toContain('id="install-dismiss"');
+  // Install prompt JS handles both Chrome `beforeinstallprompt` and iOS Safari fallback.
+  expect(body).toContain("beforeinstallprompt");
+  expect(body).toContain("isIosSafari");
+  expect(body).toContain("display-mode: standalone");
+  expect(body).toContain("Add to Home Screen");
+});
+
 test("/pair serves pair form without auth", async () => {
   const res = await fetch(`${baseUrl}/pair`);
   expect(res.status).toBe(200);

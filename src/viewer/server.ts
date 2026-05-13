@@ -398,6 +398,27 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
           return jsonResp(body);
         }
 
+        // GET /api/cloud/stats — proxy to cloud /v1/admin/stats with the
+        // device bearer token from local sync state. Keeps the token out of
+        // page JS — only the local viewer process holds it.
+        if (req.method === "GET" && path === "/api/cloud/stats") {
+          const { loadSyncState } = await import("../core/sync");
+          const state = loadSyncState();
+          if (!state) return jsonResp({ error: "not paired" }, 400);
+          try {
+            const res = await fetch(`${state.remote}/v1/admin/stats`, {
+              headers: { Authorization: `Bearer ${state.device_token}` },
+            });
+            if (!res.ok) {
+              let detail = ""; try { detail = await res.text(); } catch {}
+              return jsonResp({ error: `stats failed: HTTP ${res.status} ${detail.slice(0, 200)}` }, 502);
+            }
+            return jsonResp(await res.json());
+          } catch (e: any) {
+            return jsonResp({ error: e?.message ?? String(e) }, 502);
+          }
+        }
+
         // POST /api/sync/run — one-shot sync (mirrors `folio sync --once`)
         if (req.method === "POST" && path === "/api/sync/run") {
           const { loadSyncState, syncOnce } = await import("../core/sync");

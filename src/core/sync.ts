@@ -21,12 +21,13 @@
  *     canonical name; we rename the local .html file + update the DB row.
  *   - Cursor: monotonic int from cloud's server_seq. Stored per-remote in
  *     ~/Folio/.sync-state.json.
+ *   - Asset bytes: push (writer→cloud) scans body_html for asset refs and
+ *     uploads via /v1/sync/assets/<hash>; pull (cloud→reader) scans pulled
+ *     body_html and downloads missing bytes via the public /t/<id>/asset/
+ *     endpoint. Pull-side download is idempotent: skip if the local file
+ *     already exists with non-zero size.
  *
  * What we DO NOT sync in W2 MVP:
- *   - Asset bytes (images/PDFs/videos under threads/<id>/assets/). Notes
- *     pulled to other devices will render with broken image links until
- *     W3 asset sync is added. This is a deliberate scope cut, not an
- *     oversight — getting end-to-end note round-trip first.
  *   - Finalize / expiry / cleanup state changes after the initial push.
  *     Today, finalize on device A doesn't propagate to device B. Pickup
  *     when the user reports it as painful.
@@ -392,6 +393,9 @@ export interface SyncStepResult {
    *  `deleted`, which counts THIS device's outgoing pushed deletes. */
   deletes_applied: number;
   assets_pushed: number;
+  /** Asset bytes downloaded from cloud for pulled (foreign-origin) notes
+   *  whose body_html references files this device didn't have locally. */
+  assets_pulled: number;
 }
 
 /**
@@ -603,20 +607,96 @@ export async function pushLiveEntries(state: SyncState, selfDeviceId: string): P
   return allEntries.length;
 }
 
+// ----- Asset pull -----
+
+/**
+ * For each (thread_id, filename) pair, ensure the bytes live at
+ * ~/Folio/threads/<thread>/assets/<filename>. Hits the cloud's public
+ * `/t/<thread>/asset/<file>` endpoint — no bearer header needed (the route
+ * is public for sub-resource fetches from sandboxed iframes; we benefit
+ * here from the same property).
+ *
+ * Idempotent: existing non-empty files are left alone. Filename safety is
+ * checked before any disk write (mirrors push-side guard against path
+ * traversal via crafted body_html refs). Network/disk errors on a single
+ * asset are logged-via-skip and don't fail the rest of the batch.
+ */
+export async function pullAssets(
+  state: SyncState,
+  refs: AssetRef[]
+): Promise<{ downloaded: number; skipped: number }> {
+  let downloaded = 0;
+  let skipped = 0;
+  for (const r of refs) {
+    if (!isSafeAssetFilename(r.filename)) { skipped++; continue; }
+    const dir = threadAssetsDir(r.thread_id);
+    const abs = join(dir, r.filename);
+    try {
+      const st = statSync(abs);
+      if (st.size > 0) { skipped++; continue; }
+    } catch {
+      // Missing — proceed to download.
+    }
+    let res: Response;
+    try {
+      res = await fetch(
+        `${state.remote}/t/${encodeURIComponent(r.thread_id)}/asset/${encodeURIComponent(r.filename)}`
+      );
+    } catch {
+      skipped++;
+      continue;
+    }
+    if (!res.ok) { skipped++; continue; }
+    let bytes: Uint8Array;
+    try {
+      bytes = new Uint8Array(await res.arrayBuffer());
+    } catch {
+      skipped++;
+      continue;
+    }
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    const tmp = `${abs}.tmp`;
+    try {
+      writeFileSync(tmp, bytes);
+      renameSync(tmp, abs);
+      downloaded++;
+    } catch {
+      skipped++;
+    }
+  }
+  return { downloaded, skipped };
+}
+
 // ----- Pull step -----
 
-export async function pullNotes(state: SyncState, selfDeviceId: string): Promise<{ pulled: number; live_pulled: number; deletes_applied: number }> {
+export async function pullNotes(state: SyncState, selfDeviceId: string): Promise<{ pulled: number; live_pulled: number; deletes_applied: number; assets_pulled: number }> {
   const url = `${state.remote}/v1/sync/pull?since=${state.last_pulled_seq}`;
   const resp = await http<PullResp>("GET", url, state.device_token);
   if (!resp) throw new Error("pull: empty response");
 
   let pulled = 0;
+  // Collect asset refs from every foreign-origin note we apply, so we can
+  // batch-download bytes after the note files land. Deduped by (thread,
+  // filename) inside pullAssets — extractAssetRefs already dedupes per note,
+  // and assets are content-addressed enough that re-fetching across notes
+  // would just be wasted bytes.
+  const foreignAssetRefs: AssetRef[] = [];
+  const foreignSeen = new Set<string>();
   for (const n of resp.notes) {
     // Skip own echo — we know what we sent.
     if (n.origin_device_id === selfDeviceId) continue;
     await applyPulledNote(n);
     pulled++;
+    for (const r of extractAssetRefs(n.body_html)) {
+      const key = `${r.thread_id}/${r.filename}`;
+      if (foreignSeen.has(key)) continue;
+      foreignSeen.add(key);
+      foreignAssetRefs.push(r);
+    }
   }
+  const assetPull = foreignAssetRefs.length > 0
+    ? await pullAssets(state, foreignAssetRefs)
+    : { downloaded: 0, skipped: 0 };
 
   let live_pulled = 0;
   for (const e of resp.live_entries) {
@@ -644,7 +724,7 @@ export async function pullNotes(state: SyncState, selfDeviceId: string): Promise
   }
 
   state.last_pulled_seq = resp.cursor;
-  return { pulled, live_pulled, deletes_applied };
+  return { pulled, live_pulled, deletes_applied, assets_pulled: assetPull.downloaded };
 }
 
 async function applyPulledNote(n: PullNote): Promise<void> {
@@ -817,5 +897,6 @@ export async function syncOnce(state: SyncState): Promise<SyncStepResult> {
     deleted: deletedR,
     deletes_applied: pullR.deletes_applied,
     assets_pushed: pushR.assets_pushed,
+    assets_pulled: pullR.assets_pulled,
   };
 }

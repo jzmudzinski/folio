@@ -52,6 +52,9 @@ import {
   validateShareAccess,
   incrementShareViews,
 } from "./shares";
+import { buildAdminStats } from "./stats";
+import { getMailer, isMailerConfigured, renderShareEmail } from "./mailer";
+import { createHash } from "node:crypto";
 import { rawNoteHeaders } from "../core/csp";
 import pkg from "../../package.json" with { type: "json" };
 
@@ -508,6 +511,14 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
           return json({ devices: listDevices() });
         }
 
+        // Read-only observability snapshot — see src/cloud/stats.ts. Authed:
+        // any paired device can read its own cloud's metrics, but the surface
+        // doesn't leak content (only counts, bytes, device names already
+        // visible via /v1/auth/devices).
+        if (path === "/v1/admin/stats" && method === "GET") {
+          return json(buildAdminStats(publicUrl));
+        }
+
         // Already-paired devices can request fresh pairing codes for
         // onboarding additional devices — eliminates the SSH-to-server
         // step for every device after the first. Caller's token must be
@@ -608,11 +619,31 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
             expires_in_days?: number | null;
             max_views?: number | null;
             recipient_email_hash?: string | null;
+            /** Plaintext email — used ONLY to send the invite; the cloud
+             *  derives + persists the hash and discards the plaintext when
+             *  the mailer returns. If recipient_email_hash is also provided
+             *  it MUST match the hash of recipient_email (defensive client). */
+            recipient_email?: string | null;
           }>(req);
           if (body.scope_type !== "note" && body.scope_type !== "thread") {
             return badRequest("scope_type must be 'note' or 'thread'");
           }
           if (!body.scope_id) return badRequest("scope_id required");
+          // If the caller sent a plaintext email, derive the hash here so
+          // we don't trust the client to be consistent with itself. If
+          // BOTH are supplied, reject mismatched pairs (defensive against
+          // bug-or-tamper). Plaintext lives only in this stack frame +
+          // outbound mailer call.
+          let recipientEmail: string | null = null;
+          let recipientEmailHash: string | null = body.recipient_email_hash ?? null;
+          if (body.recipient_email && body.recipient_email.trim()) {
+            recipientEmail = body.recipient_email.trim().toLowerCase();
+            const derived = createHash("sha256").update(recipientEmail, "utf8").digest("hex");
+            if (recipientEmailHash && recipientEmailHash !== derived) {
+              return badRequest("recipient_email and recipient_email_hash disagree");
+            }
+            recipientEmailHash = derived;
+          }
           try {
             const share = createShare({
               scope_type: body.scope_type,
@@ -620,20 +651,56 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
               created_by_device: device!.id,
               expires_in_days: body.expires_in_days ?? 7,
               max_views: body.max_views ?? null,
-              recipient_email_hash: body.recipient_email_hash ?? null,
+              recipient_email_hash: recipientEmailHash,
             });
             const scopePath =
               share.scope_type === "note"
                 ? `/p/${share.token}/n/${share.scope_id}`
                 : `/p/${share.token}/t/${share.scope_id}`;
+            const url = `${publicUrl}${scopePath}`;
+            // Send the invite if (a) the caller gave us a plaintext email
+            // AND (b) a mailer is configured. We return the mailer outcome
+            // in the response so the CLI can surface a clear success/skip
+            // line — but we don't fail the whole share creation if the
+            // mailer is offline; the share itself is already persisted.
+            let email_sent = false;
+            let email_skipped: "no-mailer" | "no-recipient" | null = null;
+            let email_error: string | null = null;
+            if (!recipientEmail) {
+              email_skipped = "no-recipient";
+            } else {
+              const mailer = getMailer();
+              if (!mailer) {
+                email_skipped = "no-mailer";
+              } else {
+                const msg = renderShareEmail({
+                  url,
+                  recipient: recipientEmail,
+                  scope_type: share.scope_type,
+                  expires_at: share.expires_at,
+                });
+                const result = await mailer.send({
+                  to: recipientEmail,
+                  subject: msg.subject,
+                  html: msg.html,
+                  text: msg.text,
+                });
+                if (result.ok) email_sent = true;
+                else email_error = result.error ?? "mailer returned not-ok";
+              }
+            }
             return json({
               token: share.token,
-              url: `${publicUrl}${scopePath}`,
+              url,
               scope_type: share.scope_type,
               scope_id: share.scope_id,
               created_at: share.created_at,
               expires_at: share.expires_at,
               max_views: share.max_views,
+              email_sent,
+              email_skipped,
+              email_error,
+              mailer_configured: isMailerConfigured(),
             });
           } catch (e: any) {
             return badRequest(e?.message ?? "share creation failed");

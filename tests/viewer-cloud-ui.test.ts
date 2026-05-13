@@ -177,3 +177,38 @@ test("topbar has ☁ Cloud link", async () => {
   expect(html).toContain('href="/cloud"');
   expect(html).toContain("Cloud");
 });
+
+test("GET /api/cloud/stats (unpaired) returns 400", async () => {
+  const r = await fetch(`${viewerUrl}/api/cloud/stats`);
+  expect(r.status).toBe(400);
+});
+
+test("GET /api/cloud/stats (paired) proxies cloud admin stats", async () => {
+  const { createPairingCode } = await import("../src/cloud/auth");
+  const { code } = createPairingCode();
+  await fetch(`${viewerUrl}/api/sync/pair`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ remote: cloudUrl, code, device_name: "for-stats" }),
+  });
+  const r = await fetch(`${viewerUrl}/api/cloud/stats`);
+  expect(r.status).toBe(200);
+  const body = (await r.json()) as any;
+  expect(body.cloud.name).toBe("folio-cloud");
+  expect(body.counts.devices_active).toBeGreaterThanOrEqual(1);
+  expect(Array.isArray(body.devices)).toBe(true);
+});
+
+test("/cloud (paired) renders Cloud stats panel that loads via /api/cloud/stats", async () => {
+  const { createPairingCode } = await import("../src/cloud/auth");
+  const { code } = createPairingCode();
+  await fetch(`${viewerUrl}/api/sync/pair`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ remote: cloudUrl, code }),
+  });
+  const html = await fetch(`${viewerUrl}/cloud`).then((r) => r.text());
+  expect(html).toContain("Cloud stats");
+  expect(html).toContain('id="cloud-stats-body"');
+  expect(html).toContain("/api/cloud/stats");
+});

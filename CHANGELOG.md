@@ -2,6 +2,31 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.12.0 — 2026-05-14
+
+Multi-feature polish: install UX, observability, asset pull, real email delivery. Cloud-side runtime changes — VPS deploys need `sudo ./deploy/update.sh` to pick up `/v1/admin/stats`, plaintext-email passthrough on `/v1/share`, and the new PWA install banner. Optional email setup: set `RESEND_API_KEY` + `FOLIO_MAIL_FROM` on the cloud to wire outbound delivery; without them the share endpoint still works and reports `email_skipped="no-mailer"` so the CLI can surface a clear status line.
+
+### Added
+- **iOS / Chrome / Edge install banner.** PWA home page now captures `beforeinstallprompt` on browsers that fire it (Chrome/Edge/Samsung) and shows an inline `Install` button. iOS Safari — which doesn't fire that event — gets a dedicated hint: "Tap the Share icon, then 'Add to Home Screen'." Hidden whenever the app is already running standalone (`display-mode: standalone` or legacy `navigator.standalone`); dismissible for the session. SW bumped to `folio-pwa-6`.
+- **`GET /v1/admin/stats` (authed) + viewer Cloud stats panel.** Read-only observability snapshot: note/live-entry/asset/share/tombstone counts, DB + asset bytes, per-device `last_seen_at` / `last_pushed_at` / `note_count`, top 20 threads. Local viewer's `/cloud` page gets a new "Cloud stats" card that fetches this when paired, with a refresh button. Bearer token never leaves the local process — viewer proxies via `GET /api/cloud/stats`.
+- **Pull-side asset download.** When `syncOnce` pulls a foreign-origin note, the daemon scans its `body_html` for `/t/<thread>/asset/<file>` refs and downloads any bytes missing locally via the cloud's public asset endpoint. Sync output gains `assets_pulled=N`. Idempotent (existing non-empty files skipped) and validated against the same `isSafeAssetFilename` allowlist used on push.
+- **Real email delivery for `folio publish --recipient`.** Cloud relay now ships a pluggable mailer (`src/cloud/mailer.ts`) with two providers: **Resend** (HTTP-only — no SMTP lib dep; set `RESEND_API_KEY` + `FOLIO_MAIL_FROM`) and **console** (opt-in dev logger via `FOLIO_MAIL_DEV=1`). `POST /v1/share` accepts `recipient_email` plaintext alongside the existing `recipient_email_hash`; server derives + persists only the hash and uses plaintext for the outbound message. Response includes `email_sent` / `email_skipped` / `email_error` so the CLI can show a clear status line. Mismatched hash/plaintext pairs are rejected. Recipient confirmation flow (HttpOnly cookie gate) is unchanged.
+
+### Improved
+- **Sync output adds asset direction arrows** — `assets↑=N` (pushed) `assets↓=N` (pulled) in the daemon's per-iteration log line and the local `/cloud` page's sync result panel. Easier to tell at a glance whether you're publishing or consuming bytes on a given run.
+- **Cloud stats endpoint is on every release** — even before paging numbers matter, the per-device "last push / last seen" view makes it trivial to spot a phone that's been offline for weeks or a revoked laptop still listed.
+
+### Notes for operators
+
+Production VPS needs `sudo ./deploy/update.sh` to pick up the cloud changes. To enable outbound email, add to `/etc/folio-cloud/folio-cloud.env`:
+
+```
+RESEND_API_KEY=re_yourkeyhere
+FOLIO_MAIL_FROM=Folio <folio@yourdomain.tld>
+```
+
+Then `sudo systemctl restart folio-cloud`. The Resend "From" domain has to be verified in Resend first — otherwise sends fail and the CLI surfaces the API error. Skipping these vars leaves the share endpoint fully functional minus delivery; capability URLs work as before.
+
 ## v0.11.0 — 2026-05-14
 
 Multi-device + sharing maturity. Five post-MVP backlog items + token-hygiene polish. This release has cloud-side runtime changes — VPS deploys need `sudo ./deploy/update.sh` (or a re-run of `bootstrap.sh`) to pick up SSE forwarding, tombstones, recipient binding, and asset cascade.

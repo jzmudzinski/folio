@@ -33,6 +33,18 @@ tar czf folio-cloud-deploy.tar.gz \
 
 ## First-time install on VPS
 
+**Easiest — one-shot bootstrap** (downloads release + installs + prompts for public URL + generates first pairing code in one go):
+
+```bash
+ssh vps
+curl -L https://github.com/jzmudzinski/folio/raw/main/deploy/bootstrap.sh | sudo bash
+# (or set PUBLIC_URL=https://cloud.example.com to skip the prompt)
+```
+
+That covers detection (linux-x64 / linux-arm64), fetching the latest release tarball, running `install.sh`, writing the systemd drop-in with your public URL, restarting the service, generating the first pairing code, and printing a Caddy snippet to paste into your Caddyfile. You still do the DNS A-record + Caddy reload yourself — those are too environment-specific to automate safely.
+
+**Manual** (if you want to inspect every step):
+
 ```bash
 scp folio-cloud-deploy.tar.gz vps:/tmp/
 ssh vps

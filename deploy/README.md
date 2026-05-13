@@ -95,6 +95,45 @@ sudo ./deploy/update.sh
 `update.sh` overwrites `/opt/folio/folio` + themes/templates + restarts the
 service. Data in `/var/lib/folio-cloud/` is untouched.
 
+## Test cloud changes locally first
+
+Before pushing a new build to the VPS, run the cloud relay on the dev
+machine and exercise the changes against it. Saves the `bun build` →
+`scp` → `systemctl restart` round-trip on every iteration.
+
+```bash
+# Terminal 1 — local cloud relay on a sandboxed data dir + non-default port.
+FOLIO_CLOUD_HOME=/tmp/folio-cloud-dev \
+FOLIO_CLOUD_PORT=18081 \
+FOLIO_CLOUD_PUBLIC_URL=http://127.0.0.1:18081 \
+bun bin/folio.ts cloud serve
+
+# Terminal 2 — pair this laptop against the LOCAL cloud (separate from prod).
+FOLIO_CLOUD_HOME=/tmp/folio-cloud-dev bun bin/folio.ts cloud pair-code
+# → prints a code
+
+# In a browser: http://127.0.0.1:4810/cloud → paste http://127.0.0.1:18081
+# + the code → laptop is paired against the dev cloud.
+
+# Iterate: edit code, restart `bun bin/folio.ts cloud serve`, retry.
+```
+
+For the PWA path specifically, point Safari/Chrome at `http://127.0.0.1:18081`
+(or `http://localhost:18081`) and walk the install + pair flow as if it
+were prod. Service workers register on `http://` only against localhost,
+so the same SW behavior gets tested. Skip Caddy + TLS — they're handled
+by your VPS reverse proxy anyway, not by Folio.
+
+When done:
+```bash
+rm -rf /tmp/folio-cloud-dev      # wipe dev cloud state
+# `folio sync unpair` from the laptop if it picked up the dev token
+```
+
+Most W3 fixes (SW lifecycle, blob URL handshake, layout bugs) reproduce
+locally without ever touching the VPS. Reserve `scp + update.sh` for the
+final pass after everything works headless.
+
 ## Operational notes
 
 - **Logs:** `journalctl -u folio-cloud -f`

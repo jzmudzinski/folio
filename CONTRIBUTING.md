@@ -60,6 +60,27 @@ Bun ≥ 1.3 is required (`brew install oven-sh/bun/bun`). No build step in dev.
 
 Folio releases via `.github/workflows/release.yml` — tag push triggers a build of `darwin-arm64` + `linux-x64` + `linux-arm64` tarballs and attaches them to a GitHub release. After merging your PR, the maintainer tags `v0.X.Y` on the squashed commit and pushes the tag.
 
+### Pre-release checklist (maintainer)
+
+Before tagging `v0.X.Y`, walk this list. Items 1–4 are non-negotiable; 5–7 are friction-reducers learned the hard way.
+
+1. **Tests green** — both `bun test` (unit) and `bun run test:pwa` (Playwright headless browser).
+2. **CHANGELOG.md** entry for the new version. Group by Added / Fixed / Removed. Note known scope cuts honestly.
+3. **`folio doctor --offline`** on the dev machine shows no warnings other than the expected dev-vs-installed-path drift.
+4. **`bun build --compile --target=bun-linux-x64 ./bin/folio.ts --outfile /tmp/x`** succeeds and the resulting binary's `folio version` matches the new tag.
+5. **First-time-user walkthrough.** Pretend you've never used Folio. Walk through:
+   - download release tarball → `./install.sh` → `folio init`
+   - `folio new --title "Test" --type snippet --html-inline "<p>hi</p>"`
+   - `folio serve` → open in browser → look at sidebar
+   - `folio sync pair ...` against the dev cloud (see deploy/README.md "Test cloud changes locally")
+   - Install PWA from local cloud → tap a note → tap a thread → search
+   - `folio publish <id>` → open capability URL in incognito
+   - `folio delete <id>` → verify sync propagates → verify PWA refreshes empty
+   - `folio doctor` → all green
+   Anywhere this trips: file an issue or fix before tag.
+6. **README + docs in sync.** Any new CLI command in `src/cli/index.ts` should appear in the Commands table. Any new MCP tool in `src/mcp/server.ts` should appear in the Agent integration section.
+7. **Schema migration** (if applicable). New column? Migration in `src/core/migrations.ts` `up()`, index in `PHASE2_SCHEMA` of `db.ts`. See the load-bearing rule in the migrations.ts header comment. Add an upgrade-path test in `tests/migrations.test.ts` that opens a byte-for-byte previous-version db.
+
 ## Filing issues
 
 - Reproduction steps + actual vs expected behavior.

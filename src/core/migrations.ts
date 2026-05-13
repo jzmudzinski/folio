@@ -1,18 +1,51 @@
 // Schema migration framework.
 //
-// db.ts runs BASE_SCHEMA on every connection (CREATE TABLE IF NOT EXISTS …)
-// for greenfield installs. This module handles version-driven schema
-// evolution on existing databases — additive ALTER TABLEs that SQLite
-// doesn't support via IF NOT EXISTS.
+// db.ts uses a TWO-PHASE bootstrap (since v0.9.1):
+//   PHASE1_SCHEMA      meta table only — always safe, no column refs anywhere
+//   runMigrations()    ALTER TABLE ADD COLUMN for every column added since the
+//                      db was last opened. Greenfield installs skip this loop
+//                      because schema_version is seeded at HEAD before it runs.
+//   PHASE2_SCHEMA      tables + indexes — at this point every column referenced
+//                      by an index has either always existed or just been added
+//                      by a migration. CREATE INDEX IF NOT EXISTS is safe.
+//
+// THE LOAD-BEARING RULE for any schema change that touches existing tables:
+//
+//   1. New columns go ONLY via a migration's up() — never inline in
+//      PHASE1_SCHEMA or PHASE2_SCHEMA's CREATE TABLE block alone, because
+//      CREATE TABLE IF NOT EXISTS is a no-op on existing tables (the new
+//      column would never reach pre-existing dbs).
+//
+//      Caveat: also list the column in PHASE2_SCHEMA's CREATE TABLE so
+//      greenfield installs get the head shape directly. The migration
+//      handles upgrades; the CREATE TABLE handles fresh installs. Both
+//      converge to the same schema.
+//
+//   2. New indexes that reference the new column go in PHASE2_SCHEMA, not
+//      in the migration's up(). PHASE2 runs AFTER migrations on existing
+//      dbs, so the column is guaranteed to exist by then. CREATE INDEX
+//      IF NOT EXISTS in PHASE2 is the canonical place for all indexes.
+//
+//      Why not put the index in the migration too? Because greenfield
+//      installs skip migrations entirely — the index would never get
+//      created. Putting it in PHASE2 covers both paths.
+//
+//   3. Never edit a shipped migration's up(). Append a new entry to
+//      MIGRATIONS instead. A user who's at schema_version='3' will not
+//      re-run migration 1→2; if you "fix" 1→2 after shipping, users
+//      on >=3 never see the fix.
+//
+// The v0.9.0 → v0.9.1 hotfix is the cautionary tale: notes_by_live was
+// declared in BASE_SCHEMA next to the CREATE TABLE that should have added
+// `live`. CREATE TABLE IF NOT EXISTS was a no-op on existing tables, so
+// the column wasn't there, and CREATE INDEX hit "no such column: live"
+// on every upgrade.
 //
 // Pattern: each migration has {from, to, up}. Runner reads
 // meta.schema_version, applies any migration whose `from` matches the
 // current version, bumps to `to`, repeats until no migration applies.
 // Migrations must be idempotent (use PRAGMA table_info to check before
 // ALTER) so a partial run + re-run still converges.
-//
-// Adding a new schema change: append a new Migration to MIGRATIONS.
-// Never edit a shipped migration's `up` — write a new one.
 
 import type { Database } from "bun:sqlite";
 

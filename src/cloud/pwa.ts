@@ -87,6 +87,24 @@ header.top #ctx .back-link { color: var(--accent); text-decoration: none; font-w
 header.top #ctx .thread-name { font-family: 'Instrument Serif', serif; font-style: italic; font-size: 15px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .group-h { font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted-2); padding: 18px 12px 8px; }
 
+/* Add-device panel — small surface at the bottom of the home list that
+   lets a paired user generate a pairing code for another device without
+   touching SSH. Hidden by default; revealed when the link is tapped. */
+.add-device-link { display: block; text-align: center; margin: 36px 0 12px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted-2); text-decoration: none; padding: 12px; }
+.add-device-link:hover { color: var(--accent); }
+.add-device-panel { display: none; padding: 20px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin: 12px 0 60px; }
+.add-device-panel.shown { display: block; }
+.add-device-panel h3 { font-family: 'Familjen Grotesk'; font-weight: 500; margin: 0 0 8px; font-size: 17px; }
+.add-device-panel p { color: var(--muted); font-size: 13px; margin: 0 0 16px; line-height: 1.5; }
+.add-device-panel button.gen { width: 100%; padding: 12px 14px; font-size: 14px; font-weight: 600; background: var(--ink); color: var(--bg); border: 0; border-radius: 8px; cursor: pointer; font-family: inherit; }
+.add-device-panel button.gen:disabled { opacity: 0.5; cursor: wait; }
+.add-device-panel .code-box { margin-top: 18px; padding: 14px; background: var(--bg-2); border-radius: 8px; text-align: center; }
+.add-device-panel .code-box .lbl { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.add-device-panel .code-box .code { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 28px; letter-spacing: 6px; color: var(--ink); user-select: all; }
+.add-device-panel .code-box .hint { font-size: 12px; color: var(--muted); margin-top: 10px; }
+.add-device-panel .err { color: #a4253a; font-size: 13px; margin-top: 12px; display: none; }
+.add-device-panel .err.shown { display: block; }
+
 /* Pair page */
 .pair-wrap { max-width: 420px; margin: 60px auto; padding: 20px; }
 /* Pair page heading mirrors brand wordmark — Familjen Grotesk 500, orange dot. */
@@ -320,6 +338,51 @@ ${IDB_HELPERS_JS}
   setHeader({ thread: thread });
   loadFeed({ thread: thread });
 
+  // "Add another device" panel — paired user can generate codes here so a
+  // new phone/laptop can pair without anyone touching the cloud server.
+  // Token is read from IDB (same one used for the feed call); the cloud's
+  // /v1/auth/pair-code endpoint is bearer-authed.
+  const addLink = document.getElementById('add-device-link');
+  const addPanel = document.getElementById('add-device-panel');
+  if (addLink && addPanel) {
+    addLink.addEventListener('click', function(ev){
+      ev.preventDefault();
+      addPanel.classList.toggle('shown');
+      if (addPanel.classList.contains('shown')) {
+        addPanel.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }
+    });
+  }
+  const genBtn = document.getElementById('gen-code-btn');
+  if (genBtn) {
+    genBtn.addEventListener('click', async function(){
+      const errEl = document.getElementById('gen-code-err');
+      errEl.classList.remove('shown');
+      const orig = genBtn.textContent;
+      genBtn.disabled = true; genBtn.textContent = 'Generating…';
+      try {
+        const tok = await window.folioKV.get('token');
+        if (!tok) throw new Error('not paired — open /pair first');
+        const r = await fetch('/v1/auth/pair-code', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + tok }
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const body = await r.json();
+        const box = document.getElementById('gen-code-box');
+        document.getElementById('gen-code-value').textContent = body.code;
+        document.getElementById('gen-code-hint').textContent =
+          'expires ' + new Date(body.expires_at).toLocaleTimeString();
+        box.hidden = false;
+      } catch (e) {
+        errEl.textContent = e.message || String(e);
+        errEl.classList.add('shown');
+      } finally {
+        genBtn.disabled = false; genBtn.textContent = orig;
+      }
+    });
+  }
+
   // Debounced search input → server query.
   const q = document.getElementById('search');
   if (q) {
@@ -365,6 +428,18 @@ export function renderHome(publicUrl: string): string {
     <input id="search" class="search" type="search" placeholder="filter notes…" autocomplete="off" autocapitalize="none">
     <div id="list" class="list">
       <div class="loading">Loading…</div>
+    </div>
+    <a href="#" id="add-device-link" class="add-device-link">+ Add another device</a>
+    <div id="add-device-panel" class="add-device-panel">
+      <h3>Pair a new device</h3>
+      <p>Generate a one-shot 6-digit code, then enter it on the other device's pair screen (PWA <code>/pair</code> or local viewer <code>/cloud</code>) within 10 minutes.</p>
+      <button id="gen-code-btn" class="gen" type="button">Generate code</button>
+      <div id="gen-code-box" class="code-box" hidden>
+        <div class="lbl">Pairing code</div>
+        <div class="code" id="gen-code-value"></div>
+        <div class="hint" id="gen-code-hint"></div>
+      </div>
+      <div id="gen-code-err" class="err"></div>
     </div>
   </main>
   <script>${APP_SHELL_BOOTSTRAP_JS}</script>
@@ -489,7 +564,9 @@ function escapeHtml(s: string): string {
 //   v1 → v2: fetchWithAuth fix
 //   v2 → v3: nested-anchor fix + meta flex-wrap layout
 //   v3 → v4: hide thread chip in note rows when viewing a single thread
-export const SW_VERSION = "folio-pwa-4";
+//   v4 → v5: add-device panel on home so users can onboard new devices
+//             without touching the cloud server
+export const SW_VERSION = "folio-pwa-5";
 
 export function serviceWorkerJs(): string {
   return `// Folio PWA service worker — auth injection + offline cache.

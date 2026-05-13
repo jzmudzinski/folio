@@ -13,6 +13,7 @@
  * remote or auth token to call.
  */
 
+import { createHash } from "node:crypto";
 import { c, out, err, json as jsonOut } from "../io";
 import { loadSyncState } from "../../core/sync";
 import { getNoteMeta } from "../../core/storage";
@@ -22,7 +23,21 @@ export interface PublishOpts {
   expiresDays?: number;
   maxViews?: number;
   scope?: "note" | "thread";
+  /** Bind the share to a specific recipient's email — they confirm it
+   *  before the content renders. SHA-256 hash sent to cloud; the plaintext
+   *  email never leaves this device. Reduces blast radius of a URL leak
+   *  (recipient still needs the email to read). */
+  recipient?: string;
   jsonOut?: boolean;
+}
+
+/**
+ * Normalize + hash a recipient email. Lowercased, trimmed; doesn't try to
+ * validate format beyond "non-empty". The cloud stores only the hash, so
+ * even a sniffed DB row doesn't leak the address.
+ */
+export function recipientEmailHash(email: string): string {
+  return createHash("sha256").update(email.trim().toLowerCase(), "utf8").digest("hex");
 }
 
 export async function publishCmd(opts: PublishOpts): Promise<number> {
@@ -57,12 +72,15 @@ export async function publishCmd(opts: PublishOpts): Promise<number> {
     }
   }
 
-  const body = {
+  const body: Record<string, unknown> = {
     scope_type,
     scope_id,
     expires_in_days: opts.expiresDays ?? 7,
     max_views: opts.maxViews ?? null,
   };
+  if (opts.recipient && opts.recipient.trim()) {
+    body.recipient_email_hash = recipientEmailHash(opts.recipient);
+  }
   const res = await fetch(`${state.remote}/v1/share`, {
     method: "POST",
     headers: {
@@ -98,6 +116,9 @@ export async function publishCmd(opts: PublishOpts): Promise<number> {
   }
   if (respBody.max_views !== null) {
     out(`  ${c.dim("max views")} ${respBody.max_views}`);
+  }
+  if (opts.recipient) {
+    out(`  ${c.dim("recipient")} ${opts.recipient} ${c.dim("(must confirm email on first visit)")}`);
   }
   out("");
   out(c.dim("  Revoke with: ") + `folio shares revoke ${respBody.token.slice(0, 8)}…`);

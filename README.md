@@ -241,7 +241,11 @@ Re-attaching the same filename overwrites in place (idempotent uploads). Notes t
 The relay is the same Folio binary in a different mode:
 
 ```bash
-# On a VPS (the operator side):
+# On a VPS (the operator side) — one-shot bootstrap, all of the below:
+curl -L https://github.com/jzmudzinski/folio/raw/main/deploy/bootstrap.sh \
+  | sudo PUBLIC_URL=https://folio.example.com bash
+
+# Or step-by-step if you'd rather inspect:
 sudo ./deploy/install.sh        # systemd unit, bare-metal, no docker — see deploy/README.md
 sudo systemctl edit folio-cloud # set FOLIO_CLOUD_PUBLIC_URL=https://folio.example.com
 sudo systemctl restart folio-cloud

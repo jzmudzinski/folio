@@ -24,6 +24,7 @@
  */
 
 import { cloudDb } from "./db";
+import { subscribe as subscribeLiveStream } from "./sse-hub";
 import {
   authenticate,
   consumePairingCode,
@@ -41,7 +42,7 @@ import {
   readAsset,
   type PushPayload,
 } from "./sync";
-import { renderNotePage, renderStandaloneNote, renderSharedNotePage, renderSharedThreadPage } from "./render";
+import { renderNotePage, renderStandaloneNote, renderSharedNotePage, renderSharedThreadPage, renderRecipientConfirm } from "./render";
 import { renderHome, renderPair, serviceWorkerJs, manifestJson, FOLIO_ICON_SVG, SW_VERSION } from "./pwa";
 import {
   createShare,
@@ -90,20 +91,83 @@ function sharedHeaders(): Record<string, string> {
  * (including iframe-loaded /raw/ — each child iframe load counts). For
  * MVP this is fine; if it becomes noisy, throttle by token+UA later.
  */
-function handleCapabilityRoute(path: string, method: string): Response {
-  if (method !== "GET") {
-    return new Response("method not allowed", { status: 405 });
-  }
+async function handleCapabilityRoute(req: Request, path: string, method: string): Promise<Response> {
   const parts = path.split("/").filter(Boolean); // ["p", token, kind, id, ...]
-  if (parts.length < 4 || parts[0] !== "p") {
+  if (parts.length < 3 || parts[0] !== "p") {
     return new Response("not found", { status: 404 });
   }
   const token = parts[1]!;
+  const share = getShare(token);
+  if (!share) return new Response("not found", { status: 404 });
+
+  // POST /p/:token/confirm-recipient — handles the email-confirmation form
+  // for recipient-bound shares. Sets a path-scoped HttpOnly cookie on
+  // match; subsequent GETs to /p/:token/* see the cookie and skip the
+  // confirmation gate.
+  if (parts.length === 3 && parts[2] === "confirm-recipient" && method === "POST") {
+    if (!share.recipient_email_hash) return new Response("not found", { status: 404 });
+    let email = "";
+    try {
+      const ct = (req.headers.get("content-type") ?? "").toLowerCase();
+      if (ct.includes("application/x-www-form-urlencoded")) {
+        const body = new URLSearchParams(await req.text());
+        email = body.get("email") ?? "";
+      } else if (ct.includes("application/json")) {
+        const body = (await req.json()) as { email?: string };
+        email = body.email ?? "";
+      }
+    } catch {}
+    email = email.trim().toLowerCase();
+    if (!email) return new Response("email required", { status: 400 });
+    const { createHash } = require("node:crypto") as typeof import("node:crypto");
+    const submitted = createHash("sha256").update(email, "utf8").digest("hex");
+    if (submitted !== share.recipient_email_hash) {
+      return new Response(renderRecipientConfirm(token, "Email doesn't match. Try again."), {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+    // Match. Set a path-scoped HttpOnly cookie tied to this token.
+    // Max-Age picks the lesser of "share expires_at" and "24 hours" so the
+    // confirmation doesn't outlive the link itself.
+    const ttlSec = share.expires_at
+      ? Math.min(86400, Math.max(60, Math.floor((new Date(share.expires_at).getTime() - Date.now()) / 1000)))
+      : 86400;
+    return new Response(null, {
+      status: 303,
+      headers: {
+        Location: `/p/${token}/${share.scope_type === "note" ? "n" : "t"}/${share.scope_id}`,
+        "Set-Cookie": `folio_share_${token}=1; Path=/p/${token}/; Max-Age=${ttlSec}; HttpOnly; SameSite=Strict`,
+        "Referrer-Policy": "no-referrer",
+      },
+    });
+  }
+
+  if (method !== "GET") {
+    return new Response("method not allowed", { status: 405 });
+  }
+  if (parts.length < 4) return new Response("not found", { status: 404 });
   const kind = parts[2]!;
   const id = parts.slice(3).join("/");
 
-  const share = getShare(token);
-  if (!share) return new Response("not found", { status: 404 });
+  // Recipient-bound shares: gate every read with a cookie check. Allow
+  // asset sub-resources through (img refs in a confirmed iframe shouldn't
+  // re-prompt) — the iframe already passed the confirmation when /n/ loaded.
+  if (share.recipient_email_hash && kind !== "t" /* allow asset path below */) {
+    // Asset path under /t/<thread>/asset/<filename> is fine — image fetch
+    // from inside the iframe; if the iframe is loaded, the visitor already
+    // passed confirmation. Note pages (/n/) and raw bodies need the cookie.
+    if (kind === "n" || kind === "raw") {
+      const cookie = req.headers.get("cookie") ?? "";
+      const wanted = `folio_share_${token}=1`;
+      if (!cookie.split(";").some((c) => c.trim() === wanted)) {
+        return new Response(renderRecipientConfirm(token, null), {
+          status: 200,
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        });
+      }
+    }
+  }
 
   // /p/:token/t/:thread/asset/:filename — capability-scoped asset access.
   // The share must cover the requested thread (either thread-scoped to it,
@@ -295,13 +359,20 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
       // credential; server validates on every hit. Atomic view_count bump
       // happens after the response is rendered (caller chooses idempotency).
       if (path.startsWith("/p/")) {
-        return handleCapabilityRoute(path, method);
+        return handleCapabilityRoute(req, path, method);
       }
 
       // Auth: public paths skip; everything else needs a valid bearer.
+      // SSE live-stream is a special case: EventSource can't send custom
+      // headers (browser API), so the token rides in a query param. We
+      // accept either header or query param ONLY for that route, and only
+      // for that route — every other path stays bearer-header-only.
       let device: Device | null = null;
       if (!isPublicPath(path)) {
-        const token = extractBearer(req);
+        let token = extractBearer(req);
+        if (!token && path === "/v1/sync/live-stream") {
+          token = url.searchParams.get("token");
+        }
         if (!token) return unauthorized();
         device = authenticate(token);
         if (!device) return unauthorized();
@@ -461,6 +532,68 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
           return json(result);
         }
 
+        // SSE stream of live entries for a single note. Subscribers (PWA,
+        // CLI `curl -N …`) get fanout from handlePush whenever a fresh
+        // live_entry arrives for that uuid. No historical replay — the
+        // caller should fetch /raw/:uuid for the current state and use
+        // the stream for what's new SINCE the connection opened.
+        if (path === "/v1/sync/live-stream" && method === "GET") {
+          const noteUuid = url.searchParams.get("note_uuid");
+          if (!noteUuid) return badRequest("note_uuid query param required");
+          // Verify the note exists + is live + not finalized. Skip subscribers
+          // for non-live or finalized notes — they'd just hang forever.
+          const row = cloudDb()
+            .query<{ live: number; is_final: number }, [string]>(
+              "SELECT live, is_final FROM notes WHERE uuid = ?"
+            )
+            .get(noteUuid);
+          if (!row) return notFound("note not found");
+          if (row.live !== 1) return badRequest("note is not a live note");
+          if (row.is_final === 1) return badRequest("note is finalized");
+
+          const stream = new ReadableStream({
+            start(controller) {
+              const enc = new TextEncoder();
+              // Initial "ready" so the client knows the connection is live.
+              controller.enqueue(enc.encode(":ok\n\n"));
+              const unsub = subscribeLiveStream(noteUuid, (frame) => {
+                try {
+                  // event: entry — matches what the local viewer emits, so
+                  // client code can be shared.
+                  const data = JSON.stringify(frame);
+                  controller.enqueue(enc.encode(`event: entry\nid: ${frame.id}\ndata: ${data}\n\n`));
+                } catch {
+                  // controller closed; unsubscribe handled by cancel below.
+                }
+              });
+              // Heartbeat every 25s — keeps proxies from idling out the
+              // connection on quiet streams (Caddy default is ~60s).
+              const heartbeat = setInterval(() => {
+                try { controller.enqueue(enc.encode(":hb\n\n")); } catch {}
+              }, 25_000);
+              (controller as any)._folioCleanup = () => {
+                clearInterval(heartbeat);
+                unsub();
+              };
+            },
+            cancel() {
+              // Cancel fires when the client disconnects. Tear down the
+              // subscription so the channel can be GC'd.
+              const ctrl = this as any;
+              if (ctrl._folioCleanup) ctrl._folioCleanup();
+            },
+          });
+          return new Response(stream, {
+            status: 200,
+            headers: {
+              "Content-Type": "text/event-stream; charset=utf-8",
+              "Cache-Control": "no-cache, no-transform",
+              "X-Accel-Buffering": "no", // disable buffering at nginx if present
+              Connection: "keep-alive",
+            },
+          });
+        }
+
         if (path === "/v1/sync/pull" && method === "GET") {
           const since = Number(url.searchParams.get("since") ?? 0);
           if (!Number.isFinite(since) || since < 0) return badRequest("invalid since cursor");
@@ -474,6 +607,7 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
             scope_id?: string;
             expires_in_days?: number | null;
             max_views?: number | null;
+            recipient_email_hash?: string | null;
           }>(req);
           if (body.scope_type !== "note" && body.scope_type !== "thread") {
             return badRequest("scope_type must be 'note' or 'thread'");
@@ -486,6 +620,7 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
               created_by_device: device!.id,
               expires_in_days: body.expires_in_days ?? 7,
               max_views: body.max_views ?? null,
+              recipient_email_hash: body.recipient_email_hash ?? null,
             });
             const scopePath =
               share.scope_type === "note"
@@ -654,14 +789,26 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
           const m = path.match(/^\/raw\/([0-9A-Za-z-]+)$/);
           if (m && method === "GET") {
             const row = cloudDb()
-              .query<{ title: string; theme: string; body_html: string }, [string]>(
-                "SELECT title, theme, body_html FROM notes WHERE uuid = ?"
+              .query<
+                { title: string; theme: string; body_html: string; live: number; is_final: number },
+                [string]
+              >(
+                "SELECT title, theme, body_html, live, is_final FROM notes WHERE uuid = ?"
               )
               .get(m[1]!);
             if (!row) return notFound("note not found");
+            // Expose live/is_final via response headers so the /n/:uuid
+            // shell can decide whether to open the SSE stream without an
+            // extra metadata roundtrip. Custom X-Folio-* names — never
+            // collide with anything Caddy/Traefik care about.
+            const headers: Record<string, string> = {
+              ...rawNoteHeaders(),
+              "X-Folio-Live": row.live === 1 ? "1" : "0",
+              "X-Folio-Final": row.is_final === 1 ? "1" : "0",
+            };
             return new Response(
               renderStandaloneNote({ title: row.title, theme: row.theme, bodyHtml: row.body_html }),
-              { status: 200, headers: rawNoteHeaders() }
+              { status: 200, headers }
             );
           }
         }

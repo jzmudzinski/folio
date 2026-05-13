@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { createHash } from "node:crypto";
 import { cloudDb, cloudAssetsDir, nextSeq } from "./db";
+import { publish as publishLiveEntry } from "./sse-hub";
 
 export interface PushNote {
   uuid: string;
@@ -63,14 +64,27 @@ export interface PushAccepted {
   notes: { uuid: string; canonical_slug: string }[];
   live_entries: { id: string; note_uuid: string }[];
   deletes: string[];
+  /** Count of asset blobs hard-deleted as orphans (no remaining note
+   *  references them). Surfaces in the response so operators can see
+   *  storage being reclaimed; not part of cursor advance. */
+  assets_deleted: number;
   cursor: number;
 }
 
 export interface PullPayload {
   notes: PullNote[];
   live_entries: PullLiveEntry[];
+  tombstones: PullTombstone[];
   assets: PullAsset[];
   cursor: number;
+}
+
+export interface PullTombstone {
+  uuid: string;
+  thread_id: string;
+  origin_device_id: string | null;
+  deleted_at: string;
+  server_seq: number;
 }
 
 export interface PullNote {
@@ -137,7 +151,7 @@ function resolveSlug(db: Database, threadId: string, desiredSlug: string, uuid: 
 }
 
 export function handlePush(payload: PushPayload, originDeviceId: string, db: Database = cloudDb()): PushAccepted {
-  const accepted: PushAccepted = { notes: [], live_entries: [], deletes: [], cursor: 0 };
+  const accepted: PushAccepted = { notes: [], live_entries: [], deletes: [], assets_deleted: 0, cursor: 0 };
   const tx = db.transaction(() => {
     for (const n of payload.notes ?? []) {
       const canonicalSlug = resolveSlug(db, n.thread_id, n.slug, n.uuid);
@@ -219,16 +233,71 @@ export function handlePush(payload: PushPayload, originDeviceId: string, db: Dat
       );
       accepted.live_entries.push({ id: e.id, note_uuid: e.note_uuid });
       accepted.cursor = Math.max(accepted.cursor, seq);
+      // Fan out to any /v1/sync/live-stream subscribers on this note.
+      // No-op if nobody's listening, so safe to call unconditionally.
+      publishLiveEntry(e.note_uuid, {
+        id: e.id,
+        note_uuid: e.note_uuid,
+        ts: e.ts,
+        content_html: e.content_html,
+        tags: e.tags ?? [],
+        occurred_at: e.occurred_at ?? null,
+        refs: e.refs ?? [],
+        importance: e.importance ?? null,
+        source_ref: e.source_ref ?? null,
+      });
     }
     // Deletes are processed last so they don't fight with concurrent pushes
     // of the same uuid (idempotent push then delete = empty after).
     // FK ON DELETE CASCADE on note_tags + live_entries cleans those up.
+    // We also insert a tombstone row so other devices learn about this
+    // delete via pull — without tombstones the deleted note simply
+    // disappears from the active-notes window and pull silently misses it.
     // Shares pointing at a deleted scope_id become 404 on next access
     // (validateShareAccess looks up the note); we don't bother revoking
     // them, expiry + TTL handle that.
     for (const uuid of payload.deletes ?? []) {
+      // Look up thread_id + origin + body BEFORE deleting:
+      //   - thread_id + origin: needed for the tombstone metadata
+      //   - body_html: needed to extract asset refs so we can GC any
+      //     orphan blobs (assets that were only referenced by this note)
+      const meta = db
+        .query<{ thread_id: string; origin_device_id: string | null; body_html: string }, [string]>(
+          "SELECT thread_id, origin_device_id, body_html FROM notes WHERE uuid = ?"
+        )
+        .get(uuid);
       const res = db.run("DELETE FROM notes WHERE uuid = ?", [uuid]);
-      if ((res.changes ?? 0) > 0) accepted.deletes.push(uuid);
+      if ((res.changes ?? 0) > 0) {
+        accepted.deletes.push(uuid);
+        const seq = nextSeq(db);
+        db.run(
+          `INSERT INTO tombstones (uuid, thread_id, origin_device_id, deleted_at, server_seq)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(uuid) DO UPDATE SET
+             thread_id = excluded.thread_id,
+             origin_device_id = excluded.origin_device_id,
+             deleted_at = excluded.deleted_at,
+             server_seq = excluded.server_seq`,
+          [
+            uuid,
+            meta?.thread_id ?? "",
+            meta?.origin_device_id ?? originDeviceId,
+            new Date().toISOString(),
+            seq,
+          ]
+        );
+        accepted.cursor = Math.max(accepted.cursor, seq);
+
+        // Asset orphan cleanup. For each (thread, filename) referenced by
+        // the doomed note, check if any remaining active note still cites
+        // it (LIKE scan on body_html). If zero references → unlink blob +
+        // delete the assets row. Cheap at this scale; if note count grows
+        // into the tens of thousands, swap to a refcount table maintained
+        // on push.
+        if (meta?.body_html) {
+          accepted.assets_deleted += sweepOrphanAssetsFor(meta.body_html, db);
+        }
+      }
     }
   });
   tx();
@@ -321,13 +390,32 @@ export function handlePull(since: number, db: Database = cloudDb()): PullPayload
     for (const r of rows) tagsByNote.get(r.note_uuid)?.push(r.tag);
   }
 
+  // Tombstones since cursor — cross-device delete propagation.
+  const tombstones: PullTombstone[] = db
+    .query<
+      {
+        uuid: string;
+        thread_id: string;
+        origin_device_id: string | null;
+        deleted_at: string;
+        server_seq: number;
+      },
+      [number]
+    >(
+      `SELECT uuid, thread_id, origin_device_id, deleted_at, server_seq
+         FROM tombstones WHERE server_seq > ? ORDER BY server_seq ASC`
+    )
+    .all(since);
+
   const maxSeq = Math.max(
     since,
     ...notes.map((n) => n.server_seq),
-    ...entries.map((e) => e.server_seq)
+    ...entries.map((e) => e.server_seq),
+    ...tombstones.map((t) => t.server_seq)
   );
 
   return {
+    tombstones,
     notes: notes.map((n) => ({
       uuid: n.uuid,
       slug: n.slug,
@@ -438,6 +526,73 @@ export function storeAsset(
     [hash, filename, threadId, contentType, bytes.byteLength, rel, new Date().toISOString()]
   );
   return { hash, size_bytes: bytes.byteLength, stored: true };
+}
+
+/**
+ * Sweep orphan assets referenced by `bodyHtml` (the body of a just-deleted
+ * note). For each (thread_id, filename) cited there, check if any remaining
+ * active note's body still references the same path. Zero references →
+ * unlink the blob file + remove the assets row.
+ *
+ * Idempotent and safe: if the same body's been deleted twice, the second
+ * pass finds the asset rows already gone and no-ops. LIKE scan cost is
+ * O(n_assets × n_notes); fine at MVP scale (~hundreds of each). If the
+ * deck ever grows past ~10k of either, replace with a per-asset refcount
+ * column maintained on push.
+ */
+function sweepOrphanAssetsFor(bodyHtml: string, db: Database): number {
+  // Same regex as core/sync.ts extractAssetRefs — duplicated locally to
+  // avoid pulling in core's full module graph. If the pattern changes,
+  // update both call sites.
+  const re = /(?:href|src)\s*=\s*["']([^"']*)\/t\/([^/"']+)\/asset\/([^"'?#]+)["']/g;
+  const seen = new Set<string>();
+  const refs: Array<{ thread_id: string; filename: string }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(bodyHtml)) !== null) {
+    const thread_id = decodeURIComponent(m[2]!);
+    const filename = decodeURIComponent(m[3]!);
+    const key = `${thread_id}/${filename}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    refs.push({ thread_id, filename });
+  }
+  if (refs.length === 0) return 0;
+
+  let deleted = 0;
+  for (const r of refs) {
+    // Cheap escape for LIKE (% and _ are wildcards; the filename comes from
+    // body_html which sanitize-html already vetted, but defense in depth).
+    const fnSafe = r.filename.replace(/[\\%_]/g, "\\$&");
+    const trSafe = r.thread_id.replace(/[\\%_]/g, "\\$&");
+    const needle = `%/t/${trSafe}/asset/${fnSafe}%`;
+    // ESCAPE '\' — SQLite requires a single-character escape; JS double-
+    // backslash unescapes to one in the SQL string. Matches the convention
+    // already used in cloud/server.ts /v1/feed query escaping.
+    const stillRef = db
+      .query<{ n: number }, [string]>(
+        "SELECT COUNT(*) AS n FROM notes WHERE body_html LIKE ? ESCAPE '\\'"
+      )
+      .get(needle);
+    if (stillRef && stillRef.n > 0) continue; // someone else still uses it
+
+    // Orphan. Pull the row to get the blob_path, unlink, then delete.
+    const asset = db
+      .query<{ hash: string; blob_path: string }, [string, string]>(
+        "SELECT hash, blob_path FROM assets WHERE thread_id = ? AND filename = ?"
+      )
+      .get(r.thread_id, r.filename);
+    if (!asset) continue;
+    const abs = join(cloudAssetsDir(), asset.blob_path);
+    try {
+      if (existsSync(abs)) require("node:fs").unlinkSync(abs);
+    } catch {
+      // Best effort. If unlink fails the DB row still goes away; orphan
+      // bytes are scary to keep around vs accepted as one-off leak.
+    }
+    db.run("DELETE FROM assets WHERE hash = ?", [asset.hash]);
+    deleted++;
+  }
+  return deleted;
 }
 
 export function readAsset(hash: string, db: Database = cloudDb()):

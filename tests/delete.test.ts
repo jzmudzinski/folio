@@ -170,6 +170,83 @@ test("CLI folio delete: happy path with --yes bypasses prompt", async () => {
   expect(existsSync(join(homeDir, ".trash", note.id, "note.html"))).toBe(true);
 });
 
+test("cross-device tombstone: foreign device's delete propagates to this device via pull", async () => {
+  // Setup: two devices share a cloud. This device pairs as "selfDevice".
+  // We simulate device A pushing a note, then DELETING it, then verify
+  // this device's pull picks up the tombstone and removes the local copy.
+  const { createNote } = await import("../src/core/storage");
+  const { loadSyncState, syncOnce } = await import("../src/core/sync");
+  const { handlePush } = await import("../src/cloud/sync");
+  const { getNoteMeta } = await import("../src/core/storage");
+
+  // Local note from another (foreign) device, simulated by direct cloud push.
+  const foreignDeviceId = "01HXOTHER0000000000000000XX";
+  const foreignUuid = "01HXTOMB000000000000000A";
+  handlePush(
+    {
+      notes: [{
+        uuid: foreignUuid,
+        slug: "foreign-doomed",
+        thread_id: "tombstones",
+        title: "Foreign doomed note",
+        type: "research",
+        body_html: "<p>about to be deleted on the foreign device</p>",
+        created_at: "2026-05-13T10:00:00Z",
+      }],
+    },
+    foreignDeviceId,
+  );
+
+  // Pull on this device — note appears locally.
+  const state = loadSyncState()!;
+  await syncOnce(state);
+  expect(getNoteMeta(foreignUuid)).not.toBeNull();
+  const localPath = getNoteMeta(foreignUuid)!.path;
+  expect(existsSync(join(homeDir, localPath))).toBe(true);
+
+  // Foreign device deletes the note (server-side: hard-DELETE notes row +
+  // INSERT tombstone). syncOnce on this device should apply.
+  handlePush(
+    { deletes: [foreignUuid] },
+    foreignDeviceId,
+  );
+
+  const r = await syncOnce(state);
+  expect(r.deletes_applied).toBe(1);
+
+  // Local row is gone from active set (getNoteMeta filters status='active').
+  expect(getNoteMeta(foreignUuid)).toBeNull();
+  // File moved to .trash/<uuid>/note.html — same path as a manual delete.
+  expect(existsSync(join(homeDir, ".trash", foreignUuid, "note.html"))).toBe(true);
+});
+
+test("tombstone: own-echo skipped (pulling back a delete we initiated)", async () => {
+  // Create + sync own note, then delete locally + sync, then sync AGAIN —
+  // the tombstone we created on the cloud comes back via pull with
+  // origin=self. applyPulledTombstone should skip (file's already trashed
+  // locally; double-apply would be a no-op but we want to skip cleanly).
+  const { createNote, getNoteMeta, deleteNote } = await import("../src/core/storage");
+  const { loadSyncState, syncOnce } = await import("../src/core/sync");
+
+  const note = await createNote({
+    type: "snippet",
+    title: "Own delete cycle",
+    body_html: "<p>x</p>",
+    thread_id: "tombstones",
+  });
+  await syncOnce(loadSyncState()!);
+
+  deleteNote(note.id);
+  const r1 = await syncOnce(loadSyncState()!);
+  expect(r1.deleted).toBe(1);
+  expect(r1.deletes_applied).toBe(0); // own delete, not via tombstone
+
+  // Second sync — the tombstone IS in pull response but origin matches self.
+  const r2 = await syncOnce(loadSyncState()!);
+  expect(r2.deletes_applied).toBe(0);
+  expect(getNoteMeta(note.id)).toBeNull(); // still gone, idempotent
+});
+
 test("viewer /api/notes/:id/delete: POST returns deleted + soft-deletes the note", async () => {
   // Spin up a viewer alongside the cloud server (port 0).
   const { writeFileSync, readFileSync } = await import("node:fs");

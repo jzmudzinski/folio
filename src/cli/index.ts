@@ -257,6 +257,7 @@ export async function main(argv = process.argv): Promise<number> {
           expiresDays: flagInt(flags["expires-days"]),
           maxViews: flagInt(flags["max-views"]),
           scope: flagStr(flags.scope) as any,
+          recipient: flagStr(flags.recipient),
           jsonOut: flagBool(flags.json),
         });
       case "shares":

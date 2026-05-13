@@ -83,9 +83,12 @@ export function loadSyncState(): SyncState | null {
 export function saveSyncState(state: SyncState): void {
   const p = statePath();
   if (!existsSync(dirname(p))) mkdirSync(dirname(p), { recursive: true });
-  // Atomic write via tmp + rename.
+  // Atomic write via tmp + rename. chmod 600 BEFORE the rename so the file
+  // never appears in its final path with broader permissions — protects
+  // the bearer token from world-readable umasks. On Windows chmod is a
+  // no-op; the file lives in the user's home anyway.
   const tmp = `${p}.tmp`;
-  writeFileSync(tmp, JSON.stringify(state, null, 2));
+  writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
   renameSync(tmp, p);
 }
 
@@ -327,8 +330,17 @@ interface PushAcceptedResp {
 interface PullResp {
   notes: PullNote[];
   live_entries: PullLiveEntry[];
+  tombstones?: PullTombstone[]; // Optional for back-compat with older cloud builds
   assets: unknown[];
   cursor: number;
+}
+
+interface PullTombstone {
+  uuid: string;
+  thread_id: string;
+  origin_device_id: string | null;
+  deleted_at: string;
+  server_seq: number;
 }
 
 interface PullNote {
@@ -376,6 +388,9 @@ export interface SyncStepResult {
   live_pulled: number;
   renamed: number;
   deleted: number;
+  /** Cross-device deletes applied via tombstones on this pull. Distinct from
+   *  `deleted`, which counts THIS device's outgoing pushed deletes. */
+  deletes_applied: number;
   assets_pushed: number;
 }
 
@@ -590,7 +605,7 @@ export async function pushLiveEntries(state: SyncState, selfDeviceId: string): P
 
 // ----- Pull step -----
 
-export async function pullNotes(state: SyncState, selfDeviceId: string): Promise<{ pulled: number; live_pulled: number }> {
+export async function pullNotes(state: SyncState, selfDeviceId: string): Promise<{ pulled: number; live_pulled: number; deletes_applied: number }> {
   const url = `${state.remote}/v1/sync/pull?since=${state.last_pulled_seq}`;
   const resp = await http<PullResp>("GET", url, state.device_token);
   if (!resp) throw new Error("pull: empty response");
@@ -616,8 +631,20 @@ export async function pullNotes(state: SyncState, selfDeviceId: string): Promise
     if (applyPulledLiveEntry(e)) live_pulled++;
   }
 
+  // Apply tombstones: foreign devices deleted these notes; mirror locally so
+  // the laptop's view matches the cloud truth. Own deletes propagated via
+  // pushDeletes already moved the file to .trash and flipped status, so
+  // re-applying is a no-op (storage.deleteNote returns not-found gracefully).
+  let deletes_applied = 0;
+  for (const t of resp.tombstones ?? []) {
+    if (t.origin_device_id === selfDeviceId) continue; // own echo
+    const { deleteNote } = await import("./storage");
+    const res = deleteNote(t.uuid);
+    if (res.ok) deletes_applied++;
+  }
+
   state.last_pulled_seq = resp.cursor;
-  return { pulled, live_pulled };
+  return { pulled, live_pulled, deletes_applied };
 }
 
 async function applyPulledNote(n: PullNote): Promise<void> {
@@ -788,6 +815,7 @@ export async function syncOnce(state: SyncState): Promise<SyncStepResult> {
     renamed: pushR.renamed,
     live_pushed: liveR,
     deleted: deletedR,
+    deletes_applied: pullR.deletes_applied,
     assets_pushed: pushR.assets_pushed,
   };
 }

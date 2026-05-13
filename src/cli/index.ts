@@ -19,6 +19,7 @@ import { tailCmd } from "./commands/tail";
 import { cloudCmd } from "./commands/cloud";
 import { syncCmd } from "./commands/sync";
 import { publishCmd, sharesCmd } from "./commands/publish";
+import { deleteCmd } from "./commands/delete";
 import { c, out } from "./io";
 
 interface ParsedArgs {
@@ -68,6 +69,7 @@ function help(): number {
   out(`  ${c.cyan("append <id>")}       Append entry to a live note (--content @file, --tags, --refs, --importance, --source-ref, --occurred-at)`);
   out(`  ${c.cyan("tail <id>")}         Stream live entries from /n/:id/stream — needs folio serve (--json)`);
   out(`  ${c.cyan("finalize <id>")}     Mark note as final (skip auto-cleanup); for live notes compiles entries into body`);
+  out(`  ${c.cyan("delete <id>")}       Soft-delete a note (moves to ~/Folio/.trash/, recoverable 7d, propagates to cloud) — flag: --yes`);
   out(`  ${c.cyan("open <id|slug>")}    Open note in default browser (via viewer)`);
   out(`  ${c.cyan("stats")}             Show counts + analytics`);
   out(`  ${c.cyan("cleanup")}           Auto-trash non-final notes past expiry (--dry-run, --grace-days N)`);
@@ -173,6 +175,13 @@ export async function main(argv = process.argv): Promise<number> {
         });
       case "finalize":
         return await finalizeCmd(positional[0] ?? "");
+      case "delete":
+      case "rm":
+        return await deleteCmd({
+          id: positional[0] ?? flagStr(flags.id),
+          yes: flagBool(flags.yes) || flagBool(flags.y),
+          jsonOut: flagBool(flags.json),
+        });
       case "open":
         return await openCmd(positional[0] ?? "");
       case "stats":

@@ -55,6 +55,11 @@ export interface SyncState {
   last_pushed_at: string | null; // ISO; null on first run
   /** Per-note last entry id pushed to cloud, for incremental live-entry push. */
   last_live_pushed: Record<string, string>;
+  /** ISO timestamp of the most recent trashed-note `updated` field we've
+   *  pushed a delete for. Decoupled from last_pushed_at because a delete
+   *  bumps `updated` but doesn't bump `created`, so the active-notes cursor
+   *  wouldn't move past it. Null on first run. */
+  last_delete_pushed_at?: string | null;
 }
 
 function statePath(): string {
@@ -265,6 +270,36 @@ export interface SyncStepResult {
   live_pushed: number;
   live_pulled: number;
   renamed: number;
+  deleted: number;
+}
+
+/**
+ * Push deletions of locally-trashed notes to the cloud. Independent cursor
+ * (`last_delete_pushed_at`) because a delete bumps `updated` but not
+ * `created`, so it'd be invisible to pushNotes' active-notes window.
+ */
+export async function pushDeletes(state: SyncState, selfDeviceId: string): Promise<number> {
+  const cursor = state.last_delete_pushed_at ?? "1970-01-01T00:00:00Z";
+  const rows = db()
+    .query<{ id: string; updated: string }, [string, string]>(
+      `SELECT id, updated FROM notes
+        WHERE status = 'trashed'
+          AND (origin_device_id IS NULL OR origin_device_id = ?)
+          AND updated > ?
+        ORDER BY updated ASC
+        LIMIT 100`
+    )
+    .all(selfDeviceId, cursor);
+  if (rows.length === 0) return 0;
+  const uuids = rows.map((r) => r.id);
+  await http<{ deletes: string[]; cursor: number }>(
+    "POST",
+    `${state.remote}/v1/sync/push`,
+    state.device_token,
+    { deletes: uuids }
+  );
+  state.last_delete_pushed_at = rows.reduce((acc, r) => (r.updated > acc ? r.updated : acc), cursor);
+  return uuids.length;
 }
 
 export async function pushNotes(state: SyncState, selfDeviceId: string): Promise<{ pushed: number; renamed: number }> {
@@ -614,6 +649,7 @@ export async function syncOnce(state: SyncState): Promise<SyncStepResult> {
   // reverse case defensively, but this ordering avoids the dance when it can.)
   const pushR = await pushNotes(state, self.id);
   const liveR = await pushLiveEntries(state, self.id);
+  const deletedR = await pushDeletes(state, self.id);
   const pullR = await pullNotes(state, self.id);
   saveSyncState(state);
   return {
@@ -622,5 +658,6 @@ export async function syncOnce(state: SyncState): Promise<SyncStepResult> {
     pushed: pushR.pushed,
     renamed: pushR.renamed,
     live_pushed: liveR,
+    deleted: deletedR,
   };
 }

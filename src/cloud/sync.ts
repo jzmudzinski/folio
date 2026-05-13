@@ -54,11 +54,15 @@ export interface PushLiveEntry {
 export interface PushPayload {
   notes?: PushNote[];
   live_entries?: PushLiveEntry[];
+  /** UUIDs to delete. Cascade drops note_tags + live_entries. Idempotent —
+   *  re-sending uuids that no longer exist is a silent no-op. */
+  deletes?: string[];
 }
 
 export interface PushAccepted {
   notes: { uuid: string; canonical_slug: string }[];
   live_entries: { id: string; note_uuid: string }[];
+  deletes: string[];
   cursor: number;
 }
 
@@ -133,7 +137,7 @@ function resolveSlug(db: Database, threadId: string, desiredSlug: string, uuid: 
 }
 
 export function handlePush(payload: PushPayload, originDeviceId: string, db: Database = cloudDb()): PushAccepted {
-  const accepted: PushAccepted = { notes: [], live_entries: [], cursor: 0 };
+  const accepted: PushAccepted = { notes: [], live_entries: [], deletes: [], cursor: 0 };
   const tx = db.transaction(() => {
     for (const n of payload.notes ?? []) {
       const canonicalSlug = resolveSlug(db, n.thread_id, n.slug, n.uuid);
@@ -215,6 +219,16 @@ export function handlePush(payload: PushPayload, originDeviceId: string, db: Dat
       );
       accepted.live_entries.push({ id: e.id, note_uuid: e.note_uuid });
       accepted.cursor = Math.max(accepted.cursor, seq);
+    }
+    // Deletes are processed last so they don't fight with concurrent pushes
+    // of the same uuid (idempotent push then delete = empty after).
+    // FK ON DELETE CASCADE on note_tags + live_entries cleans those up.
+    // Shares pointing at a deleted scope_id become 404 on next access
+    // (validateShareAccess looks up the note); we don't bother revoking
+    // them, expiry + TTL handle that.
+    for (const uuid of payload.deletes ?? []) {
+      const res = db.run("DELETE FROM notes WHERE uuid = ?", [uuid]);
+      if ((res.changes ?? 0) > 0) accepted.deletes.push(uuid);
     }
   });
   tx();

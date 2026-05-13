@@ -138,7 +138,11 @@ export const NOTE_BOOTSTRAP = `<script>
   }
 
   function emitToc(){
-    var headings = document.querySelectorAll('article h1, article h2, article h3, [data-folio-content] h1, [data-folio-content] h2, [data-folio-content] h3');
+    // Two depths max — h3 and below add noise without much navigational
+    // value in the typical note. Anchor links still work for h3+ (the
+    // ensureHeadingIds() pass elsewhere stamps ids on every heading),
+    // they just don't show in the TOC pane.
+    var headings = document.querySelectorAll('article h1, article h2, [data-folio-content] h1, [data-folio-content] h2');
     var items = [];
     headings.forEach(function(h){
       if (!h.id) h.id = slugify(h.textContent);

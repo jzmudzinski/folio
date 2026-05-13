@@ -58,6 +58,118 @@ ${input.bodyHtml}
 }
 
 /**
+ * Outer page for /p/:token/n/:uuid — server-rendered. Unlike /n/:uuid
+ * (which is a JS shell that reads token from IDB), capability URLs carry
+ * the token in the URL path itself. No JS needed for auth — server
+ * validates the token on each request and renders the iframe pointed at
+ * /p/<token>/raw/<uuid>. Sandbox attributes match the authed /n/ flow.
+ *
+ * Headers: same CSP as /raw/, plus X-Robots-Tag: noindex,nofollow and
+ * Referrer-Policy: no-referrer. These reduce capability-URL leakage via
+ * search indexes and external Referer logs.
+ */
+export function renderSharedNotePage(token: string, uuid: string, title: string): string {
+  const esc = (s: string): string =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="theme-color" content="#1a1a1a">
+  <title>${esc(title || "Folio")}</title>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #1a1a1a; }
+    iframe { width: 100%; height: 100vh; border: 0; display: block; background: #fff; }
+  </style>
+</head>
+<body>
+  <iframe
+    src="/p/${esc(token)}/raw/${esc(uuid)}"
+    sandbox="allow-scripts allow-popups allow-forms"
+    referrerpolicy="no-referrer"
+    title="${esc(title || "Folio note")}"></iframe>
+</body>
+</html>`;
+}
+
+/**
+ * Thread list page for /p/:token/t/:thread_id — server-rendered HTML
+ * listing of notes in that thread. Each link points at /p/<token>/n/<uuid>.
+ * No JS needed.
+ */
+export interface SharedThreadNote {
+  uuid: string;
+  title: string;
+  type: string;
+  created_at: string;
+  is_final: boolean;
+}
+
+export function renderSharedThreadPage(token: string, threadId: string, notes: SharedThreadNote[]): string {
+  const esc = (s: string): string =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const rows = notes
+    .map((n) => {
+      const ago = relativeTime(n.created_at);
+      return `<a class="note" href="/p/${esc(token)}/n/${esc(n.uuid)}">
+        <div class="title">${esc(n.title)}${n.is_final ? ' <span class="final">★</span>' : ""}</div>
+        <div class="meta"><span class="type ${esc(n.type)}">${esc(n.type)}</span> <span class="ago">${esc(ago)}</span></div>
+      </a>`;
+    })
+    .join("\n");
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="theme-color" content="#f5f3ee">
+  <title>${esc(threadId)} · Folio</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400..700&family=Instrument+Serif:ital@0;1&display=swap');
+    :root { --bg: #f5f3ee; --bg-2: #efeae0; --ink: #0a0a0a; --muted: #6b6b66; --line: rgba(10,10,10,0.10); --accent: #ff5a1f; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: 'Familjen Grotesk', system-ui, sans-serif; font-size: 17px; line-height: 1.5; }
+    header { padding: 14px 20px; border-bottom: 1px solid var(--line); background: #fdfcf9; }
+    header h1 { font-family: 'Instrument Serif', serif; font-style: italic; font-weight: 400; margin: 0; font-size: 22px; letter-spacing: -0.5px; color: var(--ink); }
+    header .sub { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
+    main { max-width: 760px; margin: 0 auto; padding: 16px 20px 60px; }
+    .note { display: block; padding: 14px 12px; border-radius: 10px; text-decoration: none; color: inherit; }
+    .note:hover { background: var(--bg-2); }
+    .note .title { font-size: 17px; font-weight: 500; margin-bottom: 4px; }
+    .note .final { color: var(--accent); }
+    .note .meta { font-size: 13px; color: var(--muted); display: flex; gap: 10px; align-items: center; }
+    .note .type { font-size: 10.5px; padding: 1px 6px; border: 1px solid var(--line); border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .empty { text-align: center; color: var(--muted); padding: 60px 20px; font-style: italic; font-family: 'Instrument Serif', serif; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>${esc(threadId)}</h1>
+    <div class="sub">${notes.length} note${notes.length === 1 ? "" : "s"} · shared via folio.</div>
+  </header>
+  <main>
+    ${notes.length === 0 ? '<div class="empty">No notes in this thread.</div>' : rows}
+  </main>
+</body>
+</html>`;
+}
+
+function relativeTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} hr ago`;
+  const d = Math.floor(h / 24);
+  return d === 1 ? "yesterday" : `${d} days ago`;
+}
+
+/**
  * Outer page for cloud /n/:uuid — JS-driven shell. PUBLIC route (no auth
  * required) that returns this HTML, which then:
  *   1. Reads the bearer token from IndexedDB (origin-scoped, set during pair)

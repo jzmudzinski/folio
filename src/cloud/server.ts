@@ -40,8 +40,16 @@ import {
   readAsset,
   type PushPayload,
 } from "./sync";
-import { renderNotePage, renderStandaloneNote } from "./render";
+import { renderNotePage, renderStandaloneNote, renderSharedNotePage, renderSharedThreadPage } from "./render";
 import { renderHome, renderPair, serviceWorkerJs, manifestJson, FOLIO_ICON_SVG, SW_VERSION } from "./pwa";
+import {
+  createShare,
+  getShare,
+  revokeShare,
+  listShares,
+  validateShareAccess,
+  incrementShareViews,
+} from "./shares";
 import { rawNoteHeaders } from "../core/csp";
 import pkg from "../../package.json" with { type: "json" };
 
@@ -50,6 +58,135 @@ function json(body: unknown, status = 200, extraHeaders: Record<string, string> 
     status,
     headers: { "Content-Type": "application/json; charset=utf-8", ...extraHeaders },
   });
+}
+
+function sharedHeaders(): Record<string, string> {
+  // Same CSP as authed /raw/, plus belt-and-braces no-index + no-referrer to
+  // limit capability-URL leakage via search engines and external Referers.
+  return {
+    ...rawNoteHeaders(),
+    "X-Robots-Tag": "noindex, nofollow, noarchive",
+    "Referrer-Policy": "no-referrer",
+  };
+}
+
+/**
+ * Handle `/p/:token/(n|raw|t)/:id` capability routes.
+ *
+ * Path layout:
+ *   /p/<token>/n/<uuid>         → outer iframe page (server-rendered HTML)
+ *   /p/<token>/raw/<uuid>       → body in theme + locked CSP (the actual content)
+ *   /p/<token>/t/<thread_id>    → thread list (server-rendered HTML)
+ *
+ * Validation order:
+ *   1. Token exists?
+ *   2. Not revoked, not expired, view_count < max_views?
+ *   3. Scope matches the requested resource?
+ * Any failure returns the appropriate 4xx, no info leak about the missing
+ * piece (404 + minimal body).
+ *
+ * View counting bumps only after a successful match, once per HIT
+ * (including iframe-loaded /raw/ — each child iframe load counts). For
+ * MVP this is fine; if it becomes noisy, throttle by token+UA later.
+ */
+function handleCapabilityRoute(path: string, method: string): Response {
+  if (method !== "GET") {
+    return new Response("method not allowed", { status: 405 });
+  }
+  const parts = path.split("/").filter(Boolean); // ["p", token, kind, id, ...]
+  if (parts.length < 4 || parts[0] !== "p") {
+    return new Response("not found", { status: 404 });
+  }
+  const token = parts[1]!;
+  const kind = parts[2]!;
+  const id = parts.slice(3).join("/");
+
+  const share = getShare(token);
+  if (!share) return new Response("not found", { status: 404 });
+
+  if (kind === "n" || kind === "raw") {
+    // Look up note for thread context (needed for thread-scoped validation
+    // when caller targets a note). Same lookup is reused for rendering below.
+    const note = cloudDb()
+      .query<
+        { uuid: string; title: string; theme: string; body_html: string; thread_id: string },
+        [string]
+      >("SELECT uuid, title, theme, body_html, thread_id FROM notes WHERE uuid = ?")
+      .get(id);
+    if (!note) return new Response("not found", { status: 404 });
+
+    const v = validateShareAccess(share, { type: "note", uuid: note.uuid, thread_id: note.thread_id });
+    if (!v.ok) return shareFailure(v.reason);
+
+    if (kind === "n") {
+      const body = renderSharedNotePage(token, note.uuid, note.title);
+      const res = new Response(body, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "X-Robots-Tag": "noindex, nofollow, noarchive",
+          "Referrer-Policy": "no-referrer",
+        },
+      });
+      incrementShareViews(token);
+      return res;
+    }
+    // kind === "raw"
+    const body = renderStandaloneNote({
+      title: note.title,
+      theme: note.theme,
+      bodyHtml: note.body_html,
+    });
+    const res = new Response(body, { status: 200, headers: sharedHeaders() });
+    // Don't bump on /raw/ — it's loaded inside the iframe spawned by /n/,
+    // so we'd double-count every page view. View counting happens at /n/.
+    return res;
+  }
+
+  if (kind === "t") {
+    const v = validateShareAccess(share, { type: "thread", thread_id: id });
+    if (!v.ok) return shareFailure(v.reason);
+    const notes = cloudDb()
+      .query<
+        { uuid: string; title: string; type: string; created_at: string; is_final: number },
+        [string]
+      >(
+        `SELECT uuid, title, type, created_at, is_final FROM notes
+          WHERE thread_id = ? ORDER BY created_at DESC`
+      )
+      .all(id);
+    const body = renderSharedThreadPage(
+      token,
+      id,
+      notes.map((n) => ({
+        uuid: n.uuid,
+        title: n.title,
+        type: n.type,
+        created_at: n.created_at,
+        is_final: n.is_final === 1,
+      }))
+    );
+    const res = new Response(body, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "X-Robots-Tag": "noindex, nofollow, noarchive",
+        "Referrer-Policy": "no-referrer",
+      },
+    });
+    incrementShareViews(token);
+    return res;
+  }
+
+  return new Response("not found", { status: 404 });
+}
+
+function shareFailure(reason: string): Response {
+  // Deliberately terse to avoid info leak. 410 Gone for expired, 404 for the rest.
+  if (reason === "expired") {
+    return new Response("link expired", { status: 410, headers: { "Cache-Control": "no-store" } });
+  }
+  return new Response("not found", { status: 404, headers: { "Cache-Control": "no-store" } });
 }
 
 function text(body: string, status = 200, extraHeaders: Record<string, string> = {}): Response {
@@ -103,9 +240,12 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
       const path = url.pathname;
       const method = req.method;
 
-      // Capability URLs (W4) — stub
+      // Capability URLs — public read access to a single note or thread
+      // gated by a bearer-style token in the URL path. Token is the
+      // credential; server validates on every hit. Atomic view_count bump
+      // happens after the response is rendered (caller chooses idempotency).
       if (path.startsWith("/p/")) {
-        return json({ error: "capability URLs not yet implemented (W4)" }, 501);
+        return handleCapabilityRoute(path, method);
       }
 
       // Auth: public paths skip; everything else needs a valid bearer.
@@ -232,6 +372,72 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
           const since = Number(url.searchParams.get("since") ?? 0);
           if (!Number.isFinite(since) || since < 0) return badRequest("invalid since cursor");
           return json(handlePull(since));
+        }
+
+        // ---- Shares (capability URL admin) ----
+        if (path === "/v1/share" && method === "POST") {
+          const body = await readJsonBody<{
+            scope_type?: "note" | "thread";
+            scope_id?: string;
+            expires_in_days?: number | null;
+            max_views?: number | null;
+          }>(req);
+          if (body.scope_type !== "note" && body.scope_type !== "thread") {
+            return badRequest("scope_type must be 'note' or 'thread'");
+          }
+          if (!body.scope_id) return badRequest("scope_id required");
+          try {
+            const share = createShare({
+              scope_type: body.scope_type,
+              scope_id: body.scope_id,
+              created_by_device: device!.id,
+              expires_in_days: body.expires_in_days ?? 7,
+              max_views: body.max_views ?? null,
+            });
+            const scopePath =
+              share.scope_type === "note"
+                ? `/p/${share.token}/n/${share.scope_id}`
+                : `/p/${share.token}/t/${share.scope_id}`;
+            return json({
+              token: share.token,
+              url: `${publicUrl}${scopePath}`,
+              scope_type: share.scope_type,
+              scope_id: share.scope_id,
+              created_at: share.created_at,
+              expires_at: share.expires_at,
+              max_views: share.max_views,
+            });
+          } catch (e: any) {
+            return badRequest(e?.message ?? "share creation failed");
+          }
+        }
+
+        {
+          const m = path.match(/^\/v1\/share\/([A-Za-z0-9_\-]+)$/);
+          if (m && method === "DELETE") {
+            const ok = revokeShare(m[1]!);
+            return json({ revoked: ok ? m[1] : null });
+          }
+        }
+
+        if (path === "/v1/shares" && method === "GET") {
+          const scope_id = url.searchParams.get("scope_id") ?? undefined;
+          const shares = listShares({
+            scope_id: scope_id ?? undefined,
+            created_by_device: device!.id,
+          });
+          return json({
+            shares: shares.map((s) => ({
+              token: s.token,
+              url: `${publicUrl}/p/${s.token}/${s.scope_type === "note" ? "n" : "t"}/${s.scope_id}`,
+              scope_type: s.scope_type,
+              scope_id: s.scope_id,
+              created_at: s.created_at,
+              expires_at: s.expires_at,
+              max_views: s.max_views,
+              view_count: s.view_count,
+            })),
+          });
         }
 
         if (path === "/v1/feed" && method === "GET") {

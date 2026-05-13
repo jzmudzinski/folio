@@ -211,6 +211,30 @@ const tools: Tool[] = [
       },
     },
   },
+  {
+    name: "publish",
+    description: "Create a capability-URL share for a note or thread. The returned URL grants read-only access to the resource without requiring the recipient to pair a device — anyone with the link can view. Requires the local Folio to be paired with a cloud relay (folio sync pair). Default expiry: 7 days. Set expires_in_days: 0 for no expiry. Optional max_views caps total page loads. Revoke via folio shares revoke <token>. Use this after create() when the user wants to share the rendered note with someone external (Slack, email, Telegram).",
+    inputSchema: {
+      type: "object",
+      required: ["id"],
+      properties: {
+        id: { type: "string", description: "Note uuid (ULID) or thread_id depending on scope_type." },
+        scope_type: {
+          type: "string",
+          enum: ["note", "thread"],
+          description: "What `id` refers to. Default 'note'. Thread scope grants access to every note in the thread, including future ones.",
+        },
+        expires_in_days: {
+          type: "number",
+          description: "Days until the share auto-revokes. Default 7. Set 0 for forever (until manually revoked).",
+        },
+        max_views: {
+          type: "number",
+          description: "Optional cap on total page views before the share auto-locks. Useful for one-time-look situations.",
+        },
+      },
+    },
+  },
 ];
 
 function jsonContent(obj: unknown) {
@@ -652,6 +676,57 @@ export async function buildServer(): Promise<Server> {
             url,
             local_url,
             size_bytes,
+          });
+        }
+
+        case "publish": {
+          const id = String(args.id ?? "");
+          if (!id) return errContent("Missing id");
+          const scope_type = (args.scope_type === "thread" ? "thread" : "note") as "note" | "thread";
+          if (scope_type === "note") {
+            const note = getNoteMeta(id);
+            if (!note) return errContent(`Not found locally: ${id}. If recently created, run \`folio sync --once\` first.`);
+          }
+          const { loadSyncState } = await import("../core/sync");
+          const state = loadSyncState();
+          if (!state) {
+            return errContent("Not paired with a cloud. Run: folio sync pair --remote <url> --code <code>");
+          }
+          const body: Record<string, unknown> = {
+            scope_type,
+            scope_id: id,
+            expires_in_days:
+              typeof args.expires_in_days === "number" ? args.expires_in_days : 7,
+          };
+          if (typeof args.max_views === "number") body.max_views = args.max_views;
+          const res = await fetch(`${state.remote}/v1/share`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${state.device_token}`,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify(body),
+          });
+          if (!res.ok) {
+            let detail = "";
+            try { detail = await res.text(); } catch {}
+            return errContent(`publish failed: HTTP ${res.status} ${detail.slice(0, 200)}`);
+          }
+          const out = (await res.json()) as {
+            token: string;
+            url: string;
+            scope_type: string;
+            scope_id: string;
+            expires_at: string | null;
+            max_views: number | null;
+          };
+          return jsonContent({
+            url: out.url,
+            scope_type: out.scope_type,
+            scope_id: out.scope_id,
+            expires_at: out.expires_at,
+            max_views: out.max_views,
+            revoke_hint: `folio shares revoke ${out.token.slice(0, 12)}…`,
           });
         }
 

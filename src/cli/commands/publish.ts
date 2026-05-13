@@ -1,0 +1,209 @@
+/**
+ * `folio publish <id|thread:slug> [--expires-days 7] [--max-views N]`
+ *   Create a capability URL share via the paired cloud. Reads remote +
+ *   token from ~/Folio/.sync-state.json. Prints the URL on success.
+ *
+ * `folio shares list [--for <id>]`
+ *   List active shares (optionally filtered to a scope_id).
+ *
+ * `folio shares revoke <token>`
+ *   Revoke an active share. The capability URL stops working immediately.
+ *
+ * All commands require a paired device — without sync state there's no
+ * remote or auth token to call.
+ */
+
+import { c, out, err, json as jsonOut } from "../io";
+import { loadSyncState } from "../../core/sync";
+import { getNoteMeta } from "../../core/storage";
+
+export interface PublishOpts {
+  id?: string;
+  expiresDays?: number;
+  maxViews?: number;
+  scope?: "note" | "thread";
+  jsonOut?: boolean;
+}
+
+export async function publishCmd(opts: PublishOpts): Promise<number> {
+  const state = loadSyncState();
+  if (!state) {
+    err(c.err("✗ not paired with a cloud — run `folio sync pair --remote <url> --code <code>` first\n"));
+    return 2;
+  }
+
+  const arg = (opts.id ?? "").trim();
+  if (!arg) {
+    err(c.err("✗ note id or `thread:<slug>` required\n"));
+    return 3;
+  }
+
+  // Determine scope: explicit `thread:<slug>` prefix, explicit --scope flag,
+  // or default = note. Lookup by ID against local DB so the user gets a
+  // sane error message before the cloud round-trip.
+  let scope_type: "note" | "thread";
+  let scope_id: string;
+  if (opts.scope === "thread" || arg.startsWith("thread:")) {
+    scope_type = "thread";
+    scope_id = arg.startsWith("thread:") ? arg.slice("thread:".length) : arg;
+  } else {
+    scope_type = "note";
+    scope_id = arg;
+    const note = getNoteMeta(scope_id);
+    if (!note) {
+      err(c.err(`✗ note not found locally: ${scope_id}\n`));
+      err(c.dim("  Sync first? `folio sync --once`\n"));
+      return 4;
+    }
+  }
+
+  const body = {
+    scope_type,
+    scope_id,
+    expires_in_days: opts.expiresDays ?? 7,
+    max_views: opts.maxViews ?? null,
+  };
+  const res = await fetch(`${state.remote}/v1/share`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${state.device_token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let detail = "";
+    try { detail = await res.text(); } catch {}
+    err(c.err(`✗ publish failed: HTTP ${res.status} ${detail.slice(0, 200)}\n`));
+    return 5;
+  }
+  const respBody = (await res.json()) as {
+    token: string;
+    url: string;
+    expires_at: string | null;
+    max_views: number | null;
+  };
+
+  if (opts.jsonOut) {
+    jsonOut(respBody);
+    return 0;
+  }
+
+  out(c.ok("✓") + ` Published ${scope_type} ${c.dim(scope_id)}`);
+  out(`  ${c.cyan(respBody.url)}`);
+  if (respBody.expires_at) {
+    out(`  ${c.dim("expires")} ${respBody.expires_at}`);
+  } else {
+    out(`  ${c.dim("expires")} never (until revoked)`);
+  }
+  if (respBody.max_views !== null) {
+    out(`  ${c.dim("max views")} ${respBody.max_views}`);
+  }
+  out("");
+  out(c.dim("  Revoke with: ") + `folio shares revoke ${respBody.token.slice(0, 8)}…`);
+  return 0;
+}
+
+export interface SharesOpts {
+  sub?: string;
+  forId?: string;
+  token?: string;
+  jsonOut?: boolean;
+}
+
+export async function sharesCmd(opts: SharesOpts): Promise<number> {
+  const state = loadSyncState();
+  if (!state) {
+    err(c.err("✗ not paired with a cloud — run `folio sync pair ...` first\n"));
+    return 2;
+  }
+  switch (opts.sub) {
+    case "list":
+      return listSharesCmd(state, opts);
+    case "revoke":
+      return revokeShareCmd(state, opts);
+    default:
+      err(c.err(`✗ Usage: folio shares {list|revoke <token>}\n`));
+      return 1;
+  }
+}
+
+async function listSharesCmd(
+  state: ReturnType<typeof loadSyncState> & {},
+  opts: SharesOpts
+): Promise<number> {
+  const params = new URLSearchParams();
+  if (opts.forId) params.set("scope_id", opts.forId);
+  const url = `${state!.remote}/v1/shares${params.toString() ? "?" + params.toString() : ""}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${state!.device_token}` },
+  });
+  if (!res.ok) {
+    let detail = "";
+    try { detail = await res.text(); } catch {}
+    err(c.err(`✗ list failed: HTTP ${res.status} ${detail.slice(0, 200)}\n`));
+    return 5;
+  }
+  const body = (await res.json()) as {
+    shares: {
+      token: string;
+      url: string;
+      scope_type: string;
+      scope_id: string;
+      created_at: string;
+      expires_at: string | null;
+      max_views: number | null;
+      view_count: number;
+    }[];
+  };
+  if (opts.jsonOut) {
+    jsonOut(body);
+    return 0;
+  }
+  if (body.shares.length === 0) {
+    out(c.dim("No active shares."));
+    return 0;
+  }
+  out(c.bold(`${body.shares.length} active share${body.shares.length === 1 ? "" : "s"}`));
+  for (const s of body.shares) {
+    out("");
+    out(`  ${c.cyan(s.url)}`);
+    out(
+      `  ${c.dim(s.scope_type)} ${s.scope_id} ${c.dim("·")} ` +
+        `created ${s.created_at.slice(0, 16).replace("T", " ")} ${c.dim("·")} ` +
+        `${s.view_count} view${s.view_count === 1 ? "" : "s"}` +
+        (s.max_views !== null ? `/${s.max_views}` : "") +
+        ` ${c.dim("·")} ` +
+        (s.expires_at ? `expires ${s.expires_at.slice(0, 10)}` : "no expiry")
+    );
+    out(`  ${c.dim("token:")} ${s.token.slice(0, 12)}…`);
+  }
+  return 0;
+}
+
+async function revokeShareCmd(
+  state: ReturnType<typeof loadSyncState> & {},
+  opts: SharesOpts
+): Promise<number> {
+  if (!opts.token) {
+    err(c.err("✗ token required: folio shares revoke <token>\n"));
+    return 3;
+  }
+  const res = await fetch(`${state!.remote}/v1/share/${encodeURIComponent(opts.token)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${state!.device_token}` },
+  });
+  if (!res.ok) {
+    let detail = "";
+    try { detail = await res.text(); } catch {}
+    err(c.err(`✗ revoke failed: HTTP ${res.status} ${detail.slice(0, 200)}\n`));
+    return 5;
+  }
+  const body = (await res.json()) as { revoked: string | null };
+  if (body.revoked) {
+    out(c.ok("✓") + ` Revoked ${c.dim(body.revoked.slice(0, 12) + "…")}`);
+  } else {
+    out(c.dim("Nothing to revoke (token unknown or already revoked)."));
+  }
+  return 0;
+}

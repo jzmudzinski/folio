@@ -197,7 +197,4 @@ test("/v1/feed?q= does case-insensitive LIKE across title + plain_text", async (
   expect(body.notes).toHaveLength(0);
 });
 
-test("capability URL routes return 501 (W4 stub)", async () => {
-  const res = await fetch(`${baseUrl}/p/some-token/n/some-uuid`);
-  expect(res.status).toBe(501);
-});
+// Capability URL routes covered in tests/cloud-shares.test.ts (W4).

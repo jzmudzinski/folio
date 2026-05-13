@@ -18,6 +18,7 @@ import { appendCmd } from "./commands/append";
 import { tailCmd } from "./commands/tail";
 import { cloudCmd } from "./commands/cloud";
 import { syncCmd } from "./commands/sync";
+import { publishCmd, sharesCmd } from "./commands/publish";
 import { c, out } from "./io";
 
 interface ParsedArgs {
@@ -79,6 +80,8 @@ function help(): number {
   out(`  ${c.cyan("doctor")}            Show install state for every detected target + warnings (--json)`);
   out(`  ${c.cyan("cloud <sub>")}       Cloud relay: init | serve | pair-code (see deploy/ for systemd unit)`);
   out(`  ${c.cyan("sync <sub>")}        Sync with cloud: pair | status | unpair | run (default) — flags: --remote, --code, --once, --interval`);
+  out(`  ${c.cyan("publish <id>")}      Create a capability URL share — flags: --expires-days, --max-views, --scope=note|thread`);
+  out(`  ${c.cyan("shares <sub>")}      Manage capability URL shares: list | revoke <token> — flags: --for &lt;id&gt;`);
   out(`  ${c.cyan("version")}           Print Folio version + system info (--json) — also: --version, -v`);
   out(`  ${c.cyan("help")}              This help`);
   out("");
@@ -234,6 +237,21 @@ export async function main(argv = process.argv): Promise<number> {
           name: flagStr(flags.name),
           once: flagBool(flags.once),
           interval: flagInt(flags.interval),
+          jsonOut: flagBool(flags.json),
+        });
+      case "publish":
+        return await publishCmd({
+          id: positional[0] ?? flagStr(flags.id),
+          expiresDays: flagInt(flags["expires-days"]),
+          maxViews: flagInt(flags["max-views"]),
+          scope: flagStr(flags.scope) as any,
+          jsonOut: flagBool(flags.json),
+        });
+      case "shares":
+        return await sharesCmd({
+          sub: positional[0],
+          token: positional[1],
+          forId: flagStr(flags.for),
           jsonOut: flagBool(flags.json),
         });
       case "help":

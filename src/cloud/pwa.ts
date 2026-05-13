@@ -39,9 +39,11 @@ const PWA_CSS = `
 html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: 'Familjen Grotesk', system-ui, -apple-system, sans-serif; font-size: 17px; line-height: 1.5; }
 @import url('https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400..700&family=Instrument+Serif:ital@0;1&display=swap');
 header.top { padding: 14px 20px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; background: var(--panel); position: sticky; top: 0; z-index: 10; }
-header.top .brand { font-family: 'Instrument Serif', serif; font-style: italic; font-size: 22px; letter-spacing: -0.5px; }
-header.top .brand b { font-family: 'Familjen Grotesk'; font-style: normal; font-weight: 700; color: var(--accent); }
-header.top .meta { font-size: 12px; color: var(--muted); }
+/* Wordmark mirrors assets/wordmark-light.svg — Familjen Grotesk 500,
+   negative letter-spacing, single orange period as the only color note. */
+header.top .brand { font-family: 'Familjen Grotesk', system-ui, sans-serif; font-weight: 500; font-size: 22px; letter-spacing: -0.04em; color: var(--ink); }
+header.top .brand .dot { color: var(--accent); }
+header.top .meta { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
 main { padding: 16px 20px 60px; max-width: 760px; margin: 0 auto; }
 .empty, .loading { color: var(--muted); text-align: center; padding: 60px 20px; font-style: italic; font-family: 'Instrument Serif', serif; font-size: 18px; }
 .offline-banner { background: #fff6d6; color: #5a4400; border-bottom: 1px solid var(--line); padding: 8px 20px; font-size: 13px; text-align: center; }
@@ -65,8 +67,9 @@ main { padding: 16px 20px 60px; max-width: 760px; margin: 0 auto; }
 
 /* Pair page */
 .pair-wrap { max-width: 420px; margin: 60px auto; padding: 20px; }
-.pair-wrap h1 { font-family: 'Instrument Serif', serif; font-style: italic; font-weight: 400; font-size: 36px; letter-spacing: -1px; margin: 0 0 10px; }
-.pair-wrap h1 b { font-family: 'Familjen Grotesk'; font-style: normal; font-weight: 700; color: var(--accent); }
+/* Pair page heading mirrors brand wordmark — Familjen Grotesk 500, orange dot. */
+.pair-wrap h1 { font-family: 'Familjen Grotesk', system-ui, sans-serif; font-weight: 500; font-size: 40px; letter-spacing: -0.04em; margin: 0 0 10px; color: var(--ink); }
+.pair-wrap h1 .dot { color: var(--accent); }
 .pair-wrap p.lead { color: var(--muted); font-size: 15px; line-height: 1.5; margin-bottom: 30px; }
 .pair-wrap label { display: block; font-size: 13px; color: var(--muted); margin: 18px 0 6px; letter-spacing: 0.5px; text-transform: uppercase; }
 .pair-wrap input { width: 100%; padding: 14px 16px; font-size: 17px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink); -webkit-appearance: none; font-family: inherit; }
@@ -253,7 +256,7 @@ export function renderHome(publicUrl: string): string {
 <body>
   <div id="offline-banner" class="offline-banner hidden">Offline — showing cached notes.</div>
   <header class="top">
-    <span class="brand">folio<b>.</b></span>
+    <span class="brand">folio<span class="dot">.</span></span>
     <span class="meta">${escapeHtml(new URL(publicUrl).host)}</span>
   </header>
   <main>
@@ -282,7 +285,7 @@ export function renderPair(publicUrl: string): string {
 </head>
 <body>
   <div class="pair-wrap">
-    <h1>Pair with <b>folio</b></h1>
+    <h1>Pair with folio<span class="dot">.</span></h1>
     <p class="lead">${escapeHtml(new URL(publicUrl).host)}</p>
     <form id="pair-form" autocomplete="off">
       <label for="code">Pairing code</label>
@@ -380,7 +383,9 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-export const SW_VERSION = "folio-pwa-1";
+// Bumped to invalidate caches on devices already running v1 (which had a
+// broken fetchWithAuth — see comment in that function).
+export const SW_VERSION = "folio-pwa-2";
 
 export function serviceWorkerJs(): string {
   return `// Folio PWA service worker — auth injection + offline cache.
@@ -425,15 +430,15 @@ async function fetchWithAuth(request) {
   }
   const token = await self.folioKV.get('token');
   if (!token) return fetch(request); // server will 401 and shell handles it
-  const headers = new Headers(request.headers);
-  headers.set('Authorization', 'Bearer ' + token);
-  return fetch(new Request(request.url, {
-    method: request.method,
-    headers: headers,
-    credentials: 'omit',
-    mode: 'cors',
-    cache: 'no-store'
-  }));
+  // Build a minimal request: just URL + Authorization + Accept. Do NOT
+  // try to clone original headers — for navigation requests they include
+  // Sec-Fetch-Mode: navigate and other client hints that some browsers
+  // mishandle when SW reconstructs the Request. Also do NOT set mode:
+  // 'cors' — defaults are fine for same-origin and avoid surprise behavior.
+  const headers = { 'Authorization': 'Bearer ' + token };
+  const accept = request.headers.get('accept');
+  if (accept) headers['Accept'] = accept;
+  return fetch(request.url, { method: 'GET', headers: headers });
 }
 
 self.addEventListener('fetch', function (event) {
@@ -478,14 +483,20 @@ self.addEventListener('fetch', function (event) {
 `;
 }
 
-export const FOLIO_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+// Icon: square version of the brand wordmark — lowercase "f" + single orange
+// "." that reads as the full "folio." mark. Familjen Grotesk weight 500,
+// matching assets/wordmark-light.svg typography. Linen cream background,
+// 96px corner radius so iOS/Android render with consistent rounding.
+export const FOLIO_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="96" fill="#f5f3ee"/>
-  <text x="50%" y="56%" dominant-baseline="middle" text-anchor="middle"
-        font-family="'Familjen Grotesk', 'Helvetica Neue', system-ui, sans-serif"
-        font-weight="700" font-size="320" fill="#ff5a1f">F</text>
-  <text x="64%" y="78%" dominant-baseline="middle" text-anchor="middle"
-        font-family="'Instrument Serif', 'Times New Roman', serif"
-        font-style="italic" font-weight="400" font-size="180" fill="#0a0a0a">.</text>
+  <text x="190" y="380"
+        font-family="'Familjen Grotesk', 'Inter', system-ui, -apple-system, sans-serif"
+        font-weight="500" font-size="420" letter-spacing="-16"
+        fill="#0a0a0a">f</text>
+  <text x="340" y="380"
+        font-family="'Familjen Grotesk', 'Inter', system-ui, -apple-system, sans-serif"
+        font-weight="500" font-size="420"
+        fill="#ff5a1f">.</text>
 </svg>`;
 
 export function manifestJson(publicUrl: string): unknown {

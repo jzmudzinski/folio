@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS notes (
   origin_device_id TEXT,
   owner_device_id TEXT
 );
-CREATE INDEX IF NOT EXISTS notes_by_origin ON notes(origin_device_id);
+-- notes_by_origin index lives in migrations.ts v2→v3 so it's created AFTER
+-- the column is guaranteed to exist on pre-existing dbs.
 CREATE INDEX IF NOT EXISTS notes_by_type ON notes(type, created DESC);
 CREATE INDEX IF NOT EXISTS notes_by_thread ON notes(thread_id, created DESC);
 CREATE INDEX IF NOT EXISTS notes_by_created ON notes(created DESC);

@@ -226,7 +226,7 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
         // would couple the cloud DB to local storage.ts queries; we render
         // standalone-style here and let the PWA (W3) wrap if it wants chrome).
         {
-          const m = path.match(/^\/n\/([0-9a-f-]+)$/i);
+          const m = path.match(/^\/n\/([0-9A-Za-z-]+)$/);
           if (m && method === "GET") {
             const row = cloudDb()
               .query<{ uuid: string; title: string }, [string]>(
@@ -242,7 +242,7 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
         }
 
         {
-          const m = path.match(/^\/raw\/([0-9a-f-]+)$/i);
+          const m = path.match(/^\/raw\/([0-9A-Za-z-]+)$/);
           if (m && method === "GET") {
             const row = cloudDb()
               .query<{ title: string; theme: string; body_html: string }, [string]>(

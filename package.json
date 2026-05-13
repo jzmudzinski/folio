@@ -10,9 +10,12 @@
   "scripts": {
     "dev": "bun bin/folio.ts",
     "start": "bun bin/folio.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "test:pwa": "bunx --bun playwright test",
+    "test:pwa:install": "bunx playwright install chromium"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/bun": "latest",
     "@types/sanitize-html": "^2.16.1"
   },

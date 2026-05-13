@@ -69,8 +69,17 @@ export interface PushAccepted {
 export interface PullPayload {
   notes: PullNote[];
   live_entries: PullLiveEntry[];
+  tombstones: PullTombstone[];
   assets: PullAsset[];
   cursor: number;
+}
+
+export interface PullTombstone {
+  uuid: string;
+  thread_id: string;
+  origin_device_id: string | null;
+  deleted_at: string;
+  server_seq: number;
 }
 
 export interface PullNote {
@@ -223,12 +232,42 @@ export function handlePush(payload: PushPayload, originDeviceId: string, db: Dat
     // Deletes are processed last so they don't fight with concurrent pushes
     // of the same uuid (idempotent push then delete = empty after).
     // FK ON DELETE CASCADE on note_tags + live_entries cleans those up.
+    // We also insert a tombstone row so other devices learn about this
+    // delete via pull — without tombstones the deleted note simply
+    // disappears from the active-notes window and pull silently misses it.
     // Shares pointing at a deleted scope_id become 404 on next access
     // (validateShareAccess looks up the note); we don't bother revoking
     // them, expiry + TTL handle that.
     for (const uuid of payload.deletes ?? []) {
+      // Look up thread_id + origin BEFORE deleting so the tombstone has
+      // useful metadata for the cross-device pull listener.
+      const meta = db
+        .query<{ thread_id: string; origin_device_id: string | null }, [string]>(
+          "SELECT thread_id, origin_device_id FROM notes WHERE uuid = ?"
+        )
+        .get(uuid);
       const res = db.run("DELETE FROM notes WHERE uuid = ?", [uuid]);
-      if ((res.changes ?? 0) > 0) accepted.deletes.push(uuid);
+      if ((res.changes ?? 0) > 0) {
+        accepted.deletes.push(uuid);
+        const seq = nextSeq(db);
+        db.run(
+          `INSERT INTO tombstones (uuid, thread_id, origin_device_id, deleted_at, server_seq)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(uuid) DO UPDATE SET
+             thread_id = excluded.thread_id,
+             origin_device_id = excluded.origin_device_id,
+             deleted_at = excluded.deleted_at,
+             server_seq = excluded.server_seq`,
+          [
+            uuid,
+            meta?.thread_id ?? "",
+            meta?.origin_device_id ?? originDeviceId,
+            new Date().toISOString(),
+            seq,
+          ]
+        );
+        accepted.cursor = Math.max(accepted.cursor, seq);
+      }
     }
   });
   tx();
@@ -321,13 +360,32 @@ export function handlePull(since: number, db: Database = cloudDb()): PullPayload
     for (const r of rows) tagsByNote.get(r.note_uuid)?.push(r.tag);
   }
 
+  // Tombstones since cursor — cross-device delete propagation.
+  const tombstones: PullTombstone[] = db
+    .query<
+      {
+        uuid: string;
+        thread_id: string;
+        origin_device_id: string | null;
+        deleted_at: string;
+        server_seq: number;
+      },
+      [number]
+    >(
+      `SELECT uuid, thread_id, origin_device_id, deleted_at, server_seq
+         FROM tombstones WHERE server_seq > ? ORDER BY server_seq ASC`
+    )
+    .all(since);
+
   const maxSeq = Math.max(
     since,
     ...notes.map((n) => n.server_seq),
-    ...entries.map((e) => e.server_seq)
+    ...entries.map((e) => e.server_seq),
+    ...tombstones.map((t) => t.server_seq)
   );
 
   return {
+    tombstones,
     notes: notes.map((n) => ({
       uuid: n.uuid,
       slug: n.slug,

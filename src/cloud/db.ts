@@ -32,6 +32,21 @@ export function cloudAssetsDir(): string {
   return join(cloudDataDir(), "assets");
 }
 
+// `tombstones` design rationale (referenced inside the SQL below):
+// When a device pushes a delete, handlePush does the hard DELETE on notes
+// (cascade clears tags + live_entries) AND inserts a row in tombstones.
+// handlePull returns tombstones whose server_seq is past the caller's
+// cursor, so another device's pull learns about deletions that originated
+// elsewhere. Separate table (vs deleted_at column on notes) keeps every
+// existing SELECT against notes unchanged — no WHERE deleted_at IS NULL
+// in /raw/, /n/, /t/, /v1/feed, share scope validation, etc.
+//
+// GC: rows survive indefinitely for MVP. Devices may sit offline for weeks,
+// and the cursor model means a re-connecting device must still see deletes
+// that happened in its absence. If the table grows painfully (>1M rows),
+// add a periodic sweep that drops rows older than the longest-cursor of
+// any active device — out of scope for first cut.
+
 const CLOUD_SCHEMA = `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -133,6 +148,18 @@ CREATE TABLE IF NOT EXISTS assets (
   uploaded_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS assets_by_thread ON assets(thread_id);
+
+-- Tombstones: see comment block above CLOUD_SCHEMA constant in this file
+-- for the design rationale. tl;dr — separate table avoids adding a
+-- "WHERE deleted_at IS NULL" filter to every existing notes query.
+CREATE TABLE IF NOT EXISTS tombstones (
+  uuid TEXT PRIMARY KEY,
+  thread_id TEXT NOT NULL,
+  origin_device_id TEXT,
+  deleted_at TEXT NOT NULL,
+  server_seq INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS tombstones_by_seq ON tombstones(server_seq);
 
 -- Capability-URL shares (filled in W4; schema-ready in W1).
 CREATE TABLE IF NOT EXISTS shares (

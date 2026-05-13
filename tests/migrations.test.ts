@@ -180,3 +180,161 @@ test("close + reopen on already-migrated db is a no-op upgrade", async () => {
   const row = d.query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'schema_version'").get();
   expect(row?.value).toBe("3");
 });
+
+// ───── v0.9.x → v0.10.x (W2 origin_device_id/owner_device_id) ────────────
+
+/**
+ * Byte-for-byte v0.9.1 db shape: notes has live + last_entry_at (added by
+ * v1→v2 migration) but NOT origin_device_id / owner_device_id (added by
+ * v0.10.0's v2→v3). meta.schema_version='2'. This is what a user upgrading
+ * from v0.9.1 to v0.10.x sees on first open.
+ */
+function makeV091Db(): void {
+  const dbFile = join(tmpDir, "index.sqlite");
+  const d = new Database(dbFile, { create: true });
+  d.exec(`
+    PRAGMA journal_mode = WAL;
+    PRAGMA foreign_keys = ON;
+    CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE notes (
+      id TEXT PRIMARY KEY,
+      slug TEXT NOT NULL,
+      path TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      type TEXT NOT NULL,
+      theme TEXT NOT NULL DEFAULT 'linen',
+      theme_profile TEXT NOT NULL DEFAULT 'hosted',
+      thread_id TEXT NOT NULL,
+      is_final INTEGER NOT NULL DEFAULT 0,
+      created TEXT NOT NULL,
+      updated TEXT NOT NULL,
+      expires_at TEXT,
+      word_count INTEGER NOT NULL DEFAULT 0,
+      summary TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      live INTEGER NOT NULL DEFAULT 0,
+      last_entry_at TEXT
+    );
+    CREATE INDEX notes_by_type ON notes(type, created DESC);
+    CREATE INDEX notes_by_thread ON notes(thread_id, created DESC);
+    CREATE INDEX notes_by_created ON notes(created DESC);
+    CREATE INDEX notes_by_expires ON notes(expires_at) WHERE expires_at IS NOT NULL;
+    CREATE INDEX notes_by_live ON notes(live, last_entry_at) WHERE live = 1;
+    CREATE TABLE tags (
+      note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+      tag TEXT NOT NULL,
+      PRIMARY KEY (note_id, tag)
+    );
+    CREATE INDEX tags_by_tag ON tags(tag);
+    CREATE VIRTUAL TABLE notes_fts USING fts5(
+      id UNINDEXED, title, headings, body, tags,
+      tokenize = 'unicode61 remove_diacritics 2'
+    );
+    CREATE TABLE events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts TEXT NOT NULL, kind TEXT NOT NULL,
+      note_id TEXT, thread_id TEXT, data TEXT
+    );
+    CREATE INDEX events_by_kind_ts ON events(kind, ts DESC);
+    CREATE INDEX events_by_note ON events(note_id, ts DESC);
+    INSERT INTO meta (key, value) VALUES ('schema_version', '2');
+  `);
+  // Seed a note + a live note so backfill paths get exercised.
+  d.run(
+    `INSERT INTO notes (id, slug, path, title, type, thread_id, created, updated, live)
+     VALUES ('note91a', 'snippet-a', 'threads/t/a.html',
+             'Pre-sync note', 'snippet', 't', '2026-03-01T00:00:00Z', '2026-03-01T00:00:00Z', 0)`,
+  );
+  d.run(
+    `INSERT INTO notes (id, slug, path, title, type, thread_id, created, updated, live, last_entry_at)
+     VALUES ('note91b', 'journal-b', 'threads/t/b.html',
+             'Pre-sync live', 'journal', 't', '2026-03-02T00:00:00Z', '2026-03-02T00:00:00Z',
+             1, '2026-03-02T01:00:00Z')`,
+  );
+  d.close();
+}
+
+test("v0.9.1 db survives v0.10.x open (adds origin/owner_device_id without crash)", async () => {
+  makeV091Db();
+  const { db } = await import("../src/core/db");
+  expect(() => db()).not.toThrow();
+});
+
+test("v0.9.1 → v0.10.x adds origin_device_id + owner_device_id columns", async () => {
+  makeV091Db();
+  const { db } = await import("../src/core/db");
+  const cols = db().query<{ name: string }, []>("PRAGMA table_info(notes)").all().map((r) => r.name);
+  expect(cols).toContain("origin_device_id");
+  expect(cols).toContain("owner_device_id");
+});
+
+test("v0.9.1 → v0.10.x creates notes_by_origin index", async () => {
+  makeV091Db();
+  const { db } = await import("../src/core/db");
+  const indexes = db()
+    .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='notes'")
+    .all()
+    .map((r) => r.name);
+  expect(indexes).toContain("notes_by_origin");
+});
+
+test("v0.9.1 → v0.10.x backfills origin_device_id on existing rows", async () => {
+  makeV091Db();
+  const { db } = await import("../src/core/db");
+  // Migration v2→v3 stamps every pre-existing row with the device's id.
+  const rows = db()
+    .query<{ id: string; origin_device_id: string | null }, []>(
+      "SELECT id, origin_device_id FROM notes ORDER BY id",
+    )
+    .all();
+  expect(rows).toHaveLength(2);
+  for (const r of rows) {
+    expect(r.origin_device_id).toBeTruthy();
+    expect((r.origin_device_id ?? "").length).toBeGreaterThan(8);
+  }
+  // All pre-existing rows assumed to originate here, so they share the id.
+  expect(rows[0]!.origin_device_id).toBe(rows[1]!.origin_device_id);
+});
+
+test("v0.9.1 → v0.10.x backfills owner_device_id only for live notes", async () => {
+  makeV091Db();
+  const { db } = await import("../src/core/db");
+  const nonLive = db()
+    .query<{ owner_device_id: string | null }, [string]>(
+      "SELECT owner_device_id FROM notes WHERE id = ?",
+    )
+    .get("note91a");
+  const live = db()
+    .query<{ owner_device_id: string | null }, [string]>(
+      "SELECT owner_device_id FROM notes WHERE id = ?",
+    )
+    .get("note91b");
+  expect(nonLive?.owner_device_id).toBeNull(); // non-live → no owner
+  expect(live?.owner_device_id).toBeTruthy(); // live → stamped with this device
+});
+
+// ───── End-to-end upgrade smoke ──────────────────────────────────────────
+
+test("v0.8.0 → v0.10.x: full hop through v1→v2→v3 in one db() call", async () => {
+  // This is the scariest path: a user that's been on the shelf since v0.8.0
+  // upgrades straight to current head. Both migrations must run in order.
+  makeV080Db();
+  const { db } = await import("../src/core/db");
+  expect(() => db()).not.toThrow();
+  const cols = db().query<{ name: string }, []>("PRAGMA table_info(notes)").all().map((r) => r.name);
+  // v1→v2 added these:
+  expect(cols).toContain("live");
+  expect(cols).toContain("last_entry_at");
+  // v2→v3 added these:
+  expect(cols).toContain("origin_device_id");
+  expect(cols).toContain("owner_device_id");
+  // Existing legacy row survived both hops.
+  const legacy = db()
+    .query<{ title: string; live: number; origin_device_id: string | null }, []>(
+      "SELECT title, live, origin_device_id FROM notes WHERE id = 'legacy01'",
+    )
+    .get();
+  expect(legacy?.title).toBe("Legacy note");
+  expect(legacy?.live).toBe(0);
+  expect(legacy?.origin_device_id).toBeTruthy();
+});

@@ -78,25 +78,27 @@ test("/raw/:uuid serves theme'd HTML with CSP locked down", async () => {
   expect(body).toMatch(/<style>[\s\S]+:root/);
 });
 
-test("/n/:uuid serves outer page wrapping /raw/ in sandboxed iframe", async () => {
+test("/n/:uuid is a public JS shell that fetches /raw/ with auth", async () => {
   const uuid = await pushSample();
-  const res = await fetch(`${baseUrl}/n/${uuid}`, {
-    headers: { authorization: `Bearer ${token}` },
-  });
+  // PUBLIC: works without Authorization header — outer is stateless.
+  const res = await fetch(`${baseUrl}/n/${uuid}`);
   expect(res.status).toBe(200);
   const body = await res.text();
-  expect(body).toContain(`src="/raw/${uuid}"`);
+  // Shell embeds the uuid as a JS constant and fetches /raw/ inline.
+  expect(body).toContain(uuid);
+  expect(body).toContain("/raw/");
   // Sandbox must NOT include allow-same-origin (the load-bearing isolation
   // invariant). Per AGENTS.md hard rules.
   expect(body).toMatch(/sandbox="[^"]+"/);
   expect(body).not.toContain("allow-same-origin");
+  // Token reads from IDB inside the page — never in URL or query string.
+  expect(body).toContain("indexedDB.open('folio-pwa'");
 });
 
-test("/n/:uuid 404 on unknown uuid", async () => {
-  const res = await fetch(`${baseUrl}/n/019e2110-0000-7000-8000-deadbeefdead`, {
-    headers: { authorization: `Bearer ${token}` },
-  });
-  expect(res.status).toBe(404);
+test("/n/:uuid serves shell even for unknown uuids — inner /raw/ fetch handles 404", async () => {
+  // Public outer = same response regardless of whether the uuid exists.
+  const res = await fetch(`${baseUrl}/n/019eDEADBEEF`);
+  expect(res.status).toBe(200);
 });
 
 test("/t/:thread_id lists notes JSON", async () => {

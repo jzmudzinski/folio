@@ -254,6 +254,11 @@ export function isPublicPath(pathname: string): boolean {
   // redirects to /pair. If token present, it fetches /v1/feed (authed).
   if (pathname === "/") return true;
   if (pathname === "/pair") return true;
+  // /n/:uuid is ALSO a public JS shell (W3-fix-2): it reads the bearer
+  // token from IDB client-side and fetches /raw/:uuid with auth. This
+  // avoids the SW-controllerchange race on first navigation after install.
+  // The outer page leaks nothing (just the uuid in the URL, no content).
+  if (pathname.startsWith("/n/")) return true;
   if (pathname.startsWith("/p/")) return true;
   // POST /v1/auth/pair is the entry point — also unauthed.
   if (pathname === "/v1/auth/pair") return true;

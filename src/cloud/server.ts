@@ -182,6 +182,19 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
           }
         }
 
+        // /n/:uuid — public JS shell. Reads bearer token from IDB client-side
+        // and fetches /raw/:uuid with auth. Outer page exposes nothing
+        // beyond the uuid that's already in the URL.
+        {
+          const m = path.match(/^\/n\/([0-9A-Za-z-]+)$/);
+          if (m && method === "GET") {
+            return new Response(renderNotePage(m[1]!, ""), {
+              status: 200,
+              headers: { "Content-Type": "text/html; charset=utf-8" },
+            });
+          }
+        }
+
         // ----- Authed paths below -----
         if (!device) return unauthorized(); // belt-and-braces; isPublicPath gate above ensures this
 
@@ -297,24 +310,7 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
           }
         }
 
-        // Note render routes — minimal version (full reuse of viewer/render.ts
-        // would couple the cloud DB to local storage.ts queries; we render
-        // standalone-style here and let the PWA (W3) wrap if it wants chrome).
-        {
-          const m = path.match(/^\/n\/([0-9A-Za-z-]+)$/);
-          if (m && method === "GET") {
-            const row = cloudDb()
-              .query<{ uuid: string; title: string }, [string]>(
-                "SELECT uuid, title FROM notes WHERE uuid = ?"
-              )
-              .get(m[1]!);
-            if (!row) return notFound("note not found");
-            return new Response(renderNotePage(row.uuid, row.title), {
-              status: 200,
-              headers: { "Content-Type": "text/html; charset=utf-8" },
-            });
-          }
-        }
+        // (/n/:uuid handled above as public route — see comment near auth gate.)
 
         {
           const m = path.match(/^\/raw\/([0-9A-Za-z-]+)$/);

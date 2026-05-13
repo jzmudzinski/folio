@@ -1,6 +1,11 @@
 # dependencies (bun install)
 node_modules
 
+# foreign package manager lockfiles — project uses bun.lock as canonical
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
 # output
 out
 dist

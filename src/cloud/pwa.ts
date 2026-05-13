@@ -105,6 +105,21 @@ header.top #ctx .thread-name { font-family: 'Instrument Serif', serif; font-styl
 .add-device-panel .err { color: #a4253a; font-size: 13px; margin-top: 12px; display: none; }
 .add-device-panel .err.shown { display: block; }
 
+/* Install banner — visible only when the app isn't yet running in
+   standalone mode and the user hasn't dismissed it this session. The
+   button half is shown only when beforeinstallprompt is captured;
+   on iOS Safari we show inline Share-menu instructions instead. */
+.install-banner { display: none; padding: 14px 16px; background: var(--accent-soft); border: 1px solid rgba(255,90,31,0.25); border-radius: 12px; margin-bottom: 18px; gap: 12px; align-items: center; flex-wrap: wrap; }
+.install-banner.shown { display: flex; }
+.install-banner .txt { flex: 1; min-width: 200px; font-size: 14px; color: var(--ink); line-height: 1.45; }
+.install-banner .txt strong { font-weight: 500; }
+.install-banner .txt small { display: block; color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+.install-banner .install-btn { padding: 10px 16px; font-size: 14px; font-weight: 600; background: var(--accent); color: #fff; border: 0; border-radius: 8px; cursor: pointer; font-family: inherit; }
+.install-banner .install-btn:disabled { opacity: 0.6; cursor: wait; }
+.install-banner .install-btn[hidden] { display: none; }
+.install-banner .dismiss { padding: 8px 10px; font-size: 12px; background: transparent; color: var(--muted); border: 0; cursor: pointer; font-family: inherit; }
+.install-banner .dismiss:hover { color: var(--ink); }
+
 /* Pair page */
 .pair-wrap { max-width: 420px; margin: 60px auto; padding: 20px; }
 /* Pair page heading mirrors brand wordmark — Familjen Grotesk 500, orange dot. */
@@ -383,6 +398,85 @@ ${IDB_HELPERS_JS}
     });
   }
 
+  // ---- Install prompt ----
+  // beforeinstallprompt: Chrome/Edge/Samsung capture so we can offer an
+  // explicit Install button rather than burying it in the browser menu.
+  // iOS Safari doesn't fire that event; instead we show inline "tap Share →
+  // Add to Home Screen" instructions. Both paths are short-circuited when
+  // the app is already running in standalone mode (display-mode media query
+  // or iOS's legacy navigator.standalone) or when the user dismissed the
+  // banner earlier in the session.
+  function isStandalone() {
+    try {
+      if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+      if (window.matchMedia && window.matchMedia('(display-mode: minimal-ui)').matches) return true;
+    } catch (_e) {}
+    return navigator.standalone === true;
+  }
+  function isIosSafari() {
+    const ua = navigator.userAgent || '';
+    return /iPad|iPhone|iPod/.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua);
+  }
+  (function setupInstallBanner(){
+    const banner = document.getElementById('install-banner');
+    const btn = document.getElementById('install-btn');
+    const dismiss = document.getElementById('install-dismiss');
+    const title = document.getElementById('install-title');
+    const hint = document.getElementById('install-hint');
+    if (!banner || !btn || !dismiss || !title || !hint) return;
+    if (isStandalone()) return;
+    try { if (sessionStorage.getItem('folio-install-dismissed') === '1') return; } catch (_e) {}
+
+    let deferred = null;
+    window.addEventListener('beforeinstallprompt', function(ev){
+      ev.preventDefault();
+      deferred = ev;
+      title.textContent = 'Install Folio';
+      hint.textContent = 'Get faster access from your home screen.';
+      btn.hidden = false;
+      banner.classList.add('shown');
+    });
+    btn.addEventListener('click', async function(){
+      if (!deferred) return;
+      btn.disabled = true;
+      try {
+        deferred.prompt();
+        const result = await deferred.userChoice;
+        if (result && result.outcome === 'accepted') {
+          banner.classList.remove('shown');
+        }
+      } catch (_e) {}
+      deferred = null;
+      btn.disabled = false;
+    });
+    dismiss.addEventListener('click', function(){
+      banner.classList.remove('shown');
+      try { sessionStorage.setItem('folio-install-dismissed', '1'); } catch (_e) {}
+    });
+    if (isIosSafari()) {
+      // Defer slightly — gives any (rare) iOS install prompt a moment to
+      // fire. On stock iOS Safari it never does, so the inline instructions
+      // become the only path. Both URLs and PWA icon link to the same target.
+      setTimeout(function(){
+        if (deferred) return;
+        title.textContent = 'Install Folio on this iPhone';
+        hint.innerHTML = "Tap the <strong>Share</strong> icon below, then <strong>“Add to Home Screen”</strong>.";
+        btn.hidden = true;
+        banner.classList.add('shown');
+      }, 250);
+    }
+    window.addEventListener('appinstalled', function(){
+      banner.classList.remove('shown');
+      try { sessionStorage.setItem('folio-install-dismissed', '1'); } catch (_e) {}
+    });
+    try {
+      const mq = window.matchMedia('(display-mode: standalone)');
+      const onChange = function(e){ if (e.matches) banner.classList.remove('shown'); };
+      if (mq.addEventListener) mq.addEventListener('change', onChange);
+      else if (mq.addListener) mq.addListener(onChange);
+    } catch (_e) {}
+  })();
+
   // Debounced search input → server query.
   const q = document.getElementById('search');
   if (q) {
@@ -425,6 +519,14 @@ export function renderHome(publicUrl: string): string {
     <span id="ctx"></span>
   </header>
   <main>
+    <div id="install-banner" class="install-banner">
+      <div class="txt">
+        <strong id="install-title">Install Folio</strong>
+        <small id="install-hint">Get faster access from your home screen.</small>
+      </div>
+      <button id="install-btn" class="install-btn" type="button" hidden>Install</button>
+      <button id="install-dismiss" class="dismiss" type="button" aria-label="Dismiss install banner">Dismiss</button>
+    </div>
     <input id="search" class="search" type="search" placeholder="filter notes…" autocomplete="off" autocapitalize="none">
     <div id="list" class="list">
       <div class="loading">Loading…</div>
@@ -566,7 +668,9 @@ function escapeHtml(s: string): string {
 //   v3 → v4: hide thread chip in note rows when viewing a single thread
 //   v4 → v5: add-device panel on home so users can onboard new devices
 //             without touching the cloud server
-export const SW_VERSION = "folio-pwa-5";
+//   v5 → v6: install banner — beforeinstallprompt capture for Chrome/Edge,
+//             inline Share → Add-to-Home-Screen instructions for iOS Safari
+export const SW_VERSION = "folio-pwa-6";
 
 export function serviceWorkerJs(): string {
   return `// Folio PWA service worker — auth injection + offline cache.

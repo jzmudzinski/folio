@@ -1411,6 +1411,12 @@ function cloudPairedBody(state: CloudPageState): string {
       <p class="hint">Enter this on the other device's pair screen (PWA <code>/pair</code> or local viewer <code>/cloud</code>) before it expires.</p>
     </div>
     <div id="cloud-err" class="err"></div>
+  </div>
+  <div class="cloud-card cloud-stats-card">
+    <h3>Cloud stats <button id="stats-refresh" class="copy" type="button" title="Refresh">↻</button></h3>
+    <div id="cloud-stats-body" class="stats-body">
+      <div class="stats-loading">Loading…</div>
+    </div>
   </div>`;
 }
 
@@ -1448,6 +1454,23 @@ function cloudScript(): string {
   .cloud-card .err.shown { display: block; }
   #sync-result { margin-top: 12px; font-family: var(--vmono); font-size: 12px; color: var(--vmuted); }
   #sync-result.ok { color: var(--vgood, #0a6); }
+  .cloud-stats-card h3 { display: flex; align-items: center; gap: 8px; }
+  .cloud-stats-card h3 button { margin-left: auto; padding: 4px 8px; font-size: 11px; }
+  .stats-body { margin-top: 4px; }
+  .stats-loading { color: var(--vmuted); font-style: italic; padding: 8px 0; }
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 14px 18px; margin-bottom: 18px; }
+  .stats-grid .cell { padding: 10px 0; }
+  .stats-grid .cell .lbl { font-family: var(--vmono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--vmuted); }
+  .stats-grid .cell .val { font-family: var(--vhead); font-weight: 500; font-size: 22px; color: var(--vink); margin-top: 4px; line-height: 1.2; letter-spacing: -0.01em; }
+  .stats-grid .cell .val .sub { font-family: var(--vmono); font-size: 11px; color: var(--vmuted); margin-left: 6px; letter-spacing: 0; }
+  .stats-section { margin-top: 16px; }
+  .stats-section h4 { font-family: var(--vmono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--vmuted); font-weight: 500; margin: 0 0 8px; }
+  .stats-table { width: 100%; font-size: 13px; border-collapse: collapse; }
+  .stats-table th, .stats-table td { padding: 7px 8px; text-align: left; border-bottom: 1px solid var(--vline-2); }
+  .stats-table th { font-family: var(--vmono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--vmuted); font-weight: 500; }
+  .stats-table td.num { text-align: right; font-family: var(--vmono); font-size: 12px; color: var(--vmuted); }
+  .stats-table td.dim { color: var(--vmuted-2); font-style: italic; }
+  .stats-table .pill-rev { display: inline-block; padding: 1px 6px; font-size: 10.5px; background: rgba(192,57,43,0.08); color: #a4253a; border-radius: 4px; margin-left: 6px; }
 </style>
 <script>(function(){
   function showErr(elId, msg) {
@@ -1503,7 +1526,8 @@ function cloudScript(): string {
           if (!res.ok) throw new Error(res.body.error || 'sync failed');
           var r = res.body;
           result.textContent = 'pulled=' + r.pulled + ' pushed=' + r.pushed +
-            ' live_pushed=' + r.live_pushed + ' assets=' + r.assets_pushed +
+            ' live_pushed=' + r.live_pushed +
+            ' assets↑=' + r.assets_pushed + ' assets↓=' + r.assets_pulled +
             ' renamed=' + r.renamed + ' deleted=' + r.deleted;
           result.className = 'ok';
         }).catch(function(e){
@@ -1547,6 +1571,100 @@ function cloudScript(): string {
       });
     });
   }
+
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function bytesHuman(n) {
+    if (!Number.isFinite(n) || n <= 0) return '0 B';
+    var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    var i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+    return (n / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
+  }
+  function ago(iso) {
+    if (!iso) return 'never';
+    var ms = Date.now() - new Date(iso).getTime();
+    if (ms < 0 || !Number.isFinite(ms)) return '—';
+    var s = Math.floor(ms / 1000);
+    if (s < 60) return s + 's ago';
+    var m = Math.floor(s / 60);
+    if (m < 60) return m + ' min ago';
+    var h = Math.floor(m / 60);
+    if (h < 24) return h + ' hr ago';
+    var d = Math.floor(h / 24);
+    return d === 1 ? 'yesterday' : d + 'd ago';
+  }
+
+  function renderStats(data) {
+    var body = document.getElementById('cloud-stats-body');
+    if (!body) return;
+    var c = data.counts || {};
+    var s = data.storage || {};
+    var devices = data.devices || [];
+    var threads = data.threads || [];
+
+    var html = '';
+    html += '<div class="stats-grid">';
+    html += '<div class="cell"><div class="lbl">Notes</div><div class="val">' + (c.notes || 0) +
+      '<span class="sub">' + (c.notes_live || 0) + ' live · ' + (c.notes_final || 0) + ' final</span></div></div>';
+    html += '<div class="cell"><div class="lbl">Live entries</div><div class="val">' + (c.live_entries || 0) + '</div></div>';
+    html += '<div class="cell"><div class="lbl">Assets</div><div class="val">' + (c.assets || 0) +
+      '<span class="sub">' + bytesHuman(s.assets_bytes || 0) + '</span></div></div>';
+    html += '<div class="cell"><div class="lbl">DB size</div><div class="val">' + bytesHuman(s.db_bytes || 0) +
+      '<span class="sub">' + (c.tombstones || 0) + ' tombstones</span></div></div>';
+    html += '<div class="cell"><div class="lbl">Devices</div><div class="val">' + (c.devices_active || 0) +
+      '<span class="sub">' + (c.devices_revoked || 0) + ' revoked</span></div></div>';
+    html += '<div class="cell"><div class="lbl">Shares</div><div class="val">' + (c.shares_active || 0) +
+      '<span class="sub">' + (c.shares_total || 0) + ' total</span></div></div>';
+    html += '</div>';
+
+    if (devices.length) {
+      html += '<div class="stats-section"><h4>Devices</h4>';
+      html += '<table class="stats-table"><thead><tr><th>Name</th><th>Paired</th><th>Last seen</th><th>Last push</th><th class="num">Notes</th></tr></thead><tbody>';
+      for (var i = 0; i < devices.length; i++) {
+        var d = devices[i];
+        html += '<tr>';
+        html += '<td>' + esc(d.name) + (d.revoked ? ' <span class="pill-rev">revoked</span>' : '') + '</td>';
+        html += '<td class="dim">' + esc((d.paired_at || '').slice(0, 10)) + '</td>';
+        html += '<td class="dim">' + esc(ago(d.last_seen_at)) + '</td>';
+        html += '<td class="dim">' + esc(ago(d.last_pushed_at)) + '</td>';
+        html += '<td class="num">' + (d.note_count || 0) + '</td>';
+        html += '</tr>';
+      }
+      html += '</tbody></table></div>';
+    }
+
+    if (threads.length) {
+      html += '<div class="stats-section"><h4>Top threads</h4>';
+      html += '<table class="stats-table"><thead><tr><th>Thread</th><th class="num">Notes</th><th>Latest</th></tr></thead><tbody>';
+      for (var j = 0; j < threads.length; j++) {
+        var t = threads[j];
+        html += '<tr>';
+        html += '<td>' + esc(t.thread_id) + '</td>';
+        html += '<td class="num">' + (t.count || 0) + '</td>';
+        html += '<td class="dim">' + esc((t.latest || '').slice(0, 10)) + '</td>';
+        html += '</tr>';
+      }
+      html += '</tbody></table></div>';
+    }
+    body.innerHTML = html;
+  }
+
+  function loadStats() {
+    var body = document.getElementById('cloud-stats-body');
+    if (!body) return;
+    body.innerHTML = '<div class="stats-loading">Loading…</div>';
+    fetch('/api/cloud/stats')
+      .then(function(r){ return r.json().then(function(b){ return { ok: r.ok, body: b }; }); })
+      .then(function(res){
+        if (!res.ok) throw new Error(res.body.error || 'stats failed');
+        renderStats(res.body);
+      })
+      .catch(function(e){
+        body.innerHTML = '<div class="stats-loading">Could not load: ' + esc(e.message || String(e)) + '</div>';
+      });
+  }
+  if (document.getElementById('cloud-stats-body')) loadStats();
+  var statsRefresh = document.getElementById('stats-refresh');
+  if (statsRefresh) statsRefresh.addEventListener('click', loadStats);
 
   var unpairBtn = document.getElementById('unpair-btn');
   if (unpairBtn) {

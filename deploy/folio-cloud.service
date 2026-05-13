@@ -21,6 +21,13 @@ Environment=FOLIO_CLOUD_PORT=8081
 #   sudo systemctl edit folio-cloud
 #   [Service]
 #   Environment=FOLIO_CLOUD_PUBLIC_URL=https://cloud.example.com
+#
+# Optional outbound email — `folio publish --recipient` sends the capability
+# URL through this transport. Without these vars the share endpoint still
+# works; it just reports email_skipped="no-mailer". Provider precedence:
+# Resend > FOLIO_MAIL_DEV=1 console logger > none.
+#   Environment=RESEND_API_KEY=re_yourkeyhere
+#   Environment=FOLIO_MAIL_FROM=Folio <folio@yourdomain.tld>
 
 # Hardening — gives blast radius comparable to a container without docker.
 NoNewPrivileges=yes

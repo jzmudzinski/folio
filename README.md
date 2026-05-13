@@ -23,16 +23,17 @@ When your agent has something to show — research, comparison, technical doc, s
 
 ## Status
 
-**v0.10.1 — functional, multi-device, shippable.** Public release: 2026-05-13.
+**v0.12.0 — functional, multi-device, shippable.** Public release: 2026-05-14.
 
 - ✅ Core flow: agent → MCP `create` → note on disk → `/n/<id>` renders
-- ✅ Sync daemon (`folio sync`) mirrors `~/Folio/` to an optional cloud relay
-- ✅ Read-only PWA on phone — install Folio from `https://<your-cloud>`
-- ✅ `folio publish` mints capability URLs to share a note (or whole thread) with someone who has no Folio install
+- ✅ Sync daemon (`folio sync`) mirrors `~/Folio/` to an optional cloud relay — bidirectional notes + assets + tombstones
+- ✅ Read-only PWA on phone with install banner (`beforeinstallprompt` on Chrome/Edge, inline Share→Add-to-Home-Screen hint on iOS Safari)
+- ✅ Live note SSE forwarding through cloud — phone watches new entries in real time
+- ✅ `folio publish` mints capability URLs to share a note (or whole thread) with someone who has no Folio install; with `--recipient` the cloud emails the link via Resend
+- ✅ Cloud observability snapshot (`GET /v1/admin/stats` + viewer Cloud stats panel) — counts, bytes, per-device last-seen
 - ✅ Soft-delete (`folio delete`, `.trash/` with 7-day grace) plus sidebar button in the viewer
 - ✅ Append-only (ADR-014) preserved end-to-end: agents iterate via new sibling notes, never edits
 - ✅ Pre-compiled tarballs for darwin-arm64 / linux-x64 / linux-arm64; `folio update` self-updates from GitHub Releases
-- ⚠️ Live note SSE forwarding through cloud is post-MVP — phone shows last-synced snapshot, not the streaming feed
 
 The MCP contract is stable for v0.x. Cloud + PWA + publish ride on the same machinery — opting in to one doesn't lock you out of the others.
 

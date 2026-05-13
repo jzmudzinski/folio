@@ -79,7 +79,15 @@ export async function publishCmd(opts: PublishOpts): Promise<number> {
     max_views: opts.maxViews ?? null,
   };
   if (opts.recipient && opts.recipient.trim()) {
-    body.recipient_email_hash = recipientEmailHash(opts.recipient);
+    const plain = opts.recipient.trim().toLowerCase();
+    body.recipient_email_hash = recipientEmailHash(plain);
+    // Send plaintext too — cloud uses it ONLY for outbound delivery via its
+    // configured mailer (Resend etc) and persists only the hash. Both fields
+    // travel over the same TLS connection; defense against a tampering
+    // server is the local hash that the cloud's `recipient_email_hash`
+    // derivation MUST agree with. If the cloud has no mailer wired up the
+    // response says so via email_skipped="no-mailer" and we surface that.
+    body.recipient_email = plain;
   }
   const res = await fetch(`${state.remote}/v1/share`, {
     method: "POST",
@@ -100,6 +108,10 @@ export async function publishCmd(opts: PublishOpts): Promise<number> {
     url: string;
     expires_at: string | null;
     max_views: number | null;
+    email_sent?: boolean;
+    email_skipped?: "no-mailer" | "no-recipient" | null;
+    email_error?: string | null;
+    mailer_configured?: boolean;
   };
 
   if (opts.jsonOut) {
@@ -119,6 +131,13 @@ export async function publishCmd(opts: PublishOpts): Promise<number> {
   }
   if (opts.recipient) {
     out(`  ${c.dim("recipient")} ${opts.recipient} ${c.dim("(must confirm email on first visit)")}`);
+    if (respBody.email_sent) {
+      out(`  ${c.ok("✉")} ${c.dim("email sent to")} ${opts.recipient}`);
+    } else if (respBody.email_skipped === "no-mailer") {
+      out(`  ${c.dim("✉ email not sent")} ${c.dim("(cloud has no mailer configured — set RESEND_API_KEY + FOLIO_MAIL_FROM)")}`);
+    } else if (respBody.email_error) {
+      out(`  ${c.err("✉ email failed")} ${c.dim(respBody.email_error)}`);
+    }
   }
   out("");
   out(c.dim("  Revoke with: ") + `folio shares revoke ${respBody.token.slice(0, 8)}…`);

@@ -51,22 +51,40 @@ main { padding: 16px 20px 60px; max-width: 760px; margin: 0 auto; }
 .search { display: block; width: 100%; padding: 12px 14px; font-size: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink); margin-bottom: 20px; -webkit-appearance: none; }
 .search:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .list { display: flex; flex-direction: column; gap: 2px; }
-.note { display: block; padding: 14px 12px; border-radius: 10px; text-decoration: none; color: inherit; transition: background 120ms; min-height: 56px; }
+.note { display: block; padding: 14px 12px; border-radius: 10px; transition: background 120ms; min-height: 56px; cursor: pointer; color: inherit; }
 .note:hover, .note:active { background: var(--bg-2); }
 .note .title { font-size: 17px; font-weight: 500; line-height: 1.35; color: var(--ink); margin-bottom: 4px; }
-.note .meta { font-size: 13px; color: var(--muted); display: flex; gap: 10px; align-items: center; }
-.note .type { font-size: 11px; padding: 1px 6px; border: 1px solid var(--line); border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+.note .meta {
+  font-size: 13px;
+  color: var(--muted);
+  display: flex;
+  gap: 6px 12px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.note .meta > * { white-space: nowrap; min-width: 0; }
+.note .type { font-size: 10.5px; padding: 1px 6px; border: 1px solid var(--line); border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); flex-shrink: 0; }
 .note .type.research { color: #0a6; border-color: rgba(0,170,102,0.3); }
 .note .type.comparison { color: #963; border-color: rgba(153,102,51,0.3); }
 .note .type.technical { color: #345; border-color: rgba(51,68,85,0.3); }
 .note .type.journal { color: #864; border-color: rgba(136,102,68,0.3); }
 .note .type.snippet { color: var(--muted); }
-.note .ago { color: var(--muted-2); }
-.note a.thread { font-style: italic; font-family: 'Instrument Serif', serif; color: var(--muted); text-decoration: none; padding: 2px 4px; margin: -2px -4px; border-radius: 4px; }
-.note a.thread:hover, .note a.thread:active { background: var(--bg-2); color: var(--ink-2); }
-header.top #ctx { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 10px; }
-header.top #ctx .back-link { color: var(--accent); text-decoration: none; font-weight: 500; }
-header.top #ctx .thread-name { font-family: 'Instrument Serif', serif; font-style: italic; font-size: 17px; color: var(--ink); }
+.note a.thread {
+  font-style: italic;
+  font-family: 'Instrument Serif', serif;
+  font-size: 15px;
+  color: var(--muted);
+  text-decoration: none;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.note a.thread:active { color: var(--ink-2); }
+.note .ago { color: var(--muted-2); margin-left: auto; flex-shrink: 0; }
+header.top #ctx { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; justify-content: flex-end; overflow: hidden; }
+header.top #ctx .back-link { color: var(--accent); text-decoration: none; font-weight: 500; flex-shrink: 0; }
+header.top #ctx .thread-name { font-family: 'Instrument Serif', serif; font-style: italic; font-size: 15px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .group-h { font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted-2); padding: 18px 12px 8px; }
 
 /* Pair page */
@@ -220,17 +238,20 @@ ${IDB_HELPERS_JS}
   }
 
   function noteRow(n) {
-    // Thread chip is a separate link so tap on chip → thread view, tap on
-    // rest → note. Stop event propagation on the chip to keep them distinct.
+    // Outer is a <div> not <a>: a row contains a nested <a class="thread">,
+    // and nested <a> is invalid HTML (browsers pick the outer on click,
+    // breaking the chip nav). Click delegation below routes:
+    //   - tap on .thread <a>  → browser navigates natively to /t/<id>
+    //   - tap anywhere else   → JS navigates to data-href = /n/<uuid>
     return (
-      '<a class="note" href="/n/' + encodeURIComponent(n.uuid) + '">' +
+      '<div class="note" data-href="/n/' + encodeURIComponent(n.uuid) + '">' +
         '<div class="title">' + esc(n.title) + '</div>' +
         '<div class="meta">' +
           '<span class="type ' + esc(n.type) + '">' + esc(n.type) + '</span>' +
-          '<a class="thread" data-thread="' + esc(n.thread_id) + '" href="/t/' + encodeURIComponent(n.thread_id) + '" onclick="event.stopPropagation();">' + esc(n.thread_id) + '</a>' +
+          '<a class="thread" href="/t/' + encodeURIComponent(n.thread_id) + '">' + esc(n.thread_id) + '</a>' +
           '<span class="ago">' + ago(n.created_at) + ' ago</span>' +
         '</div>' +
-      '</a>'
+      '</div>'
     );
   }
 
@@ -273,6 +294,19 @@ ${IDB_HELPERS_JS}
       ctxEl.textContent = '';
     }
   }
+
+  // Click delegation on the list: thread <a> navigates natively, everything
+  // else on a .note row triggers note view via data-href. Avoids nested
+  // anchors (invalid HTML, breaks both clicks on some browsers).
+  document.addEventListener('click', function (ev) {
+    const threadLink = ev.target.closest && ev.target.closest('a.thread');
+    if (threadLink) return; // let browser follow it
+    const row = ev.target.closest && ev.target.closest('.note[data-href]');
+    if (row) {
+      ev.preventDefault();
+      window.location.href = row.getAttribute('data-href');
+    }
+  });
 
   // Boot.
   const thread = currentThread();
@@ -444,9 +478,10 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-// Bumped to invalidate caches on devices already running v1 (which had a
-// broken fetchWithAuth — see comment in that function).
-export const SW_VERSION = "folio-pwa-2";
+// Bumped on layout/JS changes that need to invalidate PWA caches.
+//   v1 → v2: fetchWithAuth fix
+//   v2 → v3: nested-anchor fix + meta flex-wrap layout
+export const SW_VERSION = "folio-pwa-3";
 
 export function serviceWorkerJs(): string {
   return `// Folio PWA service worker — auth injection + offline cache.

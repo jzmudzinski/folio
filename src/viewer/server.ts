@@ -5,6 +5,7 @@ import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, lis
 import { db, logEvent } from "../core/db";
 import { pageList, pageSearch, pageThread, pageThreads, pageNote, pageStats, pageError, pageTag } from "./render";
 import { injectBootstrap } from "./note-bootstrap";
+import { rawNoteHeaders } from "../core/csp";
 import pkg from "../../package.json" with { type: "json" };
 import type { NoteType } from "../core/types";
 
@@ -25,27 +26,6 @@ function countSummary(): { all: number; final: number; expiring: number; byType:
     byType[r.type] = r.n;
   }
   return { all, final, expiring, byType };
-}
-
-const RAW_NOTE_CSP = [
-  "default-src 'self' 'unsafe-inline' data: blob: https:",
-  "script-src 'self' 'unsafe-inline' https:",
-  "style-src 'self' 'unsafe-inline' https:",
-  "img-src 'self' data: blob: https: http:",
-  "font-src 'self' data: https:",
-  "connect-src 'none'",
-  "frame-ancestors 'self'",
-  "form-action 'none'",
-  "base-uri 'self'",
-].join("; ");
-
-function rawNoteHeaders(): Record<string, string> {
-  return {
-    "Content-Type": "text/html; charset=utf-8",
-    "Content-Security-Policy": RAW_NOTE_CSP,
-    "X-Frame-Options": "SAMEORIGIN",
-    "Referrer-Policy": "no-referrer",
-  };
 }
 
 // Whitelist of asset extensions the viewer will serve from

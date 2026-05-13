@@ -212,10 +212,14 @@ ${IDB_HELPERS_JS}
       root.innerHTML = '<div class="empty">' + msg + '</div>';
       return;
     }
+    // On thread page every note IS in that thread — the chip would be
+    // redundant noise, so suppress it. Search results and home both keep
+    // the chip so the user can see where each hit comes from.
+    const rowOpts = { hideThread: !!(opts && opts.thread) };
     // Group by date bucket on home; flat list on thread or search results.
     if (!grouped) {
       const flat = [];
-      for (const n of notes) flat.push(noteRow(n));
+      for (const n of notes) flat.push(noteRow(n, rowOpts));
       root.innerHTML = flat.join('');
       return;
     }
@@ -232,23 +236,26 @@ ${IDB_HELPERS_JS}
       const arr = buckets[label];
       if (arr.length === 0) continue;
       html.push('<div class="group-h">' + label + '</div>');
-      for (const n of arr) html.push(noteRow(n));
+      for (const n of arr) html.push(noteRow(n, rowOpts));
     }
     root.innerHTML = html.join('');
   }
 
-  function noteRow(n) {
+  function noteRow(n, opts) {
     // Outer is a <div> not <a>: a row contains a nested <a class="thread">,
     // and nested <a> is invalid HTML (browsers pick the outer on click,
     // breaking the chip nav). Click delegation below routes:
     //   - tap on .thread <a>  → browser navigates natively to /t/<id>
     //   - tap anywhere else   → JS navigates to data-href = /n/<uuid>
+    const hideThread = opts && opts.hideThread;
     return (
       '<div class="note" data-href="/n/' + encodeURIComponent(n.uuid) + '">' +
         '<div class="title">' + esc(n.title) + '</div>' +
         '<div class="meta">' +
           '<span class="type ' + esc(n.type) + '">' + esc(n.type) + '</span>' +
-          '<a class="thread" href="/t/' + encodeURIComponent(n.thread_id) + '">' + esc(n.thread_id) + '</a>' +
+          (hideThread
+            ? ''
+            : '<a class="thread" href="/t/' + encodeURIComponent(n.thread_id) + '">' + esc(n.thread_id) + '</a>') +
           '<span class="ago">' + ago(n.created_at) + ' ago</span>' +
         '</div>' +
       '</div>'
@@ -481,7 +488,8 @@ function escapeHtml(s: string): string {
 // Bumped on layout/JS changes that need to invalidate PWA caches.
 //   v1 → v2: fetchWithAuth fix
 //   v2 → v3: nested-anchor fix + meta flex-wrap layout
-export const SW_VERSION = "folio-pwa-3";
+//   v3 → v4: hide thread chip in note rows when viewing a single thread
+export const SW_VERSION = "folio-pwa-4";
 
 export function serviceWorkerJs(): string {
   return `// Folio PWA service worker — auth injection + offline cache.

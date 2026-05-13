@@ -49,6 +49,16 @@ Bun ≥ 1.3 is required (`brew install oven-sh/bun/bun`). No build step in dev.
 - Tests use temp `FOLIO_HOME` via `mkdtempSync` + env override — never touch the real `~/Folio/`.
 - The `tests/install*.test.ts` pattern (fake `HOME` + `~/.claude/` or `~/.openclaw/` synthesis) is the template when you add a new install target.
 
+## Branch protection on `main`
+
+`main` is protected: direct pushes are refused; changes flow through PRs. For a small project with one regular maintainer this is mostly self-discipline rather than review value (the maintainer reviews their own work either way). The intentional benefits we keep it for:
+
+- **Forces the per-release `package.json` + CHANGELOG.md commit through CI** before it hits a tag. Catches the "I forgot to update version" footgun.
+- **Generates a clean PR record per release** that doubles as a changelog entry visible to issue reporters.
+- **Plays nicely with squash-merge convention** other open-source projects model — no special path for the maintainer.
+
+If the friction stops being worth it, the call is to either (a) automate the release sequence further (a `scripts/release.sh` covering bump → PR → merge → tag → push), or (b) add a ruleset exception for `release-*` branches. We're leaving it as-is for now because the PR step has caught at least one accidental `git add -A` (the pnpm-lock.yaml that snuck into the cloud-mvp branch).
+
 ## Commit style
 
 - **One concrete change per commit.** No "various fixes" commits.
@@ -58,7 +68,40 @@ Bun ≥ 1.3 is required (`brew install oven-sh/bun/bun`). No build step in dev.
 
 ## Release flow
 
-Folio releases via `.github/workflows/release.yml` — tag push triggers a build of `darwin-arm64` + `linux-x64` + `linux-arm64` tarballs and attaches them to a GitHub release. After merging your PR, the maintainer tags `v0.X.Y` on the squashed commit and pushes the tag.
+Folio releases via `.github/workflows/release.yml` — tag push triggers a build of `darwin-arm64` + `linux-x64` + `linux-arm64` tarballs and attaches them to a GitHub release. The tag is annotated, points at a commit on `main`, and is pushed AFTER the merge — not before.
+
+### Canonical sequence (maintainer)
+
+```bash
+# 1. Local: bump package.json + CHANGELOG.md entry, commit on main.
+git checkout main
+sed -i.bak 's/"version": ".*"/"version": "0.X.Y"/' package.json && rm package.json.bak
+$EDITOR CHANGELOG.md
+git add package.json CHANGELOG.md && git commit -m "chore: bump to v0.X.Y"
+
+# 2. Push to a release branch (main is protected; direct push refused).
+git push origin main:release-v0.X.Y
+
+# 3. Open PR + merge + delete branch.
+gh pr create --base main --head release-v0.X.Y --title "v0.X.Y: ..." --body "$(cat <<'EOF'
+## Summary
+...
+EOF
+)"
+gh pr merge <number> --merge --delete-branch
+
+# 4. Pull merged main locally, THEN tag (so tag points at a commit on main).
+git fetch origin
+git pull --ff-only origin main
+git tag -a v0.X.Y -m "v0.X.Y: ..."
+git push origin v0.X.Y
+
+# 5. Wait for the release workflow + verify artifacts.
+gh run watch                 # or: gh run list --limit 1
+gh release view v0.X.Y       # confirms tar.gz triples uploaded
+```
+
+The order matters. Tag-before-merge (which v0.10.0 did) leaves the tag pointing at a commit that isn't part of main's first-parent history. `git describe --tags HEAD` won't return that tag from main. Functionally fine for `folio update` (the release artifact is what matters to users), but cosmetically off and breaks the convention every other tag in this repo follows.
 
 ### Pre-release checklist (maintainer)
 

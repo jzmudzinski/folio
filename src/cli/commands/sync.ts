@@ -86,17 +86,32 @@ async function pairCmd(opts: SyncOpts): Promise<number> {
     last_pushed_at: null,
     last_live_pushed: {},
   };
-  saveSyncState(state);
-  // Also stamp this device's identity into folio.config.json so createNote
-  // uses the same id as the cloud knows us by.
+  saveSyncState(state); // saves chmod 600 — see saveSyncState in core/sync.ts
   const dev = getOrCreateDeviceId();
+  // Output a short fingerprint of the token for human verification without
+  // exposing the full bearer. The actual token lives only in the state file
+  // (mode 0600). Avoids the trap where someone screen-shares or pastes the
+  // CLI confirmation into chat — fingerprint is useless on its own.
+  const fp = tokenFingerprint(body.token);
   out(c.ok("✓") + ` Paired with ${c.cyan(remote)}`);
-  out(`  device_id: ${c.dim(body.device_id)}`);
-  out(`  local id:  ${c.dim(dev.id)}`);
+  out(`  device_id:  ${c.dim(body.device_id)}`);
+  out(`  local id:   ${c.dim(dev.id)}`);
+  out(`  token fp:   ${c.dim(fp)} ${c.dim("(stored in ~/Folio/.sync-state.json, mode 0600)")}`);
   out("");
-  out(c.dim("  Token saved to ~/Folio/.sync-state.json (mode 0600 recommended)"));
   out(c.dim("  Run `folio sync` to start the daemon, or `folio sync --once` for cron mode."));
   return 0;
+}
+
+/**
+ * Short visual fingerprint of a bearer token — first 4 + last 4 chars
+ * with the middle elided. Enough for the user to see "the same token is
+ * in my state file" without exposing anything an attacker could replay.
+ * Plain truncation (first 8) would leak more on its own — a fingerprint
+ * with elision signals "this is NOT the full token" visually.
+ */
+function tokenFingerprint(token: string): string {
+  if (token.length < 12) return "…";
+  return `${token.slice(0, 4)}…${token.slice(-4)}`;
 }
 
 async function statusCmd(opts: SyncOpts): Promise<number> {

@@ -83,9 +83,12 @@ export function loadSyncState(): SyncState | null {
 export function saveSyncState(state: SyncState): void {
   const p = statePath();
   if (!existsSync(dirname(p))) mkdirSync(dirname(p), { recursive: true });
-  // Atomic write via tmp + rename.
+  // Atomic write via tmp + rename. chmod 600 BEFORE the rename so the file
+  // never appears in its final path with broader permissions — protects
+  // the bearer token from world-readable umasks. On Windows chmod is a
+  // no-op; the file lives in the user's home anyway.
   const tmp = `${p}.tmp`;
-  writeFileSync(tmp, JSON.stringify(state, null, 2));
+  writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
   renameSync(tmp, p);
 }
 

@@ -136,7 +136,7 @@ export function consumePairingCode(
   const tx = db.transaction(() => {
     let deviceId: string;
     if (row.used_by_device_id) {
-      // Re-pair: rotate token on the existing device row.
+      // Re-pair through the SAME code: rotate token on the existing row.
       deviceId = row.used_by_device_id;
       db.run("UPDATE devices SET token_hash = ?, name = ?, paired_at = ?, revoked_at = NULL WHERE id = ?", [
         tokenHash,
@@ -145,9 +145,24 @@ export function consumePairingCode(
         deviceId,
       ]);
     } else {
+      // Fresh code. Use the client-supplied device_id when present; otherwise
+      // the cloud generates its own (legacy/missing-id path).
+      //
+      // UPSERT, not INSERT: the client may already have a devices row from a
+      // prior pair attempt (e.g. user retried after a "unauthorized" issue —
+      // their PWA still has the same device_id in IndexedDB). UNIQUE on
+      // devices.id would reject a re-INSERT. Treat re-pair-with-fresh-code as
+      // "rotate token, clear revoked_at, refresh name + paired_at". The
+      // attacker who steals a device_id still needs a valid pairing code
+      // (10-min TTL, generated on the server) to do anything with it.
       deviceId = clientDeviceId && clientDeviceId.length > 0 ? clientDeviceId : uuidv7();
       db.run(
-        "INSERT INTO devices (id, name, token_hash, paired_at) VALUES (?, ?, ?, ?)",
+        `INSERT INTO devices (id, name, token_hash, paired_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           token_hash = excluded.token_hash,
+           name = excluded.name,
+           paired_at = excluded.paired_at,
+           revoked_at = NULL`,
         [deviceId, deviceName, tokenHash, now]
       );
       db.run("UPDATE pairing_codes SET used_by_device_id = ? WHERE code = ?", [deviceId, code]);

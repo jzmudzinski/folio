@@ -118,6 +118,46 @@ test("device list + revoke flow", async () => {
   expect(followup.status).toBe(401);
 });
 
+test("pair with already-known device_id rotates token (re-pair after lost token)", async () => {
+  const { createPairingCode } = await import("../src/cloud/auth");
+  const clientDeviceId = "01HXTESTDEVICE0000000000XX";
+
+  // First pair.
+  const { code: c1 } = createPairingCode();
+  const r1 = await fetch(`${baseUrl}/v1/auth/pair`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code: c1, device_name: "phone", device_id: clientDeviceId }),
+  });
+  expect(r1.status).toBe(200);
+  const t1 = ((await r1.json()) as { token: string }).token;
+
+  // Second pair, fresh code, same client device_id. Should succeed (UPSERT)
+  // and return a new token. The old token must stop working.
+  const { code: c2 } = createPairingCode();
+  const r2 = await fetch(`${baseUrl}/v1/auth/pair`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code: c2, device_name: "phone-renamed", device_id: clientDeviceId }),
+  });
+  expect(r2.status).toBe(200);
+  const body2 = (await r2.json()) as { device_id: string; token: string };
+  expect(body2.device_id).toBe(clientDeviceId);
+  expect(body2.token).not.toBe(t1);
+
+  // Old token rejected.
+  const stale = await fetch(`${baseUrl}/v1/sync/pull?since=0`, {
+    headers: { authorization: `Bearer ${t1}` },
+  });
+  expect(stale.status).toBe(401);
+
+  // New token authorized.
+  const fresh = await fetch(`${baseUrl}/v1/sync/pull?since=0`, {
+    headers: { authorization: `Bearer ${body2.token}` },
+  });
+  expect(fresh.status).toBe(200);
+});
+
 test("re-consume of pairing code rotates token on the same device", async () => {
   const { createPairingCode } = await import("../src/cloud/auth");
   const { code } = createPairingCode();

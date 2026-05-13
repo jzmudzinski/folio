@@ -260,6 +260,13 @@ export const NOTE_BOOTSTRAP = `<script>
       var md = htmlToMd(a);
       post({ type: 'content', requestId: d.requestId, plain: plain, markdown: md });
     }
+    if (d.type === 'print') {
+      // Parent can't call iframe.contentWindow.print() because we're null-
+      // origin. So the parent asks via postMessage and we print ourselves —
+      // which produces a clean "just the note" output, no viewer chrome,
+      // no sidebar, no topbar, exactly what the user wants for PDF export.
+      try { window.print(); } catch(_){}
+    }
   });
 
   function init(){

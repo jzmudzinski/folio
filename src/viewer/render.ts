@@ -1157,6 +1157,22 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
       });
     });
 
+    // Print button — ask the iframe to print itself. We can't call
+    // iframe.contentWindow.print() from here because the iframe is null-
+    // origin (no allow-same-origin); cross-origin restriction blocks it.
+    // Going through the iframe's own window.print() means the print job
+    // contains JUST the note body in its theme — no viewer chrome,
+    // sidebar, or topbar leaking into the printed page.
+    (function(){
+      var pbtn = document.getElementById('folio-print-btn');
+      if (!pbtn || !iframe) return;
+      pbtn.addEventListener('click', function(){
+        try {
+          iframe.contentWindow.postMessage({ ns: 'folio', type: 'print' }, '*');
+        } catch(_){}
+      });
+    })();
+
     // Delete button — two-step inline confirmation (no modal dialog). First
     // click flips label + colour; second click within 5s POSTs the delete
     // and navigates to the thread index. Resets if the user mouses away or
@@ -1247,7 +1263,7 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
       <button class="side-action" data-copy="plain" data-label="⎘ Copy plain text">⎘ Copy plain text</button>
       <button class="side-action" data-copy="markdown" data-label="⎘ Copy as markdown">⎘ Copy as markdown</button>
       <a href="/raw/${note.id}" target="_blank">↗ View raw HTML</a>
-      <a href="#" onclick="window.print();return false">↗ Print / PDF</a>
+      <button class="side-action" id="folio-print-btn" type="button">↗ Print / PDF</button>
       <button class="side-action danger" id="folio-delete-btn"
               data-note-id="${esc(note.id)}"
               data-thread-id="${esc(note.thread_id)}"

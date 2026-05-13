@@ -1,6 +1,7 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { existsSync } from "node:fs";
+import { homedir, hostname } from "node:os";
+import { join, dirname } from "node:path";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { ulid } from "ulid";
 
 export interface FolioConfig {
   theme: string;
@@ -14,6 +15,17 @@ export interface FolioConfig {
   // localhost. Notes themselves keep relative /n/<id> links so they render
   // unchanged behind either base. No trailing slash.
   viewer_public_url?: string;
+  /** Stable ULID identifying this device. Generated lazily on first read.
+   *  Used by sync daemon (folio sync) to stamp origin_device_id on notes
+   *  this device creates, and to recognize foreign notes on pull (skip the
+   *  own-echo). Never change once set — the cloud relay associates the
+   *  bearer token with this id at pair time. */
+  device_id?: string;
+  /** Human-readable label for this device. Default = `os.hostname()`. */
+  device_name?: string;
+  /** Cloud relay remote URL (e.g. https://folio.notibox.ai). Set once when
+   *  pairing; sync daemon reads from here unless --remote overrides. */
+  sync_remote?: string;
 }
 
 export const DEFAULT_CONFIG: FolioConfig = {
@@ -139,4 +151,46 @@ export async function loadConfig(): Promise<FolioConfig> {
 
 export async function saveConfig(cfg: FolioConfig): Promise<void> {
   await Bun.write(configPath(), JSON.stringify(cfg, null, 2));
+}
+
+/**
+ * Synchronously load (or lazily initialize) this device's stable identity.
+ *
+ * Called from migration paths (which are sync) and from `createNote()` which
+ * stamps `origin_device_id` on every new note. Idempotent: subsequent calls
+ * return the same id without rewriting config.
+ *
+ * If folio.config.json is absent or missing the field, we create/patch it
+ * in place with a generated ULID + os.hostname() as device_name. We never
+ * rotate an existing id — the cloud relay binds bearer tokens to it at pair
+ * time, and rotation would invalidate the pairing.
+ */
+export function getOrCreateDeviceId(): { id: string; name: string } {
+  const path = configPath();
+  if (existsSync(path)) {
+    try {
+      const cfg = JSON.parse(readFileSync(path, "utf-8"));
+      if (typeof cfg.device_id === "string" && cfg.device_id.length > 0) {
+        return {
+          id: cfg.device_id,
+          name: typeof cfg.device_name === "string" ? cfg.device_name : hostname(),
+        };
+      }
+      // Backfill onto existing config without disturbing other fields.
+      const id = ulid();
+      const name = hostname();
+      const updated = { ...cfg, device_id: id, device_name: cfg.device_name ?? name };
+      writeFileSync(path, JSON.stringify(updated, null, 2));
+      return { id, name: updated.device_name };
+    } catch {
+      // Fall through to fresh-write.
+    }
+  }
+  const dir = dirname(path);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const id = ulid();
+  const name = hostname();
+  const fresh = { ...DEFAULT_CONFIG, device_id: id, device_name: name };
+  writeFileSync(path, JSON.stringify(fresh, null, 2));
+  return { id, name };
 }

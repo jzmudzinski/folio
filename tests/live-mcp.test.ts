@@ -157,9 +157,9 @@ test("set_pinned to empty array clears all pins", async () => {
   expect(listing.entries.find((e: any) => e.id === a.entry_id).pinned).toBe(false);
 });
 
-// ───── 15 tools total ────────────────────────────────────────────────────
+// ───── 16 tools total ────────────────────────────────────────────────────
 
-test("ListTools returns 15 folio tools (+ append_entry, list_entries, set_pinned)", async () => {
+test("ListTools returns the full folio tool set (live primitives + publish)", async () => {
   const { buildServer } = await import("../src/mcp/server");
   const server = await buildServer();
   const anySvr = server as any;
@@ -169,5 +169,6 @@ test("ListTools returns 15 folio tools (+ append_entry, list_entries, set_pinned
   expect(names).toContain("append_entry");
   expect(names).toContain("list_entries");
   expect(names).toContain("set_pinned");
-  expect(res.tools.length).toBe(15);
+  expect(names).toContain("publish");
+  expect(res.tools.length).toBe(16);
 });

@@ -1,0 +1,52 @@
+[Unit]
+Description=Folio Cloud Relay
+Documentation=https://github.com/jzmudzinski/folio
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=folio
+Group=folio
+ExecStart=/opt/folio/folio cloud serve
+Restart=on-failure
+RestartSec=5s
+
+# Env — override at deploy time via systemd drop-in (/etc/systemd/system/
+# folio-cloud.service.d/override.conf) or directly editing this unit.
+Environment=FOLIO_CLOUD_HOME=/var/lib/folio-cloud
+Environment=FOLIO_CLOUD_HOST=127.0.0.1
+Environment=FOLIO_CLOUD_PORT=8081
+# Set FOLIO_CLOUD_PUBLIC_URL in a drop-in once your reverse proxy is wired:
+#   sudo systemctl edit folio-cloud
+#   [Service]
+#   Environment=FOLIO_CLOUD_PUBLIC_URL=https://cloud.example.com
+
+# Hardening — gives blast radius comparable to a container without docker.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/folio-cloud
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+# Note: MemoryDenyWriteExecute=yes is intentionally OMITTED. Bun's JSC runtime
+# JITs JavaScript at startup, which requires writable+executable pages. Enabling
+# this option crashes the binary on launch.
+
+# Resource limits — pair with whatever litellm reserves on the host.
+MemoryMax=512M
+LimitNOFILE=65536
+
+# Logging — goes to journald. Tail with: journalctl -u folio-cloud -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=folio-cloud
+
+[Install]
+WantedBy=multi-user.target

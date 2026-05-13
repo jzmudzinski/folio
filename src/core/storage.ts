@@ -2,7 +2,7 @@ import { ulid } from "ulid";
 import { existsSync, mkdirSync, renameSync, writeFileSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { db, logEvent } from "./db";
-import { folioRoot, threadsDir, notesDir, loadConfig } from "./config";
+import { folioRoot, threadsDir, notesDir, loadConfig, getOrCreateDeviceId } from "./config";
 import { slugify, plNormalize, plStem } from "./slug";
 import { sanitize } from "./sanitize";
 import { extractText } from "./text";
@@ -88,13 +88,18 @@ export async function createNote(input: CreateNoteInput): Promise<NoteMeta> {
 
   const relPath = relative(folioRoot(), filePath);
 
+  // Device identity (W2): stamp origin on every note; owner only for live.
+  const device = getOrCreateDeviceId();
+  const origin_device_id = device.id;
+  const owner_device_id = live ? device.id : null;
+
   // DB upsert
   const d = db();
   d.transaction(() => {
     d.run(
-      `INSERT INTO notes (id, slug, path, title, type, theme, theme_profile, thread_id, is_final, created, updated, expires_at, word_count, summary, status, live, last_entry_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL)`,
-      [id, slug, relPath, input.title, input.type, theme, theme_profile, thread_id, is_final ? 1 : 0, created, created, expires_at, stats.word_count, stats.summary, live ? 1 : 0]
+      `INSERT INTO notes (id, slug, path, title, type, theme, theme_profile, thread_id, is_final, created, updated, expires_at, word_count, summary, status, live, last_entry_at, origin_device_id, owner_device_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, ?, ?)`,
+      [id, slug, relPath, input.title, input.type, theme, theme_profile, thread_id, is_final ? 1 : 0, created, created, expires_at, stats.word_count, stats.summary, live ? 1 : 0, origin_device_id, owner_device_id]
     );
     for (const tag of input.tags ?? []) {
       d.run("INSERT OR IGNORE INTO tags (note_id, tag) VALUES (?, ?)", [id, tag]);
@@ -148,6 +153,8 @@ export async function createNote(input: CreateNoteInput): Promise<NoteMeta> {
     word_count: stats.word_count,
     summary: stats.summary,
     tags: input.tags ?? [],
+    origin_device_id,
+    owner_device_id,
   };
 }
 
@@ -263,6 +270,57 @@ export function searchNotes(opts: SearchOptions): SearchHit[] {
 /** Update notes.last_entry_at after a successful append. */
 export function updateLastEntryAt(id: string, ts: string): void {
   db().run("UPDATE notes SET last_entry_at = ?, updated = ? WHERE id = ?", [ts, isoNow(), id]);
+}
+
+/**
+ * Soft-delete a note: move file to ~/Folio/.trash/<id>/note.html, mark
+ * status='trashed', remove from FTS so search doesn't return it.
+ *
+ * Recoverable for `trash_grace_days` (default 7) via the existing cleanup
+ * flow — move file back + reindex. After that, `folio cleanup` hard-deletes
+ * the DB row + files.
+ *
+ * ADR-014 (append-only) stance: this is a HUMAN-initiated boundary
+ * crossing, same as finalize(). Agents have no MCP tool to delete —
+ * iterations create new sibling notes, period. The CLI / viewer expose
+ * this for the human operator.
+ *
+ * Sync: the sync daemon picks up status='trashed' notes via a separate
+ * cursor and propagates DELETEs to the cloud relay; cloud cascades to
+ * tags + live_entries. Other devices that have this note locally will
+ * still see it until they too run `folio delete` (no auto-propagation
+ * via pull — same scope cut as W2 finalize: cleanup is per-device).
+ */
+export function deleteNote(id: string): { ok: boolean; reason?: "not-found" } {
+  const note = getNoteMeta(id);
+  if (!note) return { ok: false, reason: "not-found" };
+
+  const root = folioRoot();
+  const absPath = join(root, note.path);
+  const trashDir = join(root, ".trash", id);
+
+  // Idempotent prep: trash dir.
+  if (!existsSync(trashDir)) mkdirSync(trashDir, { recursive: true });
+
+  // Move .html if present (best effort — concurrent deletes can race).
+  if (existsSync(absPath)) {
+    try { renameSync(absPath, join(trashDir, "note.html")); } catch {}
+  }
+
+  // Live notes have a sidecar .entries.jsonl; archive it too.
+  const jsonl = absPath.replace(/\.html$/, ".entries.jsonl");
+  if (existsSync(jsonl)) {
+    try { renameSync(jsonl, join(trashDir, "entries.jsonl")); } catch {}
+  }
+
+  const d = db();
+  d.transaction(() => {
+    d.run("UPDATE notes SET status = 'trashed', updated = ? WHERE id = ?", [isoNow(), id]);
+    d.run("DELETE FROM notes_fts WHERE id = ?", [id]);
+  })();
+
+  logEvent("note_deleted", { reason: "manual", thread_id: note.thread_id }, id, note.thread_id);
+  return { ok: true };
 }
 
 export function finalize(id: string): boolean {
@@ -669,6 +727,8 @@ function rowToMeta(row: Record<string, any>): NoteMeta {
     word_count: row.word_count,
     summary: row.summary,
     tags,
+    origin_device_id: row.origin_device_id ?? null,
+    owner_device_id: row.owner_device_id ?? null,
   };
 }
 

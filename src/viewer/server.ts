@@ -1,10 +1,11 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig, folioRoot, bundledThemesDir, themesDir, viewerPublicBaseUrl, threadAssetsDir, isSafeAssetFilename } from "../core/config";
-import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, listThreads, listPopularTags, listNotesByTag } from "../core/storage";
+import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, deleteNote, listThreads, listPopularTags, listNotesByTag } from "../core/storage";
 import { db, logEvent } from "../core/db";
 import { pageList, pageSearch, pageThread, pageThreads, pageNote, pageStats, pageError, pageTag } from "./render";
 import { injectBootstrap } from "./note-bootstrap";
+import { rawNoteHeaders } from "../core/csp";
 import pkg from "../../package.json" with { type: "json" };
 import type { NoteType } from "../core/types";
 
@@ -25,27 +26,6 @@ function countSummary(): { all: number; final: number; expiring: number; byType:
     byType[r.type] = r.n;
   }
   return { all, final, expiring, byType };
-}
-
-const RAW_NOTE_CSP = [
-  "default-src 'self' 'unsafe-inline' data: blob: https:",
-  "script-src 'self' 'unsafe-inline' https:",
-  "style-src 'self' 'unsafe-inline' https:",
-  "img-src 'self' data: blob: https: http:",
-  "font-src 'self' data: https:",
-  "connect-src 'none'",
-  "frame-ancestors 'self'",
-  "form-action 'none'",
-  "base-uri 'self'",
-].join("; ");
-
-function rawNoteHeaders(): Record<string, string> {
-  return {
-    "Content-Type": "text/html; charset=utf-8",
-    "Content-Security-Policy": RAW_NOTE_CSP,
-    "X-Frame-Options": "SAMEORIGIN",
-    "Referrer-Policy": "no-referrer",
-  };
 }
 
 // Whitelist of asset extensions the viewer will serve from
@@ -326,6 +306,26 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
           const ref = req.headers.get("referer");
           if (ref) return Response.redirect(ref, 303);
           return jsonResp({ ok: true });
+        }
+
+        // POST /api/notes/:id/delete  (soft-delete; mirrors `folio delete <id>`)
+        // Same semantics as the CLI: file moves to ~/Folio/.trash/<id>/,
+        // status='trashed', FTS row removed. Recoverable for 7 days via the
+        // cleanup grace window. Sync daemon propagates the delete to cloud
+        // on next run; viewer doesn't talk to the cloud directly here.
+        if (req.method === "POST" && /^\/api\/notes\/[^/]+\/delete$/.test(path)) {
+          const id = path.split("/")[3]!;
+          const res = deleteNote(id);
+          if (!res.ok) return jsonResp({ error: res.reason ?? "delete failed" }, 404);
+          // The deleted note's URL is now stale, so don't redirect back to it.
+          // Send the caller to the thread index. JS callers can ignore and
+          // navigate themselves.
+          const note = getNoteMeta(id);
+          if (note) return jsonResp({ deleted: id });
+          // After delete, getNoteMeta returns null (filters status='active').
+          // Pull the thread from the original side-channel header if present.
+          const fallback = req.headers.get("x-folio-thread");
+          return jsonResp({ deleted: id, thread_redirect: fallback ?? "/" });
         }
 
         // GET /api/list

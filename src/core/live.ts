@@ -50,6 +50,30 @@ export function newEntryId(): string {
   return ulid().slice(-10).toLowerCase();
 }
 
+/**
+ * Owner-locked enforcement for live notes (W2). A live note's
+ * `owner_device_id` is set at create time to whichever device made it.
+ * Only that device may append entries — other devices that have pulled the
+ * note via sync see a clear error pointing at the canonical workflow
+ * (create your own live note in the same thread).
+ *
+ * Notes without owner_device_id (pre-W2 or non-live) pass through. The
+ * sync migration backfills owner_device_id for existing live notes to the
+ * device that ran the migration, preserving local-only behavior.
+ */
+export function assertCanAppend(note: { owner_device_id: string | null; thread_id: string }): void {
+  if (!note.owner_device_id) return; // unowned (non-live or pre-W2) — no gate
+  // Late import to avoid a cycle: config → storage → live.
+  const { getOrCreateDeviceId } = require("./config") as typeof import("./config");
+  const self = getOrCreateDeviceId().id;
+  if (note.owner_device_id !== self) {
+    throw new Error(
+      `This live note belongs to device '${note.owner_device_id}'. ` +
+        `Create your own live note in thread '${note.thread_id}' to log here.`
+    );
+  }
+}
+
 /** Read all entries from a JSONL file. Missing file → empty array.
  *  Corrupt lines (JSON parse errors) are skipped, not fatal — protects
  *  against rare concurrent-write interleaving on large entries. */

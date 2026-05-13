@@ -16,6 +16,10 @@ import { uninstallCmd } from "./commands/uninstall";
 import { doctorCmd } from "./commands/doctor";
 import { appendCmd } from "./commands/append";
 import { tailCmd } from "./commands/tail";
+import { cloudCmd } from "./commands/cloud";
+import { syncCmd } from "./commands/sync";
+import { publishCmd, sharesCmd } from "./commands/publish";
+import { deleteCmd } from "./commands/delete";
 import { c, out } from "./io";
 
 interface ParsedArgs {
@@ -65,6 +69,7 @@ function help(): number {
   out(`  ${c.cyan("append <id>")}       Append entry to a live note (--content @file, --tags, --refs, --importance, --source-ref, --occurred-at)`);
   out(`  ${c.cyan("tail <id>")}         Stream live entries from /n/:id/stream — needs folio serve (--json)`);
   out(`  ${c.cyan("finalize <id>")}     Mark note as final (skip auto-cleanup); for live notes compiles entries into body`);
+  out(`  ${c.cyan("delete <id>")}       Soft-delete a note (moves to ~/Folio/.trash/, recoverable 7d, propagates to cloud) — flag: --yes`);
   out(`  ${c.cyan("open <id|slug>")}    Open note in default browser (via viewer)`);
   out(`  ${c.cyan("stats")}             Show counts + analytics`);
   out(`  ${c.cyan("cleanup")}           Auto-trash non-final notes past expiry (--dry-run, --grace-days N)`);
@@ -75,6 +80,10 @@ function help(): number {
   out(`  ${c.cyan("install")}           Wire Folio into an agent client (--target claude-code | openclaw | all, --skill-only, --mcp-only, --scope, --dry-run, --yes)`);
   out(`  ${c.cyan("uninstall")}         Remove Folio wiring (--target claude-code | openclaw | all, --skill-only, --mcp-only, --scope, --all-scopes, --dry-run, --yes)`);
   out(`  ${c.cyan("doctor")}            Show install state for every detected target + warnings (--json)`);
+  out(`  ${c.cyan("cloud <sub>")}       Cloud relay: init | serve | pair-code (see deploy/ for systemd unit)`);
+  out(`  ${c.cyan("sync <sub>")}        Sync with cloud: pair | status | unpair | run (default) — flags: --remote, --code, --once, --interval`);
+  out(`  ${c.cyan("publish <id>")}      Create a capability URL share — flags: --expires-days, --max-views, --scope=note|thread`);
+  out(`  ${c.cyan("shares <sub>")}      Manage capability URL shares: list | revoke <token> — flags: --for &lt;id&gt;`);
   out(`  ${c.cyan("version")}           Print Folio version + system info (--json) — also: --version, -v`);
   out(`  ${c.cyan("help")}              This help`);
   out("");
@@ -166,6 +175,13 @@ export async function main(argv = process.argv): Promise<number> {
         });
       case "finalize":
         return await finalizeCmd(positional[0] ?? "");
+      case "delete":
+      case "rm":
+        return await deleteCmd({
+          id: positional[0] ?? flagStr(flags.id),
+          yes: flagBool(flags.yes) || flagBool(flags.y),
+          jsonOut: flagBool(flags.json),
+        });
       case "open":
         return await openCmd(positional[0] ?? "");
       case "stats":
@@ -220,6 +236,33 @@ export async function main(argv = process.argv): Promise<number> {
         });
       case "doctor":
         return await doctorCmd({ jsonOut: flagBool(flags.json) });
+      case "cloud":
+        return await cloudCmd(positional[0], positional.slice(1));
+      case "sync":
+        return await syncCmd({
+          sub: positional[0],
+          remote: flagStr(flags.remote),
+          code: flagStr(flags.code),
+          name: flagStr(flags.name),
+          once: flagBool(flags.once),
+          interval: flagInt(flags.interval),
+          jsonOut: flagBool(flags.json),
+        });
+      case "publish":
+        return await publishCmd({
+          id: positional[0] ?? flagStr(flags.id),
+          expiresDays: flagInt(flags["expires-days"]),
+          maxViews: flagInt(flags["max-views"]),
+          scope: flagStr(flags.scope) as any,
+          jsonOut: flagBool(flags.json),
+        });
+      case "shares":
+        return await sharesCmd({
+          sub: positional[0],
+          token: positional[1],
+          forId: flagStr(flags.for),
+          jsonOut: flagBool(flags.json),
+        });
       case "help":
       case undefined:
       case "":

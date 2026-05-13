@@ -2,7 +2,7 @@ import { ulid } from "ulid";
 import { existsSync, mkdirSync, renameSync, writeFileSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { db, logEvent } from "./db";
-import { folioRoot, threadsDir, notesDir, loadConfig } from "./config";
+import { folioRoot, threadsDir, notesDir, loadConfig, getOrCreateDeviceId } from "./config";
 import { slugify, plNormalize, plStem } from "./slug";
 import { sanitize } from "./sanitize";
 import { extractText } from "./text";
@@ -88,13 +88,18 @@ export async function createNote(input: CreateNoteInput): Promise<NoteMeta> {
 
   const relPath = relative(folioRoot(), filePath);
 
+  // Device identity (W2): stamp origin on every note; owner only for live.
+  const device = getOrCreateDeviceId();
+  const origin_device_id = device.id;
+  const owner_device_id = live ? device.id : null;
+
   // DB upsert
   const d = db();
   d.transaction(() => {
     d.run(
-      `INSERT INTO notes (id, slug, path, title, type, theme, theme_profile, thread_id, is_final, created, updated, expires_at, word_count, summary, status, live, last_entry_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL)`,
-      [id, slug, relPath, input.title, input.type, theme, theme_profile, thread_id, is_final ? 1 : 0, created, created, expires_at, stats.word_count, stats.summary, live ? 1 : 0]
+      `INSERT INTO notes (id, slug, path, title, type, theme, theme_profile, thread_id, is_final, created, updated, expires_at, word_count, summary, status, live, last_entry_at, origin_device_id, owner_device_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, ?, ?)`,
+      [id, slug, relPath, input.title, input.type, theme, theme_profile, thread_id, is_final ? 1 : 0, created, created, expires_at, stats.word_count, stats.summary, live ? 1 : 0, origin_device_id, owner_device_id]
     );
     for (const tag of input.tags ?? []) {
       d.run("INSERT OR IGNORE INTO tags (note_id, tag) VALUES (?, ?)", [id, tag]);
@@ -148,6 +153,8 @@ export async function createNote(input: CreateNoteInput): Promise<NoteMeta> {
     word_count: stats.word_count,
     summary: stats.summary,
     tags: input.tags ?? [],
+    origin_device_id,
+    owner_device_id,
   };
 }
 
@@ -669,6 +676,8 @@ function rowToMeta(row: Record<string, any>): NoteMeta {
     word_count: row.word_count,
     summary: row.summary,
     tags,
+    origin_device_id: row.origin_device_id ?? null,
+    owner_device_id: row.owner_device_id ?? null,
   };
 }
 

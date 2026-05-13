@@ -26,6 +26,16 @@ export interface Note {
   summary: string | null;
   body_html: string;
   tags: string[];
+  /** Device that created the note. Null on rows that predate W2 migration
+   *  with no backfill source (shouldn't happen — migration uses
+   *  getOrCreateDeviceId()). Sync daemon uses this to skip own-echo on pull
+   *  and to filter which notes to push. */
+  origin_device_id: string | null;
+  /** Device allowed to append_entry on this live note. Null for non-live
+   *  notes. Append on a foreign-owner live note throws with a clear message
+   *  pointing at the canonical workflow (create your own live note in the
+   *  same thread). */
+  owner_device_id: string | null;
 }
 
 export interface NoteMeta {
@@ -46,6 +56,8 @@ export interface NoteMeta {
   word_count: number;
   summary: string | null;
   tags: string[];
+  origin_device_id: string | null;
+  owner_device_id: string | null;
 }
 
 export interface CreateNoteInput {

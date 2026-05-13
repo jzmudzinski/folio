@@ -51,6 +51,31 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    from: "2",
+    to: "3",
+    description:
+      "Add origin_device_id + owner_device_id columns to notes (multi-writer sync, W2). " +
+      "origin_device_id tracks which device created the note (skip own-echo on pull); " +
+      "owner_device_id is set for live notes only and gates append_entry to that device.",
+    up: (db) => {
+      if (!hasColumn(db, "notes", "origin_device_id")) {
+        db.exec("ALTER TABLE notes ADD COLUMN origin_device_id TEXT");
+      }
+      if (!hasColumn(db, "notes", "owner_device_id")) {
+        db.exec("ALTER TABLE notes ADD COLUMN owner_device_id TEXT");
+      }
+      // Backfill: existing notes were created on this device (nobody else
+      // had access to ~/Folio/ prior to W2 sync). Live notes also get
+      // owner_device_id = self so append_entry continues to work for them.
+      // We do this BEFORE the cli/cloud paths fill in via getOrCreateDeviceId,
+      // so we resolve device id here too (sync, same source of truth).
+      const { getOrCreateDeviceId } = require("./config") as typeof import("./config");
+      const dev = getOrCreateDeviceId();
+      db.run("UPDATE notes SET origin_device_id = ? WHERE origin_device_id IS NULL", [dev.id]);
+      db.run("UPDATE notes SET owner_device_id = ? WHERE live = 1 AND owner_device_id IS NULL", [dev.id]);
+    },
+  },
 ];
 
 /**

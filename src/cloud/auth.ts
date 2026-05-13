@@ -106,11 +106,20 @@ export interface ConsumePairingResult {
  * from that code. Reason: prevents an attacker who sniffed the first token
  * from continuing to use it if the legitimate device re-pairs.
  *
+ * `clientDeviceId` is optional but strongly recommended: when supplied, the
+ * cloud uses the client's stable local id (from FolioConfig.device_id) as
+ * the canonical device id on this side too. This way `origin_device_id`
+ * stamped server-side at push time matches what the client tracks locally,
+ * so own-echo skip works on pull. If omitted (legacy clients), the cloud
+ * falls back to generating its own UUIDv7 — but then the client must
+ * accept and store this id locally to keep the two sides in sync.
+ *
  * Throws if code unknown or expired.
  */
 export function consumePairingCode(
   code: string,
   deviceName: string,
+  clientDeviceId?: string,
   db: Database = cloudDb()
 ): ConsumePairingResult {
   const row = db
@@ -136,7 +145,7 @@ export function consumePairingCode(
         deviceId,
       ]);
     } else {
-      deviceId = uuidv7();
+      deviceId = clientDeviceId && clientDeviceId.length > 0 ? clientDeviceId : uuidv7();
       db.run(
         "INSERT INTO devices (id, name, token_hash, paired_at) VALUES (?, ?, ?, ?)",
         [deviceId, deviceName, tokenHash, now]

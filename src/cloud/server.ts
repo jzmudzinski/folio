@@ -144,11 +144,11 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
         }
 
         if (path === "/v1/auth/pair" && method === "POST") {
-          const body = await readJsonBody<{ code?: string; device_name?: string }>(req);
+          const body = await readJsonBody<{ code?: string; device_name?: string; device_id?: string }>(req);
           if (!body.code) return badRequest("code required");
           if (!body.device_name) return badRequest("device_name required");
           try {
-            const { deviceId, token } = consumePairingCode(body.code, body.device_name);
+            const { deviceId, token } = consumePairingCode(body.code, body.device_name, body.device_id);
             return json({ device_id: deviceId, token });
           } catch (e: any) {
             return badRequest(e?.message ?? "pairing failed");

@@ -451,6 +451,11 @@ export async function buildServer(): Promise<Server> {
           // Validate refs (if any) point at existing entries on this note.
           const refs = Array.isArray(args.refs) ? args.refs.map(String) : undefined;
           const live = await import("../core/live");
+          try {
+            live.assertCanAppend(note);
+          } catch (e: any) {
+            return errContent(e?.message ?? String(e));
+          }
           const jsonl = live.entriesPath(join(folioRoot(), note.path));
           if (refs && refs.length > 0) {
             const existing = new Set(live.readEntries(jsonl).map((e) => e.id));
@@ -544,6 +549,11 @@ export async function buildServer(): Promise<Server> {
           if (note.is_final) return errContent(`Note ${note_id} is final.`);
 
           const live = await import("../core/live");
+          try {
+            live.assertCanAppend(note);
+          } catch (e: any) {
+            return errContent(e?.message ?? String(e));
+          }
           const jsonl = live.entriesPath(join(folioRoot(), note.path));
           const all = live.readEntries(jsonl);
           const existingIds = new Set(all.map((e) => e.id));

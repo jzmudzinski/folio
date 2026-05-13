@@ -17,6 +17,7 @@ import { doctorCmd } from "./commands/doctor";
 import { appendCmd } from "./commands/append";
 import { tailCmd } from "./commands/tail";
 import { cloudCmd } from "./commands/cloud";
+import { syncCmd } from "./commands/sync";
 import { c, out } from "./io";
 
 interface ParsedArgs {
@@ -77,6 +78,7 @@ function help(): number {
   out(`  ${c.cyan("uninstall")}         Remove Folio wiring (--target claude-code | openclaw | all, --skill-only, --mcp-only, --scope, --all-scopes, --dry-run, --yes)`);
   out(`  ${c.cyan("doctor")}            Show install state for every detected target + warnings (--json)`);
   out(`  ${c.cyan("cloud <sub>")}       Cloud relay: init | serve | pair-code (see deploy/ for systemd unit)`);
+  out(`  ${c.cyan("sync <sub>")}        Sync with cloud: pair | status | unpair | run (default) — flags: --remote, --code, --once, --interval`);
   out(`  ${c.cyan("version")}           Print Folio version + system info (--json) — also: --version, -v`);
   out(`  ${c.cyan("help")}              This help`);
   out("");
@@ -224,6 +226,16 @@ export async function main(argv = process.argv): Promise<number> {
         return await doctorCmd({ jsonOut: flagBool(flags.json) });
       case "cloud":
         return await cloudCmd(positional[0], positional.slice(1));
+      case "sync":
+        return await syncCmd({
+          sub: positional[0],
+          remote: flagStr(flags.remote),
+          code: flagStr(flags.code),
+          name: flagStr(flags.name),
+          once: flagBool(flags.once),
+          interval: flagInt(flags.interval),
+          jsonOut: flagBool(flags.json),
+        });
       case "help":
       case undefined:
       case "":

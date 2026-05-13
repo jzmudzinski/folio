@@ -234,3 +234,61 @@ test("public asset 404 for unknown (thread, filename)", async () => {
   const r = await fetch(`${baseUrl}/t/nonexistent/asset/missing.png`);
   expect(r.status).toBe(404);
 });
+
+test("delete cascade: orphan asset bytes removed when last referrer goes", async () => {
+  const { createNote, deleteNote } = await import("../src/core/storage");
+  const { loadSyncState, syncOnce } = await import("../src/core/sync");
+  const { cloudDb, cloudAssetsDir } = await import("../src/cloud/db");
+
+  // Drop an asset + create two notes referencing it. Sync both up.
+  const bytes = new TextEncoder().encode("cascade-test bytes");
+  const hash = dropAsset("photos-cascade", "shared.png", bytes);
+  const n1 = await createNote({
+    type: "snippet",
+    title: "Refs A",
+    body_html: `<img src="/t/photos-cascade/asset/shared.png">`,
+    thread_id: "photos-cascade",
+  });
+  const n2 = await createNote({
+    type: "snippet",
+    title: "Refs B",
+    body_html: `<img src="/t/photos-cascade/asset/shared.png">`,
+    thread_id: "photos-cascade",
+  });
+  await syncOnce(loadSyncState()!);
+
+  // Asset is on cloud.
+  expect(
+    cloudDb()
+      .query<{ hash: string }, [string]>("SELECT hash FROM assets WHERE hash = ?")
+      .get(hash),
+  ).not.toBeNull();
+  const { existsSync, readdirSync } = await import("node:fs");
+  // blob_path = ab/cd/<hash>.png — let's find any file in cloudAssetsDir.
+  // Easier: re-query for the blob_path.
+  const blobPath = cloudDb()
+    .query<{ blob_path: string }, [string]>("SELECT blob_path FROM assets WHERE hash = ?")
+    .get(hash)!.blob_path;
+  const abs = join(cloudAssetsDir(), blobPath);
+  expect(existsSync(abs)).toBe(true);
+
+  // Delete n1: asset is STILL referenced by n2, so cloud should keep it.
+  deleteNote(n1.id);
+  await syncOnce(loadSyncState()!);
+  expect(
+    cloudDb()
+      .query<{ hash: string }, [string]>("SELECT hash FROM assets WHERE hash = ?")
+      .get(hash),
+  ).not.toBeNull();
+  expect(existsSync(abs)).toBe(true);
+
+  // Delete n2: now zero referrers — cloud should sweep the asset.
+  deleteNote(n2.id);
+  await syncOnce(loadSyncState()!);
+  expect(
+    cloudDb()
+      .query<{ hash: string }, [string]>("SELECT hash FROM assets WHERE hash = ?")
+      .get(hash),
+  ).toBeNull();
+  expect(existsSync(abs)).toBe(false);
+});

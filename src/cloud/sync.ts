@@ -63,6 +63,10 @@ export interface PushAccepted {
   notes: { uuid: string; canonical_slug: string }[];
   live_entries: { id: string; note_uuid: string }[];
   deletes: string[];
+  /** Count of asset blobs hard-deleted as orphans (no remaining note
+   *  references them). Surfaces in the response so operators can see
+   *  storage being reclaimed; not part of cursor advance. */
+  assets_deleted: number;
   cursor: number;
 }
 
@@ -146,7 +150,7 @@ function resolveSlug(db: Database, threadId: string, desiredSlug: string, uuid: 
 }
 
 export function handlePush(payload: PushPayload, originDeviceId: string, db: Database = cloudDb()): PushAccepted {
-  const accepted: PushAccepted = { notes: [], live_entries: [], deletes: [], cursor: 0 };
+  const accepted: PushAccepted = { notes: [], live_entries: [], deletes: [], assets_deleted: 0, cursor: 0 };
   const tx = db.transaction(() => {
     for (const n of payload.notes ?? []) {
       const canonicalSlug = resolveSlug(db, n.thread_id, n.slug, n.uuid);
@@ -239,11 +243,13 @@ export function handlePush(payload: PushPayload, originDeviceId: string, db: Dat
     // (validateShareAccess looks up the note); we don't bother revoking
     // them, expiry + TTL handle that.
     for (const uuid of payload.deletes ?? []) {
-      // Look up thread_id + origin BEFORE deleting so the tombstone has
-      // useful metadata for the cross-device pull listener.
+      // Look up thread_id + origin + body BEFORE deleting:
+      //   - thread_id + origin: needed for the tombstone metadata
+      //   - body_html: needed to extract asset refs so we can GC any
+      //     orphan blobs (assets that were only referenced by this note)
       const meta = db
-        .query<{ thread_id: string; origin_device_id: string | null }, [string]>(
-          "SELECT thread_id, origin_device_id FROM notes WHERE uuid = ?"
+        .query<{ thread_id: string; origin_device_id: string | null; body_html: string }, [string]>(
+          "SELECT thread_id, origin_device_id, body_html FROM notes WHERE uuid = ?"
         )
         .get(uuid);
       const res = db.run("DELETE FROM notes WHERE uuid = ?", [uuid]);
@@ -267,6 +273,16 @@ export function handlePush(payload: PushPayload, originDeviceId: string, db: Dat
           ]
         );
         accepted.cursor = Math.max(accepted.cursor, seq);
+
+        // Asset orphan cleanup. For each (thread, filename) referenced by
+        // the doomed note, check if any remaining active note still cites
+        // it (LIKE scan on body_html). If zero references → unlink blob +
+        // delete the assets row. Cheap at this scale; if note count grows
+        // into the tens of thousands, swap to a refcount table maintained
+        // on push.
+        if (meta?.body_html) {
+          accepted.assets_deleted += sweepOrphanAssetsFor(meta.body_html, db);
+        }
       }
     }
   });
@@ -496,6 +512,73 @@ export function storeAsset(
     [hash, filename, threadId, contentType, bytes.byteLength, rel, new Date().toISOString()]
   );
   return { hash, size_bytes: bytes.byteLength, stored: true };
+}
+
+/**
+ * Sweep orphan assets referenced by `bodyHtml` (the body of a just-deleted
+ * note). For each (thread_id, filename) cited there, check if any remaining
+ * active note's body still references the same path. Zero references →
+ * unlink the blob file + remove the assets row.
+ *
+ * Idempotent and safe: if the same body's been deleted twice, the second
+ * pass finds the asset rows already gone and no-ops. LIKE scan cost is
+ * O(n_assets × n_notes); fine at MVP scale (~hundreds of each). If the
+ * deck ever grows past ~10k of either, replace with a per-asset refcount
+ * column maintained on push.
+ */
+function sweepOrphanAssetsFor(bodyHtml: string, db: Database): number {
+  // Same regex as core/sync.ts extractAssetRefs — duplicated locally to
+  // avoid pulling in core's full module graph. If the pattern changes,
+  // update both call sites.
+  const re = /(?:href|src)\s*=\s*["']([^"']*)\/t\/([^/"']+)\/asset\/([^"'?#]+)["']/g;
+  const seen = new Set<string>();
+  const refs: Array<{ thread_id: string; filename: string }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(bodyHtml)) !== null) {
+    const thread_id = decodeURIComponent(m[2]!);
+    const filename = decodeURIComponent(m[3]!);
+    const key = `${thread_id}/${filename}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    refs.push({ thread_id, filename });
+  }
+  if (refs.length === 0) return 0;
+
+  let deleted = 0;
+  for (const r of refs) {
+    // Cheap escape for LIKE (% and _ are wildcards; the filename comes from
+    // body_html which sanitize-html already vetted, but defense in depth).
+    const fnSafe = r.filename.replace(/[\\%_]/g, "\\$&");
+    const trSafe = r.thread_id.replace(/[\\%_]/g, "\\$&");
+    const needle = `%/t/${trSafe}/asset/${fnSafe}%`;
+    // ESCAPE '\' — SQLite requires a single-character escape; JS double-
+    // backslash unescapes to one in the SQL string. Matches the convention
+    // already used in cloud/server.ts /v1/feed query escaping.
+    const stillRef = db
+      .query<{ n: number }, [string]>(
+        "SELECT COUNT(*) AS n FROM notes WHERE body_html LIKE ? ESCAPE '\\'"
+      )
+      .get(needle);
+    if (stillRef && stillRef.n > 0) continue; // someone else still uses it
+
+    // Orphan. Pull the row to get the blob_path, unlink, then delete.
+    const asset = db
+      .query<{ hash: string; blob_path: string }, [string, string]>(
+        "SELECT hash, blob_path FROM assets WHERE thread_id = ? AND filename = ?"
+      )
+      .get(r.thread_id, r.filename);
+    if (!asset) continue;
+    const abs = join(cloudAssetsDir(), asset.blob_path);
+    try {
+      if (existsSync(abs)) require("node:fs").unlinkSync(abs);
+    } catch {
+      // Best effort. If unlink fails the DB row still goes away; orphan
+      // bytes are scary to keep around vs accepted as one-off leak.
+    }
+    db.run("DELETE FROM assets WHERE hash = ?", [asset.hash]);
+    deleted++;
+  }
+  return deleted;
 }
 
 export function readAsset(hash: string, db: Database = cloudDb()):

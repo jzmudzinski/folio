@@ -62,7 +62,11 @@ main { padding: 16px 20px 60px; max-width: 760px; margin: 0 auto; }
 .note .type.journal { color: #864; border-color: rgba(136,102,68,0.3); }
 .note .type.snippet { color: var(--muted); }
 .note .ago { color: var(--muted-2); }
-.note .thread { font-style: italic; font-family: 'Instrument Serif', serif; color: var(--muted); }
+.note a.thread { font-style: italic; font-family: 'Instrument Serif', serif; color: var(--muted); text-decoration: none; padding: 2px 4px; margin: -2px -4px; border-radius: 4px; }
+.note a.thread:hover, .note a.thread:active { background: var(--bg-2); color: var(--ink-2); }
+header.top #ctx { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 10px; }
+header.top #ctx .back-link { color: var(--accent); text-decoration: none; font-weight: 500; }
+header.top #ctx .thread-name { font-family: 'Instrument Serif', serif; font-style: italic; font-size: 17px; color: var(--ink); }
 .group-h { font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted-2); padding: 18px 12px 8px; }
 
 /* Pair page */
@@ -136,7 +140,9 @@ const IDB_HELPERS_JS = `
 const APP_SHELL_BOOTSTRAP_JS = `
 ${IDB_HELPERS_JS}
 (function () {
-  // Register service worker — sets up auth header injection + offline cache.
+  // Register service worker — sets up auth header injection + offline cache
+  // for sub-resources (theme.css, icons). Auth on note routes is now done
+  // explicitly in JS (no SW dependency for correctness — SW is just polish).
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function (e) {
       console.warn('[folio-pwa] sw register failed', e);
@@ -151,6 +157,13 @@ ${IDB_HELPERS_JS}
   window.addEventListener('online', updateOnline);
   window.addEventListener('offline', updateOnline);
   updateOnline();
+
+  // Detect context from URL: home (/) shows all, thread page (/t/:id)
+  // pre-filters to that thread. Both use the same shell.
+  function currentThread() {
+    const m = window.location.pathname.match(/^\\/t\\/([^/]+)$/);
+    return m ? decodeURIComponent(m[1]) : null;
+  }
 
   function ago(iso) {
     if (!iso) return '';
@@ -169,13 +182,25 @@ ${IDB_HELPERS_JS}
     return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  function renderList(notes) {
+  function renderList(notes, opts) {
     const root = document.getElementById('list');
+    const grouped = opts && opts.grouped !== false;
     if (!notes || notes.length === 0) {
-      root.innerHTML = '<div class="empty">No notes yet. Create one on your laptop and run <code>folio sync</code>.</div>';
+      const msg = opts && opts.thread
+        ? 'No notes in thread "' + esc(opts.thread) + '" yet.'
+        : (opts && opts.query
+          ? 'No notes match "' + esc(opts.query) + '".'
+          : 'No notes yet. Create one on your laptop and run <code>folio sync</code>.');
+      root.innerHTML = '<div class="empty">' + msg + '</div>';
       return;
     }
-    // Group by date bucket.
+    // Group by date bucket on home; flat list on thread or search results.
+    if (!grouped) {
+      const flat = [];
+      for (const n of notes) flat.push(noteRow(n));
+      root.innerHTML = flat.join('');
+      return;
+    }
     const buckets = { Today: [], Yesterday: [], 'This week': [], 'This month': [], Older: [] };
     const now = new Date(); now.setHours(0, 0, 0, 0);
     for (const n of notes) {
@@ -189,49 +214,85 @@ ${IDB_HELPERS_JS}
       const arr = buckets[label];
       if (arr.length === 0) continue;
       html.push('<div class="group-h">' + label + '</div>');
-      for (const n of arr) {
-        html.push(
-          '<a class="note" href="/n/' + encodeURIComponent(n.uuid) + '">' +
-            '<div class="title">' + esc(n.title) + '</div>' +
-            '<div class="meta">' +
-              '<span class="type ' + esc(n.type) + '">' + esc(n.type) + '</span>' +
-              '<span class="thread">' + esc(n.thread_id) + '</span>' +
-              '<span class="ago">' + ago(n.created_at) + ' ago</span>' +
-            '</div>' +
-          '</a>'
-        );
-      }
+      for (const n of arr) html.push(noteRow(n));
     }
     root.innerHTML = html.join('');
   }
 
-  // Boot: check token. If missing, redirect to /pair. Else fetch feed.
-  window.folioKV.get('token').then(function (token) {
-    if (!token) { window.location.href = '/pair'; return; }
-    fetch('/v1/feed', { headers: { Authorization: 'Bearer ' + token } })
-      .then(function (r) {
-        if (r.status === 401) { window.location.href = '/pair'; throw new Error('unauthorized'); }
-        if (!r.ok) throw new Error('feed: HTTP ' + r.status);
-        return r.json();
-      })
-      .then(function (body) { renderList(body.notes || []); })
-      .catch(function (e) {
-        const root = document.getElementById('list');
-        if (root) root.innerHTML = '<div class="empty">Could not load: ' + esc(e.message) + '</div>';
-      });
-  });
+  function noteRow(n) {
+    // Thread chip is a separate link so tap on chip → thread view, tap on
+    // rest → note. Stop event propagation on the chip to keep them distinct.
+    return (
+      '<a class="note" href="/n/' + encodeURIComponent(n.uuid) + '">' +
+        '<div class="title">' + esc(n.title) + '</div>' +
+        '<div class="meta">' +
+          '<span class="type ' + esc(n.type) + '">' + esc(n.type) + '</span>' +
+          '<a class="thread" data-thread="' + esc(n.thread_id) + '" href="/t/' + encodeURIComponent(n.thread_id) + '" onclick="event.stopPropagation();">' + esc(n.thread_id) + '</a>' +
+          '<span class="ago">' + ago(n.created_at) + ' ago</span>' +
+        '</div>' +
+      '</a>'
+    );
+  }
 
-  // Search: filter currently visible items by title substring (client-side).
+  // Feed loader. Used by initial boot, by search input, and on thread page.
+  let inflight = 0;
+  async function loadFeed(opts) {
+    opts = opts || {};
+    const token = await window.folioKV.get('token');
+    if (!token) { window.location.href = '/pair'; return; }
+    const params = new URLSearchParams();
+    if (opts.query) params.set('q', opts.query);
+    if (opts.thread) params.set('thread', opts.thread);
+    const url = '/v1/feed' + (params.toString() ? '?' + params.toString() : '');
+    const myCall = ++inflight;
+    try {
+      const r = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+      if (myCall !== inflight) return; // Stale response — newer search inflight.
+      if (r.status === 401) { window.location.href = '/pair'; return; }
+      if (!r.ok) throw new Error('feed: HTTP ' + r.status);
+      const body = await r.json();
+      renderList(body.notes || [], {
+        grouped: !opts.query && !opts.thread,
+        query: opts.query,
+        thread: opts.thread,
+      });
+    } catch (e) {
+      if (myCall !== inflight) return;
+      const root = document.getElementById('list');
+      if (root) root.innerHTML = '<div class="empty">Could not load: ' + esc(e.message) + '</div>';
+    }
+  }
+
+  // Update header for thread page.
+  function setHeader(opts) {
+    const ctxEl = document.getElementById('ctx');
+    if (!ctxEl) return;
+    if (opts.thread) {
+      ctxEl.innerHTML = '<a href="/" class="back-link">‹ all</a> <span class="thread-name">' + esc(opts.thread) + '</span>';
+    } else {
+      ctxEl.textContent = '';
+    }
+  }
+
+  // Boot.
+  const thread = currentThread();
+  setHeader({ thread: thread });
+  loadFeed({ thread: thread });
+
+  // Debounced search input → server query.
   const q = document.getElementById('search');
   if (q) {
+    let searchTimer = null;
     q.addEventListener('input', function () {
-      const needle = q.value.trim().toLowerCase();
-      const items = document.querySelectorAll('#list .note');
-      items.forEach(function (el) {
-        const title = el.querySelector('.title');
-        const visible = !needle || (title && title.textContent.toLowerCase().indexOf(needle) >= 0);
-        el.style.display = visible ? '' : 'none';
-      });
+      if (searchTimer) clearTimeout(searchTimer);
+      searchTimer = setTimeout(function () {
+        const value = q.value.trim();
+        if (value === '') {
+          loadFeed({ thread: thread });
+        } else {
+          loadFeed({ query: value, thread: thread });
+        }
+      }, 250);
     });
   }
 })();
@@ -256,8 +317,8 @@ export function renderHome(publicUrl: string): string {
 <body>
   <div id="offline-banner" class="offline-banner hidden">Offline — showing cached notes.</div>
   <header class="top">
-    <span class="brand">folio<span class="dot">.</span></span>
-    <span class="meta">${escapeHtml(new URL(publicUrl).host)}</span>
+    <a href="/" style="text-decoration: none;"><span class="brand">folio<span class="dot">.</span></span></a>
+    <span id="ctx"></span>
   </header>
   <main>
     <input id="search" class="search" type="search" placeholder="filter notes…" autocomplete="off" autocapitalize="none">

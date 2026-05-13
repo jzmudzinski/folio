@@ -195,6 +195,18 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
           }
         }
 
+        // /t/:thread_id — public JS shell, same renderer as /. JS reads
+        // location.pathname → /t/<id> and fetches /v1/feed?thread=<id>.
+        {
+          const m = path.match(/^\/t\/([^/]+)$/);
+          if (m && method === "GET") {
+            return new Response(renderHome(publicUrl), {
+              status: 200,
+              headers: { "Content-Type": "text/html; charset=utf-8" },
+            });
+          }
+        }
+
         // ----- Authed paths below -----
         if (!device) return unauthorized(); // belt-and-braces; isPublicPath gate above ensures this
 
@@ -223,9 +235,37 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
         }
 
         if (path === "/v1/feed" && method === "GET") {
-          // Lightweight list for the PWA home screen — no body_html, no
-          // plain_text. Capped to keep first paint snappy.
+          // Lightweight list for the PWA home screen — no body_html.
+          // Supports two optional filters:
+          //   ?q=<query>     — case-insensitive LIKE across title + plain_text
+          //   ?thread=<id>   — exact thread_id match
+          // LIKE-search is sufficient at the one-user-many-notes scale we're
+          // sized for; bumping to FTS5 here is straightforward later (new
+          // virtual table populated on push) if the n-of-notes outgrows it.
           const limit = Math.min(Number(url.searchParams.get("limit") ?? 100), 500);
+          const q = (url.searchParams.get("q") ?? "").trim();
+          const thread = (url.searchParams.get("thread") ?? "").trim();
+          const where: string[] = [];
+          const params: any[] = [];
+          if (q) {
+            // Tokenize on whitespace; require every token match in title OR plain_text.
+            // ESCAPE \\ for LIKE so a literal % or _ from the user doesn't wildcard.
+            for (const tok of q.split(/\s+/).filter(Boolean)) {
+              where.push(
+                "(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(plain_text) LIKE ? ESCAPE '\\')"
+              );
+              const needle = "%" + tok.toLowerCase().replace(/[\\%_]/g, "\\$&") + "%";
+              params.push(needle, needle);
+            }
+          }
+          if (thread) {
+            where.push("thread_id = ?");
+            params.push(thread);
+          }
+          const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+          const sql =
+            `SELECT uuid, slug, title, type, theme, thread_id, created_at, updated_at, is_final, live` +
+            ` FROM notes ${whereClause} ORDER BY created_at DESC LIMIT ?`;
           const notes = cloudDb()
             .query<
               {
@@ -240,12 +280,9 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
                 is_final: number;
                 live: number;
               },
-              [number]
-            >(
-              `SELECT uuid, slug, title, type, theme, thread_id, created_at, updated_at, is_final, live
-                 FROM notes ORDER BY created_at DESC LIMIT ?`
-            )
-            .all(limit);
+              any[]
+            >(sql)
+            .all(...params, limit);
           const threads = cloudDb()
             .query<{ thread_id: string; count: number; latest: string }, []>(
               `SELECT thread_id, COUNT(*) AS count, MAX(created_at) AS latest
@@ -266,6 +303,8 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
               live: n.live === 1,
             })),
             threads,
+            query: q || undefined,
+            thread: thread || undefined,
             sw_version: SW_VERSION,
           });
         }

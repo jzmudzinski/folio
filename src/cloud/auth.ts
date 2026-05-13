@@ -259,6 +259,9 @@ export function isPublicPath(pathname: string): boolean {
   // avoids the SW-controllerchange race on first navigation after install.
   // The outer page leaks nothing (just the uuid in the URL, no content).
   if (pathname.startsWith("/n/")) return true;
+  // /t/:thread_id — same JS-shell pattern as /n/. Public page that fetches
+  // its data via /v1/feed?thread= with the bearer token from IDB.
+  if (pathname.startsWith("/t/")) return true;
   if (pathname.startsWith("/p/")) return true;
   // POST /v1/auth/pair is the entry point — also unauthed.
   if (pathname === "/v1/auth/pair") return true;

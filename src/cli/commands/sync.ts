@@ -189,12 +189,12 @@ async function runCmd(opts: SyncOpts): Promise<number> {
     do {
       try {
         const r = await syncOnce(state);
-        if (r.pulled || r.pushed || r.live_pulled || r.live_pushed || r.renamed || r.deleted) {
+        if (r.pulled || r.pushed || r.live_pulled || r.live_pushed || r.renamed || r.deleted || r.assets_pushed) {
           out(
             `${c.dim(new Date().toISOString())} ` +
               `pulled=${r.pulled} pushed=${r.pushed} ` +
               `live_pulled=${r.live_pulled} live_pushed=${r.live_pushed} ` +
-              `renamed=${r.renamed} deleted=${r.deleted}`
+              `renamed=${r.renamed} deleted=${r.deleted} assets=${r.assets_pushed}`
           );
         }
       } catch (e: any) {

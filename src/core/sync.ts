@@ -32,10 +32,11 @@
  *     when the user reports it as painful.
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, appendFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, appendFileSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { createHash } from "node:crypto";
 import { db } from "./db";
-import { folioRoot, threadsDir, getOrCreateDeviceId, configPath } from "./config";
+import { folioRoot, threadsDir, threadAssetsDir, getOrCreateDeviceId, configPath, isSafeAssetFilename } from "./config";
 import { renderNote } from "./templates";
 import { getTheme } from "./themes";
 import { plNormalize } from "./slug";
@@ -162,6 +163,110 @@ async function http<T = unknown>(
   return (await res.json()) as T;
 }
 
+// ----- Asset extraction + push -----
+
+/**
+ * Find every asset reference in a body_html fragment.
+ *
+ * Looks for `(?:href|src)="…/t/<thread_id>/asset/<filename>"` patterns. Matches
+ * both relative URLs (`/t/X/asset/foo.png`) and absolute ones from
+ * viewer_public_url (`https://notes.example.com/t/X/asset/foo.png`). The
+ * (thread_id, filename) pair is the only thing the cloud needs to serve the
+ * file under its own host.
+ *
+ * Filename validation: `isSafeAssetFilename` — same allowlist enforced by
+ * MCP attach_asset. Refs that don't match are silently skipped (don't fail
+ * the entire push for one malformed image link).
+ */
+export interface AssetRef {
+  thread_id: string;
+  filename: string;
+}
+export function extractAssetRefs(bodyHtml: string): AssetRef[] {
+  const re = /(?:href|src)\s*=\s*["']([^"']*)\/t\/([^/"']+)\/asset\/([^"'?#]+)["']/g;
+  const seen = new Set<string>();
+  const out: AssetRef[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(bodyHtml)) !== null) {
+    const thread_id = decodeURIComponent(m[2]!);
+    const filename = decodeURIComponent(m[3]!);
+    if (!isSafeAssetFilename(filename)) continue;
+    const key = `${thread_id}/${filename}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ thread_id, filename });
+  }
+  return out;
+}
+
+/**
+ * Make sure every asset referenced by `notes` is present on the cloud
+ * before the notes themselves are pushed. Idempotent — content-addressed
+ * uploads dedupe; the HEAD pre-check skips unchanged files.
+ *
+ * Skipping silently on read errors (file missing locally) so a single
+ * borked image doesn't stop the entire push. The cloud will 404 on the
+ * image when rendered, same end-state as today.
+ */
+export async function ensureAssetsOnCloud(
+  state: SyncState,
+  notes: { body_html: string; thread_id: string }[]
+): Promise<{ uploaded: number; skipped: number }> {
+  let uploaded = 0;
+  let skipped = 0;
+  // Collect unique (thread_id, filename) refs across all notes.
+  const seen = new Set<string>();
+  const refs: AssetRef[] = [];
+  for (const n of notes) {
+    for (const r of extractAssetRefs(n.body_html)) {
+      // The asset URL might reference a different thread_id than the note
+      // (cross-thread linking is allowed). Trust the URL's thread_id.
+      const key = `${r.thread_id}/${r.filename}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      refs.push(r);
+    }
+  }
+
+  for (const r of refs) {
+    const abs = join(threadAssetsDir(r.thread_id), r.filename);
+    if (!existsSync(abs)) { skipped++; continue; }
+    let bytes: Uint8Array;
+    let hash: string;
+    try {
+      const buf = readFileSync(abs);
+      bytes = new Uint8Array(buf);
+      hash = createHash("sha256").update(buf).digest("hex");
+    } catch {
+      skipped++;
+      continue;
+    }
+    // HEAD: skip upload if cloud already has these bytes.
+    try {
+      const head = await fetch(`${state.remote}/v1/sync/assets/${hash}`, {
+        method: "HEAD",
+        headers: { Authorization: `Bearer ${state.device_token}` },
+      });
+      if (head.ok) { skipped++; continue; }
+    } catch {
+      // Network error — try POST anyway; it'll fail similarly if the network is dead.
+    }
+    const res = await fetch(`${state.remote}/v1/sync/assets/${hash}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${state.device_token}`,
+        "Content-Type": "application/octet-stream",
+        "X-Folio-Filename": r.filename,
+        "X-Folio-Thread-Id": r.thread_id,
+      },
+      body: bytes,
+    });
+    if (res.ok) uploaded++;
+    else skipped++;
+  }
+  return { uploaded, skipped };
+}
+
 // ----- Body extraction -----
 
 /**
@@ -271,6 +376,7 @@ export interface SyncStepResult {
   live_pulled: number;
   renamed: number;
   deleted: number;
+  assets_pushed: number;
 }
 
 /**
@@ -302,7 +408,7 @@ export async function pushDeletes(state: SyncState, selfDeviceId: string): Promi
   return uuids.length;
 }
 
-export async function pushNotes(state: SyncState, selfDeviceId: string): Promise<{ pushed: number; renamed: number }> {
+export async function pushNotes(state: SyncState, selfDeviceId: string): Promise<{ pushed: number; renamed: number; assets_pushed: number }> {
   // Notes to push: own origin (or unset = pre-W2, assumed own) AND newer than cursor.
   const cursor = state.last_pushed_at ?? "1970-01-01T00:00:00Z";
   const rows = db()
@@ -340,7 +446,30 @@ export async function pushNotes(state: SyncState, selfDeviceId: string): Promise
     )
     .all(selfDeviceId, cursor);
 
-  if (rows.length === 0) return { pushed: 0, renamed: 0 };
+  // Asset backfill runs every sync regardless of whether new notes are
+  // being pushed. Necessary for the "asset sync added later" upgrade case:
+  // cursor sits past old notes that have assets the cloud never received.
+  // ensureAssetsOnCloud is internally idempotent (HEAD pre-check), so this
+  // is one cheap pass per sync.
+  const allBodies = db()
+    .query<{ body_path: string; thread_id: string }, []>(
+      "SELECT path AS body_path, thread_id FROM notes WHERE status = 'active'"
+    )
+    .all()
+    .map((r) => {
+      try {
+        return {
+          body_html: readFileSync(join(folioRoot(), r.body_path), "utf-8"),
+          thread_id: r.thread_id,
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter((x): x is { body_html: string; thread_id: string } => x !== null);
+  const assetResult = await ensureAssetsOnCloud(state, allBodies);
+
+  if (rows.length === 0) return { pushed: 0, renamed: 0, assets_pushed: assetResult.uploaded };
 
   const payloads: PushNotePayload[] = rows.map((r) => {
     const tags = db()
@@ -398,7 +527,7 @@ export async function pushNotes(state: SyncState, selfDeviceId: string): Promise
   const maxCreated = payloads.reduce((acc, p) => (p.created_at > acc ? p.created_at : acc), state.last_pushed_at ?? "");
   if (maxCreated) state.last_pushed_at = maxCreated;
 
-  return { pushed: payloads.length, renamed };
+  return { pushed: payloads.length, renamed, assets_pushed: assetResult.uploaded };
 }
 
 // ----- Push live entries -----
@@ -659,5 +788,6 @@ export async function syncOnce(state: SyncState): Promise<SyncStepResult> {
     renamed: pushR.renamed,
     live_pushed: liveR,
     deleted: deletedR,
+    assets_pushed: pushR.assets_pushed,
   };
 }

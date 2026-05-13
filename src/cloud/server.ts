@@ -104,6 +104,46 @@ function handleCapabilityRoute(path: string, method: string): Response {
   const share = getShare(token);
   if (!share) return new Response("not found", { status: 404 });
 
+  // /p/:token/t/:thread/asset/:filename — capability-scoped asset access.
+  // The share must cover the requested thread (either thread-scoped to it,
+  // or note-scoped to a note in it).
+  if (kind === "t" && parts.length === 6 && parts[4] === "asset") {
+    const threadId = decodeURIComponent(parts[3]!);
+    const filename = decodeURIComponent(parts[5]!);
+    // Note-scoped tokens: scope must be a note whose thread_id matches.
+    // Thread-scoped tokens: thread_id must equal scope_id.
+    const validScope = share.scope_type === "thread"
+      ? share.scope_id === threadId
+      : (cloudDb()
+          .query<{ thread_id: string }, [string]>("SELECT thread_id FROM notes WHERE uuid = ?")
+          .get(share.scope_id)?.thread_id === threadId);
+    if (!validScope) return new Response("not found", { status: 404 });
+    if (share.revoked_at) return new Response("not found", { status: 404 });
+    if (share.expires_at && new Date(share.expires_at).getTime() <= Date.now()) {
+      return new Response("link expired", { status: 410 });
+    }
+    const row = cloudDb()
+      .query<{ hash: string }, [string, string]>(
+        "SELECT hash FROM assets WHERE thread_id = ? AND filename = ?"
+      )
+      .get(threadId, filename);
+    if (!row) return new Response("not found", { status: 404 });
+    const a = readAsset(row.hash);
+    if (!a) return new Response("not found", { status: 404 });
+    // Don't bump view_count for sub-resource fetches — would balloon per image.
+    return new Response(a.bytes, {
+      status: 200,
+      headers: {
+        "Content-Type": a.content_type,
+        "Content-Length": String(a.size_bytes),
+        "Cache-Control": "public, max-age=3600",
+        "X-Content-Type-Options": "nosniff",
+        "X-Robots-Tag": "noindex, nofollow, noarchive",
+        "Referrer-Policy": "no-referrer",
+      },
+    });
+  }
+
   if (kind === "n" || kind === "raw") {
     // Look up note for thread context (needed for thread-scoped validation
     // when caller targets a note). Same lookup is reused for rendering below.
@@ -132,10 +172,19 @@ function handleCapabilityRoute(path: string, method: string): Response {
       return res;
     }
     // kind === "raw"
+    // Rewrite asset URLs in body_html so they route through the capability
+    // scope. Relative refs like `/t/X/asset/foo.png` become
+    // `/p/<token>/t/X/asset/foo.png`. Absolute refs to viewer_public_url
+    // get the same treatment by matching the path suffix.
+    const rewrittenBody = note.body_html.replace(
+      /((?:href|src)\s*=\s*["'])([^"']*?)\/t\/([^/"']+)\/asset\/([^"'?#]+)(["'])/g,
+      (_match, prefix: string, _leading: string, thread: string, filename: string, quote: string) =>
+        `${prefix}/p/${token}/t/${thread}/asset/${filename}${quote}`
+    );
     const body = renderStandaloneNote({
       title: note.title,
       theme: note.theme,
-      bodyHtml: note.body_html,
+      bodyHtml: rewrittenBody,
     });
     const res = new Response(body, { status: 200, headers: sharedHeaders() });
     // Don't bump on /raw/ — it's loaded inside the iframe spawned by /n/,
@@ -331,6 +380,39 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
             return new Response(renderNotePage(m[1]!, ""), {
               status: 200,
               headers: { "Content-Type": "text/html; charset=utf-8" },
+            });
+          }
+        }
+
+        // /t/:thread_id/asset/:filename — PUBLIC asset bytes. Lookup is
+        // (thread_id, filename) → assets table → blob_path on disk. Why
+        // public: notes referenced assets via this URL pattern from local
+        // viewer, and sub-resource fetches from null-origin sandboxed
+        // iframes can't reliably carry bearer headers. URLs aren't trivially
+        // enumerable (need to know both thread_id slug and filename),
+        // matching the local viewer's posture.
+        {
+          const m = path.match(/^\/t\/([^/]+)\/asset\/([^/]+)$/);
+          if (m && method === "GET") {
+            const threadId = decodeURIComponent(m[1]!);
+            const filename = decodeURIComponent(m[2]!);
+            const row = cloudDb()
+              .query<
+                { blob_path: string; content_type: string; size_bytes: number; hash: string },
+                [string, string]
+              >("SELECT blob_path, content_type, size_bytes, hash FROM assets WHERE thread_id = ? AND filename = ?")
+              .get(threadId, filename);
+            if (!row) return notFound("asset not found");
+            const a = readAsset(row.hash);
+            if (!a) return notFound("asset bytes missing");
+            return new Response(a.bytes, {
+              status: 200,
+              headers: {
+                "Content-Type": a.content_type,
+                "Content-Length": String(a.size_bytes),
+                "Cache-Control": "public, max-age=86400, immutable",
+                "X-Content-Type-Options": "nosniff",
+              },
             });
           }
         }

@@ -260,7 +260,13 @@ export function isPublicPath(pathname: string): boolean {
   // The outer page leaks nothing (just the uuid in the URL, no content).
   if (pathname.startsWith("/n/")) return true;
   // /t/:thread_id — same JS-shell pattern as /n/. Public page that fetches
-  // its data via /v1/feed?thread= with the bearer token from IDB.
+  // its data via /v1/feed?thread= with the bearer token from IDB. Note that
+  // /t/:thread_id/asset/:filename is ALSO public — body_html in rendered
+  // notes references assets by relative path, and sub-resource fetches
+  // from a sandboxed null-origin iframe can't easily carry bearer headers.
+  // Asset URLs aren't enumerable without knowing thread_id + filename, and
+  // the cloud's data is content the user explicitly pushed there — same
+  // posture as the local viewer where assets are served auth-less from disk.
   if (pathname.startsWith("/t/")) return true;
   if (pathname.startsWith("/p/")) return true;
   // POST /v1/auth/pair is the entry point — also unauthed.

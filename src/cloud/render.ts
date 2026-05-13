@@ -157,6 +157,58 @@ export function renderSharedThreadPage(token: string, threadId: string, notes: S
 </html>`;
 }
 
+/**
+ * Email-confirmation page for recipient-bound capability URLs. Renders
+ * a tiny form; on POST the server hashes the submitted email and
+ * compares to `shares.recipient_email_hash`. On match, sets a path-
+ * scoped HttpOnly cookie tied to this token and redirects to the
+ * actual content. On mismatch, renders the same form with an error.
+ */
+export function renderRecipientConfirm(token: string, errorMsg: string | null): string {
+  const esc = (s: string): string =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="theme-color" content="#f5f3ee">
+  <title>Confirm · Folio</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400..700&family=Instrument+Serif:ital@0;1&display=swap');
+    :root { --bg: #f5f3ee; --bg-2: #efeae0; --panel: #fdfcf9; --ink: #0a0a0a; --muted: #6b6b66; --line: rgba(10,10,10,0.10); --accent: #ff5a1f; --accent-soft: rgba(255,90,31,0.10); }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: 'Familjen Grotesk', system-ui, sans-serif; font-size: 17px; line-height: 1.5; }
+    .wrap { max-width: 420px; margin: 60px auto; padding: 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+    h1 { font-family: 'Instrument Serif', serif; font-style: italic; font-weight: 400; font-size: 30px; letter-spacing: -0.5px; margin: 0 0 8px; }
+    h1 .dot { color: var(--accent); font-family: 'Familjen Grotesk'; font-style: normal; font-weight: 700; }
+    .lead { color: var(--muted); margin: 0 0 22px; font-size: 14px; line-height: 1.55; }
+    label { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); display: block; margin-bottom: 6px; }
+    input { width: 100%; padding: 12px 14px; font-size: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); -webkit-appearance: none; font-family: inherit; }
+    input:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    button { margin-top: 16px; width: 100%; padding: 12px 14px; font-size: 15px; font-weight: 600; background: var(--ink); color: var(--bg); border: 0; border-radius: 8px; cursor: pointer; font-family: inherit; }
+    button:hover { background: var(--accent); }
+    .err { margin-top: 12px; color: #a4253a; font-size: 13px; }
+    .tip { margin-top: 22px; font-size: 12px; color: var(--muted); line-height: 1.55; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <h1>folio<span class="dot">.</span></h1>
+    <p class="lead">This link is bound to a specific recipient. Enter the email it was shared with to read the note.</p>
+    <form method="post" action="/p/${esc(token)}/confirm-recipient" autocomplete="off">
+      <label for="email">Recipient email</label>
+      <input id="email" name="email" type="email" required autocomplete="off" autocapitalize="none">
+      <button type="submit">Continue</button>
+      ${errorMsg ? `<div class="err">${esc(errorMsg)}</div>` : ""}
+    </form>
+    <p class="tip">Your address is checked against a SHA-256 hash stored with the share — the sender's server never sees the plaintext after confirmation.</p>
+  </main>
+</body>
+</html>`;
+}
+
 function relativeTime(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
   const s = Math.floor(ms / 1000);

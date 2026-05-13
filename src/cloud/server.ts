@@ -42,7 +42,7 @@ import {
   readAsset,
   type PushPayload,
 } from "./sync";
-import { renderNotePage, renderStandaloneNote, renderSharedNotePage, renderSharedThreadPage } from "./render";
+import { renderNotePage, renderStandaloneNote, renderSharedNotePage, renderSharedThreadPage, renderRecipientConfirm } from "./render";
 import { renderHome, renderPair, serviceWorkerJs, manifestJson, FOLIO_ICON_SVG, SW_VERSION } from "./pwa";
 import {
   createShare,
@@ -91,20 +91,83 @@ function sharedHeaders(): Record<string, string> {
  * (including iframe-loaded /raw/ — each child iframe load counts). For
  * MVP this is fine; if it becomes noisy, throttle by token+UA later.
  */
-function handleCapabilityRoute(path: string, method: string): Response {
-  if (method !== "GET") {
-    return new Response("method not allowed", { status: 405 });
-  }
+async function handleCapabilityRoute(req: Request, path: string, method: string): Promise<Response> {
   const parts = path.split("/").filter(Boolean); // ["p", token, kind, id, ...]
-  if (parts.length < 4 || parts[0] !== "p") {
+  if (parts.length < 3 || parts[0] !== "p") {
     return new Response("not found", { status: 404 });
   }
   const token = parts[1]!;
+  const share = getShare(token);
+  if (!share) return new Response("not found", { status: 404 });
+
+  // POST /p/:token/confirm-recipient — handles the email-confirmation form
+  // for recipient-bound shares. Sets a path-scoped HttpOnly cookie on
+  // match; subsequent GETs to /p/:token/* see the cookie and skip the
+  // confirmation gate.
+  if (parts.length === 3 && parts[2] === "confirm-recipient" && method === "POST") {
+    if (!share.recipient_email_hash) return new Response("not found", { status: 404 });
+    let email = "";
+    try {
+      const ct = (req.headers.get("content-type") ?? "").toLowerCase();
+      if (ct.includes("application/x-www-form-urlencoded")) {
+        const body = new URLSearchParams(await req.text());
+        email = body.get("email") ?? "";
+      } else if (ct.includes("application/json")) {
+        const body = (await req.json()) as { email?: string };
+        email = body.email ?? "";
+      }
+    } catch {}
+    email = email.trim().toLowerCase();
+    if (!email) return new Response("email required", { status: 400 });
+    const { createHash } = require("node:crypto") as typeof import("node:crypto");
+    const submitted = createHash("sha256").update(email, "utf8").digest("hex");
+    if (submitted !== share.recipient_email_hash) {
+      return new Response(renderRecipientConfirm(token, "Email doesn't match. Try again."), {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+    // Match. Set a path-scoped HttpOnly cookie tied to this token.
+    // Max-Age picks the lesser of "share expires_at" and "24 hours" so the
+    // confirmation doesn't outlive the link itself.
+    const ttlSec = share.expires_at
+      ? Math.min(86400, Math.max(60, Math.floor((new Date(share.expires_at).getTime() - Date.now()) / 1000)))
+      : 86400;
+    return new Response(null, {
+      status: 303,
+      headers: {
+        Location: `/p/${token}/${share.scope_type === "note" ? "n" : "t"}/${share.scope_id}`,
+        "Set-Cookie": `folio_share_${token}=1; Path=/p/${token}/; Max-Age=${ttlSec}; HttpOnly; SameSite=Strict`,
+        "Referrer-Policy": "no-referrer",
+      },
+    });
+  }
+
+  if (method !== "GET") {
+    return new Response("method not allowed", { status: 405 });
+  }
+  if (parts.length < 4) return new Response("not found", { status: 404 });
   const kind = parts[2]!;
   const id = parts.slice(3).join("/");
 
-  const share = getShare(token);
-  if (!share) return new Response("not found", { status: 404 });
+  // Recipient-bound shares: gate every read with a cookie check. Allow
+  // asset sub-resources through (img refs in a confirmed iframe shouldn't
+  // re-prompt) — the iframe already passed the confirmation when /n/ loaded.
+  if (share.recipient_email_hash && kind !== "t" /* allow asset path below */) {
+    // Asset path under /t/<thread>/asset/<filename> is fine — image fetch
+    // from inside the iframe; if the iframe is loaded, the visitor already
+    // passed confirmation. Note pages (/n/) and raw bodies need the cookie.
+    if (kind === "n" || kind === "raw") {
+      const cookie = req.headers.get("cookie") ?? "";
+      const wanted = `folio_share_${token}=1`;
+      if (!cookie.split(";").some((c) => c.trim() === wanted)) {
+        return new Response(renderRecipientConfirm(token, null), {
+          status: 200,
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        });
+      }
+    }
+  }
 
   // /p/:token/t/:thread/asset/:filename — capability-scoped asset access.
   // The share must cover the requested thread (either thread-scoped to it,
@@ -296,7 +359,7 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
       // credential; server validates on every hit. Atomic view_count bump
       // happens after the response is rendered (caller chooses idempotency).
       if (path.startsWith("/p/")) {
-        return handleCapabilityRoute(path, method);
+        return handleCapabilityRoute(req, path, method);
       }
 
       // Auth: public paths skip; everything else needs a valid bearer.
@@ -544,6 +607,7 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
             scope_id?: string;
             expires_in_days?: number | null;
             max_views?: number | null;
+            recipient_email_hash?: string | null;
           }>(req);
           if (body.scope_type !== "note" && body.scope_type !== "thread") {
             return badRequest("scope_type must be 'note' or 'thread'");
@@ -556,6 +620,7 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
               created_by_device: device!.id,
               expires_in_days: body.expires_in_days ?? 7,
               max_views: body.max_views ?? null,
+              recipient_email_hash: body.recipient_email_hash ?? null,
             });
             const scopePath =
               share.scope_type === "note"

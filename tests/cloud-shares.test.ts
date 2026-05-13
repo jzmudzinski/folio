@@ -225,6 +225,97 @@ test("non-GET on capability route returns 405", async () => {
   expect(r.status).toBe(405);
 });
 
+test("recipient-bound share: gated by email confirmation form, cookie unlocks", async () => {
+  const { createHash } = await import("node:crypto");
+  const emailHash = createHash("sha256").update("bob@example.com", "utf8").digest("hex");
+
+  const s = await createShare({
+    scope_type: "note",
+    scope_id: "01HXNOTE001",
+    recipient_email_hash: emailHash,
+  });
+
+  // First visit (no cookie) → email-confirmation form.
+  const r1 = await fetch(`${baseUrl}/p/${s.token}/n/01HXNOTE001`);
+  expect(r1.status).toBe(200);
+  const body1 = await r1.text();
+  expect(body1).toContain("Recipient email");
+  expect(body1).toContain(`/p/${s.token}/confirm-recipient`);
+  // Note content NOT leaked.
+  expect(body1).not.toContain("<h1>Alpha</h1>");
+
+  // Wrong email → still shows the form, with an error, no cookie.
+  const wrong = await fetch(`${baseUrl}/p/${s.token}/confirm-recipient`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: "email=eve@example.com",
+  });
+  expect(wrong.status).toBe(200);
+  expect(wrong.headers.get("set-cookie")).toBeNull();
+  expect(await wrong.text()).toContain("doesn't match");
+
+  // Correct email → 303 redirect + Set-Cookie scoped to /p/<token>/.
+  const ok = await fetch(`${baseUrl}/p/${s.token}/confirm-recipient`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: "email=bob@example.com",
+    redirect: "manual",
+  });
+  expect(ok.status).toBe(303);
+  expect(ok.headers.get("location")).toBe(`/p/${s.token}/n/01HXNOTE001`);
+  const setCookie = ok.headers.get("set-cookie") ?? "";
+  expect(setCookie).toContain(`folio_share_${s.token}=1`);
+  expect(setCookie).toContain(`Path=/p/${s.token}/`);
+  expect(setCookie).toContain("HttpOnly");
+
+  // Subsequent GET with the cookie → content renders.
+  const r2 = await fetch(`${baseUrl}/p/${s.token}/n/01HXNOTE001`, {
+    headers: { cookie: `folio_share_${s.token}=1` },
+  });
+  expect(r2.status).toBe(200);
+  const body2 = await r2.text();
+  expect(body2).not.toContain("Recipient email");
+  expect(body2).toContain(`src="/p/${s.token}/raw/01HXNOTE001"`);
+});
+
+test("recipient-bound: case-insensitive email match (Bob@EXAMPLE.COM == bob@example.com)", async () => {
+  const { createHash } = await import("node:crypto");
+  // Hash is computed from the lowercased form on the publish side.
+  const emailHash = createHash("sha256").update("bob@example.com", "utf8").digest("hex");
+  const s = await createShare({
+    scope_type: "note",
+    scope_id: "01HXNOTE001",
+    recipient_email_hash: emailHash,
+  });
+  const ok = await fetch(`${baseUrl}/p/${s.token}/confirm-recipient`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: "email=Bob%40EXAMPLE.COM",
+    redirect: "manual",
+  });
+  expect(ok.status).toBe(303);
+});
+
+test("recipient-bound: confirm-recipient route 404s if share isn't recipient-bound", async () => {
+  // Vanilla share (no recipient_email_hash) — POST should 404.
+  const s = await createShare({ scope_type: "note", scope_id: "01HXNOTE001" });
+  const r = await fetch(`${baseUrl}/p/${s.token}/confirm-recipient`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: "email=anyone@example.com",
+  });
+  expect(r.status).toBe(404);
+});
+
+test("vanilla share (no recipient): no confirmation form, content renders directly", async () => {
+  const s = await createShare({ scope_type: "note", scope_id: "01HXNOTE001" });
+  const r = await fetch(`${baseUrl}/p/${s.token}/n/01HXNOTE001`);
+  expect(r.status).toBe(200);
+  const body = await r.text();
+  expect(body).not.toContain("Recipient email");
+  expect(body).toContain(`src="/p/${s.token}/raw/01HXNOTE001"`);
+});
+
 test("creating share without auth is rejected", async () => {
   const r = await fetch(`${baseUrl}/v1/share`, {
     method: "POST",

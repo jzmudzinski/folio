@@ -527,7 +527,7 @@ document.addEventListener('keydown', (e) => {
 })();
 </script>`;
 
-function topbar(query = "", active?: "notes" | "threads" | "stats"): string {
+function topbar(query = "", active?: "notes" | "threads" | "stats" | "cloud"): string {
   const on = (k: string) => (active === k ? ' class="on"' : "");
   return `
 <header class="v-top">
@@ -546,6 +546,7 @@ function topbar(query = "", active?: "notes" | "threads" | "stats"): string {
       <a href="/"${on("notes")}>Notes</a>
       <a href="/threads"${on("threads")}>Threads</a>
       <a href="/stats"${on("stats")}>Stats</a>
+      <a href="/cloud"${on("cloud")} title="Sync &amp; cloud pairing">☁ Cloud</a>
     </nav>
   </div>
 </header>`;
@@ -1157,6 +1158,22 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
       });
     });
 
+    // Print button — ask the iframe to print itself. We can't call
+    // iframe.contentWindow.print() from here because the iframe is null-
+    // origin (no allow-same-origin); cross-origin restriction blocks it.
+    // Going through the iframe's own window.print() means the print job
+    // contains JUST the note body in its theme — no viewer chrome,
+    // sidebar, or topbar leaking into the printed page.
+    (function(){
+      var pbtn = document.getElementById('folio-print-btn');
+      if (!pbtn || !iframe) return;
+      pbtn.addEventListener('click', function(){
+        try {
+          iframe.contentWindow.postMessage({ ns: 'folio', type: 'print' }, '*');
+        } catch(_){}
+      });
+    })();
+
     // Delete button — two-step inline confirmation (no modal dialog). First
     // click flips label + colour; second click within 5s POSTs the delete
     // and navigates to the thread index. Resets if the user mouses away or
@@ -1247,7 +1264,7 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
       <button class="side-action" data-copy="plain" data-label="⎘ Copy plain text">⎘ Copy plain text</button>
       <button class="side-action" data-copy="markdown" data-label="⎘ Copy as markdown">⎘ Copy as markdown</button>
       <a href="/raw/${note.id}" target="_blank">↗ View raw HTML</a>
-      <a href="#" onclick="window.print();return false">↗ Print / PDF</a>
+      <button class="side-action" id="folio-print-btn" type="button">↗ Print / PDF</button>
       <button class="side-action danger" id="folio-delete-btn"
               data-note-id="${esc(note.id)}"
               data-thread-id="${esc(note.thread_id)}"
@@ -1305,6 +1322,252 @@ export function pageStats(s: any): string {
 
 function shell(title: string, body: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · Folio</title><style>${VIEWER_CSS}</style></head><body>${body}${KBD_SHORTCUT_JS}</body></html>`;
+}
+
+export interface CloudPageState {
+  paired: boolean;
+  remote?: string | null;
+  device_id?: string;
+  device_name?: string;
+  last_pushed_at?: string | null;
+  last_pulled_seq?: number;
+  live_notes_tracked?: number;
+}
+
+/**
+ * Sync + cloud pairing surface for the local viewer. Renders one of two
+ * modes:
+ *   • Not paired: form to enter the cloud URL + a 6-digit pairing code
+ *     (obtained from `folio cloud pair-code` on the server for first pair,
+ *     or from another already-paired device's "generate code" button).
+ *   • Paired:    status (remote, device id, last sync, etc.) plus action
+ *     buttons (sync now, generate code for another device, unpair).
+ *
+ * All state mutations go through local-only `/api/sync/*` endpoints — the
+ * page never holds the cloud bearer token in JS or DOM, it lives in
+ * ~/Folio/.sync-state.json and is touched only by the local server.
+ */
+export function pageCloud(state: CloudPageState): string {
+  const body = state.paired ? cloudPairedBody(state) : cloudUnpairedBody();
+  return shell("Cloud · Folio", `${topbar("", "cloud")}
+<main class="v-page">
+  <div class="group">
+    <div class="group-lbl">Cloud sync${state.paired ? '<span class="count">· paired</span>' : '<span class="count">· not paired</span>'}</div>
+    <div style="padding: 8px 4px 20px;">
+      <h1 style="font-family: var(--vhead); font-weight: 500; font-size: clamp(28px, 3.6vw, 40px); letter-spacing: -0.025em; margin: 0 0 6px; line-height: 1.1;">Cloud sync</h1>
+      <div style="font-family: var(--vserif); font-style: italic; font-size: 18px; color: var(--vmuted); margin-bottom: 24px;">Mirror your notes to a relay so phone/PWA and capability URL recipients can read them.</div>
+    </div>
+    ${body}
+  </div>
+</main>${cloudScript()}`);
+}
+
+function cloudUnpairedBody(): string {
+  return `<div class="cloud-card">
+    <h3>Pair this device</h3>
+    <p class="lead">
+      First time pairing? Get a code by SSH-ing into the cloud server and running:
+      <code class="cloud-code">sudo -u folio /opt/folio/folio cloud pair-code</code>
+      Already have another device paired? Use its "Generate code for another device" button instead.
+    </p>
+    <form id="pair-form" autocomplete="off">
+      <label>Cloud URL
+        <input id="cloud-remote" type="url" name="remote" placeholder="https://folio.example.com" required autocomplete="off">
+      </label>
+      <label>Pairing code
+        <input id="cloud-code" type="text" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="######" required autocomplete="off">
+      </label>
+      <label>Device name <span class="hint">(optional — defaults to hostname)</span>
+        <input id="cloud-name" type="text" name="device_name" autocomplete="off">
+      </label>
+      <button type="submit" class="primary">Pair device</button>
+      <div id="pair-err" class="err"></div>
+    </form>
+  </div>`;
+}
+
+function cloudPairedBody(state: CloudPageState): string {
+  const remoteHost = state.remote ? new URL(state.remote).host : "?";
+  return `<div class="cloud-card">
+    <h3>Paired with <a href="${esc(state.remote ?? "#")}" target="_blank">${esc(remoteHost)}</a></h3>
+    <dl class="cloud-meta">
+      <dt>Device</dt><dd>${esc(state.device_name ?? "")} <span class="dim">${esc((state.device_id ?? "").slice(0, 12))}…</span></dd>
+      <dt>Last push</dt><dd>${state.last_pushed_at ? esc(state.last_pushed_at) : '<span class="dim">never</span>'}</dd>
+      <dt>Pull cursor</dt><dd>${state.last_pulled_seq ?? 0}</dd>
+      <dt>Live notes tracked</dt><dd>${state.live_notes_tracked ?? 0}</dd>
+    </dl>
+    <div class="cloud-actions">
+      <button id="sync-now-btn" class="primary">↻ Sync now</button>
+      <button id="gen-code-btn">+ Generate code for another device</button>
+      <button id="unpair-btn" class="danger">Unpair this device</button>
+    </div>
+    <div id="sync-result"></div>
+    <div id="generated-code" class="generated" hidden>
+      <div class="code-row">
+        <div class="code-label">Pairing code (10 min)</div>
+        <div class="code-value" id="generated-code-value"></div>
+        <button id="copy-code-btn" class="copy">⎘ Copy</button>
+      </div>
+      <p class="hint">Enter this on the other device's pair screen (PWA <code>/pair</code> or local viewer <code>/cloud</code>) before it expires.</p>
+    </div>
+    <div id="cloud-err" class="err"></div>
+  </div>`;
+}
+
+function cloudScript(): string {
+  return `<style>
+  .cloud-card { background: var(--vpanel); border: 1px solid var(--vline); border-radius: 12px; padding: 22px 24px; max-width: 640px; margin: 0 auto 24px; }
+  .cloud-card h3 { margin: 0 0 12px; font-family: var(--vhead); font-weight: 500; font-size: 20px; letter-spacing: -0.01em; }
+  .cloud-card h3 a { color: var(--vorange); text-decoration: none; border-bottom: 1px solid currentColor; }
+  .cloud-card .lead { color: var(--vmuted); font-size: 14px; line-height: 1.55; margin: 0 0 22px; }
+  .cloud-card .cloud-code { display: block; background: var(--vbg-2); padding: 8px 12px; border-radius: 6px; font-family: var(--vmono); font-size: 12px; margin: 8px 0; user-select: all; }
+  .cloud-card form label { display: block; margin-bottom: 14px; font-family: var(--vmono); font-size: 11px; color: var(--vmuted); letter-spacing: 0.06em; text-transform: uppercase; }
+  .cloud-card form label .hint { text-transform: none; letter-spacing: 0; }
+  .cloud-card form input { display: block; width: 100%; margin-top: 5px; padding: 10px 12px; font-size: 14px; border: 1px solid var(--vline); border-radius: 7px; background: var(--vbg); font-family: inherit; color: var(--vink); -webkit-appearance: none; }
+  .cloud-card form input:focus { outline: 0; border-color: var(--vorange); box-shadow: 0 0 0 3px var(--vorange-soft); }
+  .cloud-card form input#cloud-code { font-family: var(--vmono); font-size: 18px; letter-spacing: 4px; text-align: center; }
+  .cloud-card button { padding: 10px 14px; font-size: 13px; font-family: var(--vhead); font-weight: 500; border: 1px solid var(--vline); border-radius: 7px; background: var(--vbg); color: var(--vink); cursor: pointer; transition: background .12s; }
+  .cloud-card button:hover { background: var(--vbg-2); }
+  .cloud-card button.primary { background: var(--vink); color: var(--vbg); border-color: var(--vink); }
+  .cloud-card button.primary:hover { background: var(--vorange); border-color: var(--vorange); }
+  .cloud-card button.danger { color: var(--vmuted); }
+  .cloud-card button.danger:hover { color: #c0392b; border-color: #c0392b; background: var(--vbg); }
+  .cloud-card button:disabled { opacity: 0.5; cursor: wait; }
+  .cloud-card .cloud-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  .cloud-meta { display: grid; grid-template-columns: 110px 1fr; gap: 8px 14px; font-size: 13px; margin: 0 0 18px; padding: 14px 0; border-top: 1px solid var(--vline-2); border-bottom: 1px solid var(--vline-2); }
+  .cloud-meta dt { color: var(--vmuted); font-family: var(--vmono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .cloud-meta dd { margin: 0; color: var(--vink); }
+  .cloud-meta .dim { color: var(--vmuted-2); font-family: var(--vmono); font-size: 11px; }
+  .generated { margin-top: 18px; padding: 16px; background: var(--vbg-2); border-radius: 8px; border: 1px solid var(--vline); }
+  .generated .code-row { display: flex; align-items: center; gap: 14px; }
+  .generated .code-label { font-family: var(--vmono); font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--vmuted); flex-shrink: 0; }
+  .generated .code-value { font-family: var(--vmono); font-size: 28px; letter-spacing: 6px; color: var(--vink); flex: 1; user-select: all; }
+  .generated .copy { font-size: 12px; padding: 6px 10px; }
+  .generated .hint { margin: 10px 0 0; font-size: 12px; color: var(--vmuted); }
+  .cloud-card .err { margin-top: 12px; padding: 10px 14px; background: rgba(192,57,43,0.08); border: 1px solid rgba(192,57,43,0.25); border-radius: 6px; color: #a4253a; font-size: 13px; display: none; }
+  .cloud-card .err.shown { display: block; }
+  #sync-result { margin-top: 12px; font-family: var(--vmono); font-size: 12px; color: var(--vmuted); }
+  #sync-result.ok { color: var(--vgood, #0a6); }
+</style>
+<script>(function(){
+  function showErr(elId, msg) {
+    var el = document.getElementById(elId);
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add('shown');
+  }
+  function clearErr(elId) {
+    var el = document.getElementById(elId);
+    if (el) el.classList.remove('shown');
+  }
+
+  var pairForm = document.getElementById('pair-form');
+  if (pairForm) {
+    pairForm.addEventListener('submit', function(ev){
+      ev.preventDefault();
+      clearErr('pair-err');
+      var btn = pairForm.querySelector('button[type=submit]');
+      btn.disabled = true; btn.textContent = 'Pairing…';
+      fetch('/api/sync/pair', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          remote: document.getElementById('cloud-remote').value.trim(),
+          code: document.getElementById('cloud-code').value.trim(),
+          device_name: document.getElementById('cloud-name').value.trim() || undefined,
+        })
+      }).then(function(r){
+        return r.json().then(function(body){ return { ok: r.ok, body: body }; });
+      }).then(function(res){
+        if (!res.ok) throw new Error(res.body.error || 'pair failed');
+        window.location.reload();
+      }).catch(function(e){
+        showErr('pair-err', e.message || String(e));
+        btn.disabled = false; btn.textContent = 'Pair device';
+      });
+    });
+  }
+
+  var syncBtn = document.getElementById('sync-now-btn');
+  if (syncBtn) {
+    syncBtn.addEventListener('click', function(){
+      clearErr('cloud-err');
+      var orig = syncBtn.textContent;
+      syncBtn.disabled = true; syncBtn.textContent = '↻ Syncing…';
+      var result = document.getElementById('sync-result');
+      result.textContent = '';
+      result.className = '';
+      fetch('/api/sync/run', { method: 'POST' })
+        .then(function(r){ return r.json().then(function(body){ return { ok: r.ok, body: body }; }); })
+        .then(function(res){
+          if (!res.ok) throw new Error(res.body.error || 'sync failed');
+          var r = res.body;
+          result.textContent = 'pulled=' + r.pulled + ' pushed=' + r.pushed +
+            ' live_pushed=' + r.live_pushed + ' assets=' + r.assets_pushed +
+            ' renamed=' + r.renamed + ' deleted=' + r.deleted;
+          result.className = 'ok';
+        }).catch(function(e){
+          showErr('cloud-err', e.message);
+        }).finally(function(){
+          syncBtn.disabled = false; syncBtn.textContent = orig;
+        });
+    });
+  }
+
+  var genBtn = document.getElementById('gen-code-btn');
+  if (genBtn) {
+    genBtn.addEventListener('click', function(){
+      clearErr('cloud-err');
+      var orig = genBtn.textContent;
+      genBtn.disabled = true; genBtn.textContent = 'Generating…';
+      fetch('/api/sync/pair-code', { method: 'POST' })
+        .then(function(r){ return r.json().then(function(body){ return { ok: r.ok, body: body }; }); })
+        .then(function(res){
+          if (!res.ok) throw new Error(res.body.error || 'generate failed');
+          var wrap = document.getElementById('generated-code');
+          var val = document.getElementById('generated-code-value');
+          val.textContent = res.body.code;
+          wrap.hidden = false;
+        }).catch(function(e){
+          showErr('cloud-err', e.message);
+        }).finally(function(){
+          genBtn.disabled = false; genBtn.textContent = orig;
+        });
+    });
+  }
+
+  var copyBtn = document.getElementById('copy-code-btn');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', function(){
+      var val = document.getElementById('generated-code-value').textContent || '';
+      navigator.clipboard.writeText(val).then(function(){
+        var orig = copyBtn.textContent;
+        copyBtn.textContent = '✓ copied';
+        setTimeout(function(){ copyBtn.textContent = orig; }, 1500);
+      });
+    });
+  }
+
+  var unpairBtn = document.getElementById('unpair-btn');
+  if (unpairBtn) {
+    var armed = false;
+    unpairBtn.addEventListener('click', function(){
+      if (!armed) {
+        armed = true;
+        unpairBtn.textContent = 'Click again to confirm';
+        unpairBtn.style.color = '#c0392b';
+        setTimeout(function(){
+          armed = false;
+          unpairBtn.textContent = 'Unpair this device';
+          unpairBtn.style.color = '';
+        }, 5000);
+        return;
+      }
+      fetch('/api/sync/unpair', { method: 'POST' })
+        .then(function(){ window.location.reload(); });
+    });
+  }
+})();</script>`;
 }
 
 export function pageError(code: number, msg: string): string {

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { loadConfig, folioRoot, bundledThemesDir, themesDir, viewerPublicBaseUrl, threadAssetsDir, isSafeAssetFilename } from "../core/config";
 import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, deleteNote, listThreads, listPopularTags, listNotesByTag } from "../core/storage";
 import { db, logEvent } from "../core/db";
-import { pageList, pageSearch, pageThread, pageThreads, pageNote, pageStats, pageError, pageTag } from "./render";
+import { pageList, pageSearch, pageThread, pageThreads, pageNote, pageStats, pageError, pageTag, pageCloud } from "./render";
 import { injectBootstrap } from "./note-bootstrap";
 import { rawNoteHeaders } from "../core/csp";
 import pkg from "../../package.json" with { type: "json" };
@@ -305,6 +305,140 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
           // Redirect back so HTML form submits feel native
           const ref = req.headers.get("referer");
           if (ref) return Response.redirect(ref, 303);
+          return jsonResp({ ok: true });
+        }
+
+        // GET /cloud — sync + cloud pairing UI
+        if (req.method === "GET" && path === "/cloud") {
+          const { loadSyncState } = await import("../core/sync");
+          const { getOrCreateDeviceId } = await import("../core/config");
+          const state = loadSyncState();
+          const dev = getOrCreateDeviceId();
+          if (!state) {
+            return htmlResp(pageCloud({ paired: false }));
+          }
+          return htmlResp(pageCloud({
+            paired: true,
+            remote: state.remote,
+            device_id: dev.id,
+            device_name: dev.name,
+            last_pushed_at: state.last_pushed_at,
+            last_pulled_seq: state.last_pulled_seq,
+            live_notes_tracked: Object.keys(state.last_live_pushed ?? {}).length,
+          }));
+        }
+
+        // GET /api/sync/state — JSON sync state (token redacted)
+        if (req.method === "GET" && path === "/api/sync/state") {
+          const { loadSyncState } = await import("../core/sync");
+          const { getOrCreateDeviceId } = await import("../core/config");
+          const state = loadSyncState();
+          const dev = getOrCreateDeviceId();
+          if (!state) return jsonResp({ paired: false, device_id: dev.id, device_name: dev.name });
+          return jsonResp({
+            paired: true,
+            remote: state.remote,
+            device_id: dev.id,
+            device_name: dev.name,
+            last_pushed_at: state.last_pushed_at,
+            last_pulled_seq: state.last_pulled_seq,
+            live_notes_tracked: Object.keys(state.last_live_pushed ?? {}).length,
+          });
+        }
+
+        // POST /api/sync/pair  { remote, code, device_name? }
+        // Calls the cloud's /v1/auth/pair using THIS device's local id, so the
+        // cloud and the laptop agree on origin_device_id from the start.
+        // Token is persisted to ~/Folio/.sync-state.json and never leaves
+        // this process otherwise.
+        if (req.method === "POST" && path === "/api/sync/pair") {
+          const body = await req.json().catch(() => ({})) as any;
+          const remote = String(body.remote ?? "").trim().replace(/\/+$/, "");
+          const code = String(body.code ?? "").trim();
+          if (!remote || !code) return jsonResp({ error: "remote and code required" }, 400);
+          const { getOrCreateDeviceId } = await import("../core/config");
+          const dev = getOrCreateDeviceId();
+          const name = String(body.device_name ?? "").trim() || dev.name;
+          const res = await fetch(`${remote}/v1/auth/pair`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ code, device_name: name, device_id: dev.id }),
+          });
+          if (!res.ok) {
+            let detail = ""; try { detail = await res.text(); } catch {}
+            return jsonResp({ error: `pair failed: HTTP ${res.status} ${detail.slice(0, 200)}` }, 502);
+          }
+          const out = (await res.json()) as { device_id: string; token: string };
+          const { saveSyncState } = await import("../core/sync");
+          saveSyncState({
+            remote,
+            device_token: out.token,
+            last_pulled_seq: 0,
+            last_pushed_at: null,
+            last_live_pushed: {},
+          });
+          return jsonResp({ ok: true, device_id: out.device_id });
+        }
+
+        // POST /api/sync/pair-code — already paired? ask the cloud for a new
+        // pairing code so another device can onboard without SSH.
+        if (req.method === "POST" && path === "/api/sync/pair-code") {
+          const { loadSyncState } = await import("../core/sync");
+          const state = loadSyncState();
+          if (!state) return jsonResp({ error: "not paired" }, 400);
+          const res = await fetch(`${state.remote}/v1/auth/pair-code`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${state.device_token}` },
+          });
+          if (!res.ok) {
+            let detail = ""; try { detail = await res.text(); } catch {}
+            return jsonResp({ error: `pair-code failed: HTTP ${res.status} ${detail.slice(0, 200)}` }, 502);
+          }
+          const body = await res.json();
+          return jsonResp(body);
+        }
+
+        // POST /api/sync/run — one-shot sync (mirrors `folio sync --once`)
+        if (req.method === "POST" && path === "/api/sync/run") {
+          const { loadSyncState, syncOnce } = await import("../core/sync");
+          const state = loadSyncState();
+          if (!state) return jsonResp({ error: "not paired" }, 400);
+          try {
+            const result = await syncOnce(state);
+            return jsonResp(result);
+          } catch (e: any) {
+            return jsonResp({ error: e?.message ?? String(e) }, 500);
+          }
+        }
+
+        // POST /api/sync/unpair — clears local state. Best-effort revoke on
+        // cloud. After this, /cloud renders the not-paired form again.
+        if (req.method === "POST" && path === "/api/sync/unpair") {
+          const { loadSyncState } = await import("../core/sync");
+          const state = loadSyncState();
+          if (!state) return jsonResp({ ok: true, note: "was not paired" });
+          // Best-effort revoke: list devices, find one with matching name,
+          // DELETE it. Network/auth errors don't block local cleanup.
+          try {
+            const listRes = await fetch(`${state.remote}/v1/auth/devices`, {
+              headers: { Authorization: `Bearer ${state.device_token}` },
+            });
+            if (listRes.ok) {
+              const { getOrCreateDeviceId } = await import("../core/config");
+              const dev = getOrCreateDeviceId();
+              const { devices } = (await listRes.json()) as { devices: { id: string; name: string }[] };
+              const me = devices.find((d) => d.id === dev.id) ?? devices.find((d) => d.name === dev.name);
+              if (me) {
+                await fetch(`${state.remote}/v1/auth/device/${me.id}`, {
+                  method: "DELETE",
+                  headers: { Authorization: `Bearer ${state.device_token}` },
+                });
+              }
+            }
+          } catch {}
+          const { unlinkSync } = await import("node:fs");
+          const statePath = `${folioRoot()}/.sync-state.json`;
+          try { unlinkSync(statePath); } catch {}
           return jsonResp({ ok: true });
         }
 

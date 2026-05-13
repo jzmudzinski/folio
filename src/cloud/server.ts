@@ -27,6 +27,7 @@ import { cloudDb } from "./db";
 import {
   authenticate,
   consumePairingCode,
+  createPairingCode,
   extractBearer,
   isPublicPath,
   listDevices,
@@ -434,6 +435,16 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
 
         if (path === "/v1/auth/devices" && method === "GET") {
           return json({ devices: listDevices() });
+        }
+
+        // Already-paired devices can request fresh pairing codes for
+        // onboarding additional devices — eliminates the SSH-to-server
+        // step for every device after the first. Caller's token must be
+        // valid; the new code itself is no-auth-needed by design (so
+        // the recipient device can pair without any pre-shared state).
+        if (path === "/v1/auth/pair-code" && method === "POST") {
+          const { code, expiresAt } = createPairingCode();
+          return json({ code, expires_at: expiresAt });
         }
 
         {

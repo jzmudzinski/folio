@@ -28,6 +28,7 @@ import { cloudDb } from "./db";
 
 export interface Share {
   token: string;
+  user_id: string;
   scope_type: "note" | "thread";
   scope_id: string;
   created_by_device: string;
@@ -45,6 +46,7 @@ export function generateShareToken(): string {
 }
 
 export interface CreateShareInput {
+  user_id: string;
   scope_type: "note" | "thread";
   scope_id: string;
   created_by_device: string;
@@ -54,16 +56,19 @@ export interface CreateShareInput {
 }
 
 export function createShare(input: CreateShareInput, db: Database = cloudDb()): Share {
-  // Verify the scope target exists. Don't issue a share for a phantom note.
+  // Verify the scope target exists AND belongs to the share creator's user.
+  // Don't issue a share for a phantom note or for another user's note
+  // (the latter would be an authorization bypass).
   if (input.scope_type === "note") {
     const exists = db
-      .query<{ uuid: string }, [string]>("SELECT uuid FROM notes WHERE uuid = ?")
+      .query<{ uuid: string; user_id: string }, [string]>("SELECT uuid, user_id FROM notes WHERE uuid = ?")
       .get(input.scope_id);
     if (!exists) throw new Error(`note not found: ${input.scope_id}`);
+    if (exists.user_id !== input.user_id) throw new Error(`note not found: ${input.scope_id}`);
   } else if (input.scope_type === "thread") {
     const count = db
-      .query<{ n: number }, [string]>("SELECT COUNT(*) AS n FROM notes WHERE thread_id = ?")
-      .get(input.scope_id);
+      .query<{ n: number }, [string, string]>("SELECT COUNT(*) AS n FROM notes WHERE user_id = ? AND thread_id = ?")
+      .get(input.user_id, input.scope_id);
     if (!count || count.n === 0) throw new Error(`thread not found or empty: ${input.scope_id}`);
   } else {
     throw new Error(`invalid scope_type: ${input.scope_type}`);
@@ -77,11 +82,12 @@ export function createShare(input: CreateShareInput, db: Database = cloudDb()): 
       : null;
   db.run(
     `INSERT INTO shares (
-       token, scope_type, scope_id, created_by_device, created_at,
+       token, user_id, scope_type, scope_id, created_by_device, created_at,
        expires_at, revoked_at, recipient_email_hash, max_views, view_count
-     ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, 0)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 0)`,
     [
       token,
+      input.user_id,
       input.scope_type,
       input.scope_id,
       input.created_by_device,
@@ -93,6 +99,7 @@ export function createShare(input: CreateShareInput, db: Database = cloudDb()): 
   );
   return {
     token,
+    user_id: input.user_id,
     scope_type: input.scope_type,
     scope_id: input.scope_id,
     created_by_device: input.created_by_device,
@@ -111,6 +118,7 @@ export function getShare(token: string, db: Database = cloudDb()): Share | null 
     .query<
       {
         token: string;
+        user_id: string;
         scope_type: string;
         scope_id: string;
         created_by_device: string;
@@ -123,7 +131,7 @@ export function getShare(token: string, db: Database = cloudDb()): Share | null 
       },
       [string]
     >(
-      `SELECT token, scope_type, scope_id, created_by_device, created_at,
+      `SELECT token, user_id, scope_type, scope_id, created_by_device, created_at,
               expires_at, revoked_at, recipient_email_hash, max_views, view_count
          FROM shares WHERE token = ?`
     )
@@ -131,6 +139,7 @@ export function getShare(token: string, db: Database = cloudDb()): Share | null 
   if (!row) return null;
   return {
     token: row.token,
+    user_id: row.user_id,
     scope_type: row.scope_type as "note" | "thread",
     scope_id: row.scope_id,
     created_by_device: row.created_by_device,
@@ -152,6 +161,7 @@ export function revokeShare(token: string, db: Database = cloudDb()): boolean {
 }
 
 export interface ListSharesOptions {
+  user_id?: string;
   scope_id?: string;
   created_by_device?: string;
   include_revoked?: boolean;
@@ -161,6 +171,10 @@ export function listShares(opts: ListSharesOptions = {}, db: Database = cloudDb(
   const where: string[] = [];
   const params: any[] = [];
   if (!opts.include_revoked) where.push("revoked_at IS NULL");
+  if (opts.user_id) {
+    where.push("user_id = ?");
+    params.push(opts.user_id);
+  }
   if (opts.scope_id) {
     where.push("scope_id = ?");
     params.push(opts.scope_id);
@@ -170,7 +184,7 @@ export function listShares(opts: ListSharesOptions = {}, db: Database = cloudDb(
     params.push(opts.created_by_device);
   }
   const sql =
-    `SELECT token, scope_type, scope_id, created_by_device, created_at,
+    `SELECT token, user_id, scope_type, scope_id, created_by_device, created_at,
             expires_at, revoked_at, recipient_email_hash, max_views, view_count
        FROM shares ` +
     (where.length > 0 ? `WHERE ${where.join(" AND ")} ` : "") +
@@ -180,6 +194,7 @@ export function listShares(opts: ListSharesOptions = {}, db: Database = cloudDb(
     .all(...params)
     .map((r) => ({
       token: r.token,
+      user_id: r.user_id,
       scope_type: r.scope_type,
       scope_id: r.scope_id,
       created_by_device: r.created_by_device,

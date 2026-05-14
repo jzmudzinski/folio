@@ -2,6 +2,51 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.13.0 — 2026-05-14
+
+Multi-user cloud relay. One `folio.notibox.ai` instance now serves any number of independent users — each user pairs their Notibox + laptop + phone, and the cloud filters every read/write by user_id so accounts are invisible to each other. Cloud-side runtime changes — VPS deploys need `sudo ./deploy/update.sh`. Existing v0.12 paired devices keep working: the migration auto-runs and backfills to a single `default` user, which the operator can rename via the new CLI.
+
+### Added
+- **Multi-user partitioning across the cloud DB.** New `users` table; `user_id NOT NULL` column on devices / pairing_codes / notes / assets / tombstones / shares. Every authed query in `src/cloud/server.ts`, `sync.ts`, `shares.ts`, `stats.ts` now filters by `device.user_id` derived from the bearer. UNIQUE on notes flipped from `(thread_id, slug)` to `(user_id, thread_id, slug)` — Alice and Bob can both have a `morning` thread. Cross-user push/pull/raw/feed/admin-stats/share returns "not found" symmetrically (no leakage of uuid existence).
+- **Idempotent v0.12 → v0.13 migrator** in `cloudDb()`. PRAGMA `table_info(devices)` canary detects pre-v0.13 schemas; `ALTER TABLE ADD COLUMN user_id TEXT NOT NULL DEFAULT 'default'` fills every existing row in one statement; notes table rewritten under `PRAGMA foreign_keys = OFF` to swap the UNIQUE constraint without cascading the `note_tags` + `live_entries` FKs. Defensive: bails with a diagnostic if duplicate (user_id, thread_id, slug) groups would block the rebuild.
+- **Per-user asset namespace.** New public route `GET /u/<user>/t/<thread>/asset/<file>` pins lookup to `assets.user_id`. `renderStandaloneNote` rewrites body_html refs `/t/<thread>/asset/<file>` → `/u/<user>/t/<thread>/asset/<file>` on serve so iframes always load the right user's bytes. Legacy `/t/<thread>/asset/<file>` route preserved for single-tenant compat — resolves only when exactly one user owns the (thread, filename) tuple, else 404. SW version bumped to `folio-pwa-7` to invalidate cached old-shape URLs.
+- **CLI `folio cloud user-*`** (operator, server-side). Four new subcommands:
+  - `folio cloud user-add <id> [--display "Name"]` — provision a new account. Kebab-case validation, idempotency, `--reactivate` flag for previously-deleted ids.
+  - `folio cloud user-list [--json]` — per-user table: devices, notes, live entries, assets (count + bytes), shares, last seen. Operator's whole-cloud view, not exposed via HTTP.
+  - `folio cloud user-rename <old> <new>` — atomic rename across all six user_id columns + the users row. Bearer tokens unaffected.
+  - `folio cloud user-revoke <id> [--purge --yes]` — without flags, revokes all user's devices (data preserved). With `--purge --yes`, cascades delete on notes/assets/tombstones/shares + sets `users.deleted_at`. Confirmation gate requires explicit `--yes` to avoid accidental data loss.
+- **`folio cloud pair-code --user <id>`** required when more than one user exists. Single-user installs keep the v0.12 invocation (no flag). Mints codes with `pairing_codes.user_id` set; consuming a code stamps the new device into that user's namespace.
+- **Per-user `/v1/admin/stats`.** HTTP endpoint scoped to caller's user; Alice and Bob each see only their own counts. Operator CLI `user-list` retains the global view.
+
+### Security
+- **Cross-user push rejection.** `handlePush` ownership checks on every note/live_entry/delete: foreign-uuid pushes silently skipped (idempotent); cross-user live_entries fail the owner check; cross-user deletes log nothing and pass through unchanged. A leaked bearer can only damage its own user's data.
+- **Capability URLs pinned to share.user_id.** Note/asset lookups behind `/p/<token>/...` join on `share.user_id` so a leaked token from user A can never resolve to user B's note even if a uuid collision is engineered.
+- **`/v1/auth/devices` and `/v1/auth/device/:id` revocation** scoped to caller's user. Operator does cross-user revoke via the CLI, never via the API.
+
+### Notes for operators
+
+```bash
+# 1. Deploy (replaces binary, restarts service, runs migration on first DB open)
+sudo ./deploy/update.sh    # or manually: install -m 755 folio /opt/folio/folio + restart
+
+# 2. Verify migration
+sudo -u folio /opt/folio/folio cloud user-list
+# → default | display=default | 1 device | N notes | ...
+
+# 3. Rename the seeded user (optional — keeps things readable)
+sudo -u folio /opt/folio/folio cloud user-rename default jarek
+
+# 4. Add a new user
+sudo -u folio /opt/folio/folio cloud user-add alice --display "Alice"
+sudo -u folio /opt/folio/folio cloud pair-code --user alice
+# → hand the 6-digit code to Alice over Signal / SMS / phone
+
+# Alice pairs (her own machine)
+folio sync pair --remote https://folio.notibox.ai --code <code>
+```
+
+Existing v0.12 clients keep syncing without changes — they never see any user_id in the wire protocol; the cloud derives it from the bearer. Capability URL recipients (no Folio install) are unaffected; URLs continue to work cross-user.
+
 ## v0.12.0 — 2026-05-14
 
 Multi-feature polish: install UX, observability, asset pull, real email delivery. Cloud-side runtime changes — VPS deploys need `sudo ./deploy/update.sh` to pick up `/v1/admin/stats`, plaintext-email passthrough on `/v1/share`, and the new PWA install banner. Optional email setup: set `RESEND_API_KEY` + `FOLIO_MAIL_FROM` on the cloud to wire outbound delivery; without them the share endpoint still works and reports `email_skipped="no-mailer"` so the CLI can surface a clear status line.

@@ -26,6 +26,27 @@ export interface RenderNoteInput {
   title: string;
   theme: string;
   bodyHtml: string;
+  /**
+   * User namespace for asset URL rewriting (v0.13+). When set, any
+   * `/t/<thread>/asset/<file>` ref inside bodyHtml is rewritten to
+   * `/u/<userId>/t/<thread>/asset/<file>` so the iframe always loads bytes
+   * via the per-user route. Omit (or pass undefined) for capability URL
+   * paths — those already rewrite to `/p/<token>/t/...` upstream.
+   */
+  userId?: string | null;
+}
+
+/**
+ * Rewrite asset refs `/t/<thread>/asset/<file>` → `/u/<userId>/t/.../asset/...`
+ * Same regex as the capability-URL rewrite path; keeps the iframe seeing
+ * URLs whose bytes are pinned to the correct user namespace.
+ */
+function rewriteAssetUrls(bodyHtml: string, userId: string): string {
+  return bodyHtml.replace(
+    /((?:href|src)\s*=\s*["'])([^"']*?)\/t\/([^/"']+)\/asset\/([^"'?#]+)(["'])/g,
+    (_match, prefix: string, leading: string, thread: string, filename: string, quote: string) =>
+      `${prefix}${leading}/u/${encodeURIComponent(userId)}/t/${thread}/asset/${filename}${quote}`
+  );
 }
 
 /**
@@ -34,11 +55,16 @@ export interface RenderNoteInput {
  * `iframe-isolation` here means: the PWA wraps this in an iframe with
  * sandbox="allow-scripts allow-popups allow-forms" (no allow-same-origin),
  * matching how the local viewer works.
+ *
+ * When `userId` is supplied, body_html asset refs are rewritten to the
+ * per-user route. Skipped for capability URL renders (which already pass
+ * a pre-rewritten body pointing at /p/<token>/t/...).
  */
 export function renderStandaloneNote(input: RenderNoteInput): string {
   const css = readThemeCss(input.theme);
   const esc = (s: string): string =>
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const body = input.userId ? rewriteAssetUrls(input.bodyHtml, input.userId) : input.bodyHtml;
   return `<!doctype html>
 <html lang="en" data-theme="${esc(input.theme)}">
 <head>
@@ -50,7 +76,7 @@ export function renderStandaloneNote(input: RenderNoteInput): string {
 <body class="theme theme-${esc(input.theme)}">
   <main class="wrap">
     <article data-folio-content>
-${input.bodyHtml}
+${body}
     </article>
   </main>
 </body>

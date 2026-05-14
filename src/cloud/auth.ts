@@ -69,14 +69,22 @@ const PAIRING_TTL_MS = 10 * 60 * 1000;
 export interface CreatePairingCodeResult {
   code: string;
   expiresAt: string; // ISO 8601
+  userId: string;    // which account the new device will join (v0.13+)
 }
 
 /**
  * Create a new pairing code. Caller is expected to print it on the server
  * console (NOT log it to journald with default settings, but for one-user MVP
  * we accept that — the code is short-lived and the journal is local).
+ *
+ * `userId` (v0.13+) determines which account the new device joins. Defaults
+ * to 'default' so the v0.12-era code path (no --user flag) keeps working
+ * against the seeded 'default' user.
  */
-export function createPairingCode(db: Database = cloudDb()): CreatePairingCodeResult {
+export function createPairingCode(
+  userId: string = "default",
+  db: Database = cloudDb()
+): CreatePairingCodeResult {
   // Clean up expired codes opportunistically — cheap, prevents indefinite growth.
   db.run("DELETE FROM pairing_codes WHERE expires_at < ?", [new Date().toISOString()]);
   // Retry once on the astronomically unlikely PK collision.
@@ -84,8 +92,8 @@ export function createPairingCode(db: Database = cloudDb()): CreatePairingCodeRe
     const code = generatePairingCode();
     const expiresAt = new Date(Date.now() + PAIRING_TTL_MS).toISOString();
     try {
-      db.run("INSERT INTO pairing_codes (code, expires_at) VALUES (?, ?)", [code, expiresAt]);
-      return { code, expiresAt };
+      db.run("INSERT INTO pairing_codes (code, expires_at, user_id) VALUES (?, ?, ?)", [code, expiresAt, userId]);
+      return { code, expiresAt, userId };
     } catch (e: any) {
       if (!/UNIQUE constraint/i.test(e?.message ?? "")) throw e;
       // collision: retry
@@ -123,8 +131,8 @@ export function consumePairingCode(
   db: Database = cloudDb()
 ): ConsumePairingResult {
   const row = db
-    .query<{ code: string; expires_at: string; used_by_device_id: string | null }, [string]>(
-      "SELECT code, expires_at, used_by_device_id FROM pairing_codes WHERE code = ?"
+    .query<{ code: string; expires_at: string; used_by_device_id: string | null; user_id: string }, [string]>(
+      "SELECT code, expires_at, used_by_device_id, user_id FROM pairing_codes WHERE code = ?"
     )
     .get(code);
   if (!row) throw new Error("invalid pairing code");
@@ -137,13 +145,13 @@ export function consumePairingCode(
     let deviceId: string;
     if (row.used_by_device_id) {
       // Re-pair through the SAME code: rotate token on the existing row.
+      // user_id stays as it was at first pair — the code's user_id is
+      // re-applied defensively in case the code was somehow re-purposed.
       deviceId = row.used_by_device_id;
-      db.run("UPDATE devices SET token_hash = ?, name = ?, paired_at = ?, revoked_at = NULL WHERE id = ?", [
-        tokenHash,
-        deviceName,
-        now,
-        deviceId,
-      ]);
+      db.run(
+        "UPDATE devices SET token_hash = ?, name = ?, paired_at = ?, revoked_at = NULL, user_id = ? WHERE id = ?",
+        [tokenHash, deviceName, now, row.user_id, deviceId]
+      );
     } else {
       // Fresh code. Use the client-supplied device_id when present; otherwise
       // the cloud generates its own (legacy/missing-id path).
@@ -152,18 +160,20 @@ export function consumePairingCode(
       // prior pair attempt (e.g. user retried after a "unauthorized" issue —
       // their PWA still has the same device_id in IndexedDB). UNIQUE on
       // devices.id would reject a re-INSERT. Treat re-pair-with-fresh-code as
-      // "rotate token, clear revoked_at, refresh name + paired_at". The
-      // attacker who steals a device_id still needs a valid pairing code
-      // (10-min TTL, generated on the server) to do anything with it.
+      // "rotate token, clear revoked_at, refresh name + paired_at, anchor
+      // user_id to the code's user_id". The attacker who steals a device_id
+      // still needs a valid pairing code (10-min TTL, server-minted) to do
+      // anything with it.
       deviceId = clientDeviceId && clientDeviceId.length > 0 ? clientDeviceId : uuidv7();
       db.run(
-        `INSERT INTO devices (id, name, token_hash, paired_at) VALUES (?, ?, ?, ?)
+        `INSERT INTO devices (id, name, token_hash, paired_at, user_id) VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            token_hash = excluded.token_hash,
            name = excluded.name,
            paired_at = excluded.paired_at,
-           revoked_at = NULL`,
-        [deviceId, deviceName, tokenHash, now]
+           revoked_at = NULL,
+           user_id = excluded.user_id`,
+        [deviceId, deviceName, tokenHash, now, row.user_id]
       );
       db.run("UPDATE pairing_codes SET used_by_device_id = ? WHERE code = ?", [deviceId, code]);
     }
@@ -176,6 +186,7 @@ export function consumePairingCode(
 export interface Device {
   id: string;
   name: string;
+  userId: string;        // which account this device belongs to (v0.13+)
   pairedAt: string;
   lastSeenAt: string | null;
 }
@@ -190,10 +201,10 @@ export function authenticate(token: string, db: Database = cloudDb()): Device | 
   const tokenHash = hashToken(token);
   const row = db
     .query<
-      { id: string; name: string; paired_at: string; last_seen_at: string | null; revoked_at: string | null },
+      { id: string; name: string; user_id: string; paired_at: string; last_seen_at: string | null; revoked_at: string | null },
       [string]
     >(
-      "SELECT id, name, paired_at, last_seen_at, revoked_at FROM devices WHERE token_hash = ?"
+      "SELECT id, name, user_id, paired_at, last_seen_at, revoked_at FROM devices WHERE token_hash = ?"
     )
     .get(tokenHash);
   if (!row) return null;
@@ -206,6 +217,7 @@ export function authenticate(token: string, db: Database = cloudDb()): Device | 
   return {
     id: row.id,
     name: row.name,
+    userId: row.user_id,
     pairedAt: row.paired_at,
     lastSeenAt: row.last_seen_at,
   };
@@ -227,17 +239,22 @@ export function revokeDevice(id: string, db: Database = cloudDb()): void {
   ]);
 }
 
-/** List active (non-revoked) devices. For GET /v1/auth/devices. */
-export function listDevices(db: Database = cloudDb()): Device[] {
-  return db
-    .query<
-      { id: string; name: string; paired_at: string; last_seen_at: string | null },
-      []
-    >(
-      "SELECT id, name, paired_at, last_seen_at FROM devices WHERE revoked_at IS NULL ORDER BY paired_at DESC"
-    )
-    .all()
-    .map((r) => ({ id: r.id, name: r.name, pairedAt: r.paired_at, lastSeenAt: r.last_seen_at }));
+/**
+ * List active (non-revoked) devices. For GET /v1/auth/devices.
+ *
+ * `userId` filter (v0.13+): when supplied, returns only that user's devices.
+ * Callers in the route layer pass `device.userId` so a caller doesn't see
+ * other users' device names through this endpoint. Omitting the filter is
+ * an operator-only path (CLI `folio cloud user-list` builds on this).
+ */
+export function listDevices(userId?: string, db: Database = cloudDb()): Device[] {
+  const sql = userId
+    ? "SELECT id, name, user_id, paired_at, last_seen_at FROM devices WHERE revoked_at IS NULL AND user_id = ? ORDER BY paired_at DESC"
+    : "SELECT id, name, user_id, paired_at, last_seen_at FROM devices WHERE revoked_at IS NULL ORDER BY paired_at DESC";
+  const rows = userId
+    ? db.query<{ id: string; name: string; user_id: string; paired_at: string; last_seen_at: string | null }, [string]>(sql).all(userId)
+    : db.query<{ id: string; name: string; user_id: string; paired_at: string; last_seen_at: string | null }, []>(sql).all();
+  return rows.map((r) => ({ id: r.id, name: r.name, userId: r.user_id, pairedAt: r.paired_at, lastSeenAt: r.last_seen_at }));
 }
 
 /**
@@ -268,6 +285,10 @@ export function isPublicPath(pathname: string): boolean {
   // the cloud's data is content the user explicitly pushed there — same
   // posture as the local viewer where assets are served auth-less from disk.
   if (pathname.startsWith("/t/")) return true;
+  // /u/:user/t/:thread/asset/:file — v0.13+ per-user public asset route.
+  // Same posture as /t/.../asset/... (sub-resource for sandboxed iframes),
+  // pinned to user namespace so cross-user collisions can't leak bytes.
+  if (pathname.startsWith("/u/")) return true;
   if (pathname.startsWith("/p/")) return true;
   // POST /v1/auth/pair is the entry point — also unauthed.
   if (pathname === "/v1/auth/pair") return true;

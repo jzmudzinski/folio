@@ -47,6 +47,17 @@ export function cloudAssetsDir(): string {
 // add a periodic sweep that drops rows older than the longest-cursor of
 // any active device — out of scope for first cut.
 
+// `users` + `user_id` partitioning (v0.13.0):
+// Every table that holds user-owned data carries a NOT NULL `user_id` column,
+// default 'default' so the v0.12.0 → v0.13.0 migration is a single ADD COLUMN.
+// Every cloud-side query joins on `device.user_id` so paired devices only ever
+// see their own user's rows. The `users` table itself is a thin row (id,
+// display, created_at) — no auth state lives there (token_hash stays on
+// devices). All filtering happens application-side; no FK constraints (kept
+// off so that user-revoke --purge can do its cascade explicitly and tests
+// can seed tables in any order). The 'default' seed exists so that fresh DBs
+// don't need a separate bootstrap step and existing rows backfill cleanly.
+
 const CLOUD_SCHEMA = `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -56,6 +67,17 @@ CREATE TABLE IF NOT EXISTS meta (
   value TEXT NOT NULL
 );
 
+-- Users (v0.13.0+). One row per operator-provisioned account. No password —
+-- bearer tokens live on devices. user-add via CLI; no self-service registration.
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,           -- kebab-case: 'jarek', 'alice', 'bob'
+  display_name TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  deleted_at TEXT
+);
+INSERT OR IGNORE INTO users (id, display_name, created_at)
+  VALUES ('default', 'default', strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+
 -- Paired client devices. One row per laptop/notibox/phone the user pairs.
 -- token_hash stores SHA-256 of the bearer token (token itself never persisted).
 CREATE TABLE IF NOT EXISTS devices (
@@ -64,25 +86,31 @@ CREATE TABLE IF NOT EXISTS devices (
   token_hash TEXT NOT NULL,      -- hex sha-256 of bearer token
   paired_at TEXT NOT NULL,       -- ISO 8601
   last_seen_at TEXT,             -- updated on each authed request (throttled)
-  revoked_at TEXT                -- null = active; set = denies all requests
+  revoked_at TEXT,               -- null = active; set = denies all requests
+  user_id TEXT NOT NULL DEFAULT 'default'
 );
 CREATE INDEX IF NOT EXISTS devices_by_token ON devices(token_hash) WHERE revoked_at IS NULL;
+-- user-specific indexes created by ensureMultiUserSchema() so the bootstrap
+-- order works on pre-v0.13 DBs where user_id columns don't exist yet.
 
 -- One-shot pairing codes printed by the server admin and consumed by a new
 -- device. 10 minute TTL. used_by_device_id pins which device claimed the code
--- (idempotent re-pairs return the same device).
+-- (idempotent re-pairs return the same device). user_id determines which
+-- account the newly-paired device joins; carried from the code minter.
 CREATE TABLE IF NOT EXISTS pairing_codes (
   code TEXT PRIMARY KEY,         -- 6-digit string, zero-padded
   expires_at TEXT NOT NULL,      -- ISO 8601
-  used_by_device_id TEXT         -- null until claimed; set when device pairs
+  used_by_device_id TEXT,        -- null until claimed; set when device pairs
+  user_id TEXT NOT NULL DEFAULT 'default'
 );
 CREATE INDEX IF NOT EXISTS pairing_codes_by_exp ON pairing_codes(expires_at);
 
--- Notes (mirror of local schema, plus origin_device_id for multi-writer).
--- uuid is the cross-device stable identity; slug is a display-only label that
--- may be renamed on conflict.
+-- Notes (mirror of local schema, plus origin_device_id for multi-writer and
+-- user_id for multi-user partitioning). uuid is the cross-device stable
+-- identity; slug is a display-only label that may be renamed on conflict.
 CREATE TABLE IF NOT EXISTS notes (
   uuid TEXT PRIMARY KEY,         -- UUIDv7, generated client-side at create
+  user_id TEXT NOT NULL DEFAULT 'default',
   slug TEXT NOT NULL,
   thread_id TEXT NOT NULL,
   title TEXT NOT NULL,
@@ -101,7 +129,7 @@ CREATE TABLE IF NOT EXISTS notes (
   word_count INTEGER NOT NULL DEFAULT 0,
   summary TEXT,
   server_seq INTEGER NOT NULL,   -- monotonic per-row, used for pull cursor
-  UNIQUE(thread_id, slug)        -- enforces collision rename at push time
+  UNIQUE(user_id, thread_id, slug) -- enforces collision rename per-user (v0.13)
 );
 CREATE INDEX IF NOT EXISTS notes_by_thread ON notes(thread_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS notes_by_seq ON notes(server_seq);
@@ -137,11 +165,14 @@ CREATE INDEX IF NOT EXISTS live_entries_by_seq ON live_entries(server_seq);
 -- relative to cloudAssetsDir() (e.g. "ab/cd/abcd...png" sharded for fs perf).
 -- One asset row per unique content hash; thread_id is recorded for backup/
 -- export grouping but not enforced as a foreign key — same bytes can be
--- referenced by many threads.
+-- referenced by many threads. user_id added v0.13 — for now one row per
+-- (hash) with the first uploader's user_id stamped; cross-user dedup would
+-- require asset_refs(hash, user_id, ...) which is post-MVP.
 CREATE TABLE IF NOT EXISTS assets (
   hash TEXT PRIMARY KEY,         -- sha256 hex (64 chars)
   filename TEXT NOT NULL,        -- agent-supplied, sanitized by isSafeAssetFilename
   thread_id TEXT NOT NULL,
+  user_id TEXT NOT NULL DEFAULT 'default',
   content_type TEXT NOT NULL,
   size_bytes INTEGER NOT NULL,
   blob_path TEXT NOT NULL,       -- relative to cloudAssetsDir()
@@ -154,6 +185,7 @@ CREATE INDEX IF NOT EXISTS assets_by_thread ON assets(thread_id);
 -- "WHERE deleted_at IS NULL" filter to every existing notes query.
 CREATE TABLE IF NOT EXISTS tombstones (
   uuid TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL DEFAULT 'default',
   thread_id TEXT NOT NULL,
   origin_device_id TEXT,
   deleted_at TEXT NOT NULL,
@@ -164,6 +196,7 @@ CREATE INDEX IF NOT EXISTS tombstones_by_seq ON tombstones(server_seq);
 -- Capability-URL shares (filled in W4; schema-ready in W1).
 CREATE TABLE IF NOT EXISTS shares (
   token TEXT PRIMARY KEY,        -- 32-byte url-safe random (43 chars base64url)
+  user_id TEXT NOT NULL DEFAULT 'default',
   scope_type TEXT NOT NULL,      -- 'note' | 'thread'
   scope_id TEXT NOT NULL,        -- note uuid or thread_id
   created_by_device TEXT NOT NULL REFERENCES devices(id),
@@ -197,7 +230,140 @@ export function cloudDb(): Database {
   if (!existsSync(dirname(dbFile))) mkdirSync(dirname(dbFile), { recursive: true });
   _db = new Database(dbFile, { create: true });
   _db.exec(CLOUD_SCHEMA);
+  ensureMultiUserSchema(_db);
   return _db;
+}
+
+/**
+ * Idempotent migrator for v0.12.0 → v0.13.0. Old DBs have no `user_id` columns
+ * and the old `UNIQUE(thread_id, slug)` on notes; bring them up to the form
+ * defined by CLOUD_SCHEMA above. Re-running on an already-migrated DB is a
+ * fast no-op (canary probe on devices.user_id, sqlite_master check on notes
+ * for the new UNIQUE clause). Both probes use PRAGMA / sqlite_master, no
+ * writes on the happy path.
+ *
+ * FK note: we have ON DELETE CASCADE from note_tags + live_entries → notes.
+ * DROP TABLE notes would cascade-clear those during rebuild — so we disable
+ * foreign_keys for the rebuild block and re-enable after. PRAGMA pragmas
+ * must sit outside transactions, so the order is:
+ *   PRAGMA foreign_keys = OFF
+ *   BEGIN
+ *     rebuild
+ *     PRAGMA foreign_key_check  -- validates inside the tx
+ *   COMMIT
+ *   PRAGMA foreign_keys = ON
+ */
+function ensureMultiUserSchema(db: Database): void {
+  const deviceCols = db.query<{ name: string }, []>("PRAGMA table_info(devices)").all();
+  const devicesHaveUserId = deviceCols.some((c) => c.name === "user_id");
+
+  if (!devicesHaveUserId) {
+    // Old schema — add user_id columns. NOT NULL DEFAULT 'default' fills
+    // every existing row in one statement; FK from `users(id)` is implicit
+    // by application convention, not declared, so no FK rebuild required.
+    db.transaction(() => {
+      db.exec(`
+        ALTER TABLE devices       ADD COLUMN user_id TEXT NOT NULL DEFAULT 'default';
+        ALTER TABLE pairing_codes ADD COLUMN user_id TEXT NOT NULL DEFAULT 'default';
+        ALTER TABLE notes         ADD COLUMN user_id TEXT NOT NULL DEFAULT 'default';
+        ALTER TABLE assets        ADD COLUMN user_id TEXT NOT NULL DEFAULT 'default';
+        ALTER TABLE tombstones    ADD COLUMN user_id TEXT NOT NULL DEFAULT 'default';
+        ALTER TABLE shares        ADD COLUMN user_id TEXT NOT NULL DEFAULT 'default';
+      `);
+    })();
+  }
+
+  // User-specific indexes — kept out of CLOUD_SCHEMA so pre-v0.13 bootstrap
+  // doesn't trip on missing user_id columns. Idempotent re-create.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS devices_by_user ON devices(user_id);
+    CREATE INDEX IF NOT EXISTS notes_by_user_thread ON notes(user_id, thread_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS notes_by_user_seq ON notes(user_id, server_seq);
+    CREATE INDEX IF NOT EXISTS assets_by_user_thread ON assets(user_id, thread_id);
+    CREATE INDEX IF NOT EXISTS tombstones_by_user_seq ON tombstones(user_id, server_seq);
+    CREATE INDEX IF NOT EXISTS shares_by_user ON shares(user_id, created_at DESC);
+  `);
+
+  // Detect whether the UNIQUE constraint on `notes` is already the new
+  // shape. sqlite_master.sql holds the original CREATE TABLE statement.
+  const tblRow = db
+    .query<{ sql: string | null }, []>("SELECT sql FROM sqlite_master WHERE type='table' AND name='notes'")
+    .get();
+  const tblSql = tblRow?.sql ?? "";
+  const hasNewUnique =
+    /UNIQUE\s*\(\s*user_id\s*,\s*thread_id\s*,\s*slug\s*\)/i.test(tblSql);
+  if (hasNewUnique) return;
+
+  // Rebuild notes with UNIQUE(user_id, thread_id, slug). Defensive checks
+  // first: bail out (with diagnostic) if existing rows would collide under
+  // the new constraint — single-tenant data should never trigger this, but
+  // a botched manual import could.
+  const dups = db
+    .query<{ user_id: string; thread_id: string; slug: string; n: number }, []>(
+      "SELECT user_id, thread_id, slug, COUNT(*) AS n FROM notes GROUP BY user_id, thread_id, slug HAVING COUNT(*) > 1"
+    )
+    .all();
+  if (dups.length > 0) {
+    throw new Error(
+      `notes UNIQUE rebuild blocked by ${dups.length} duplicate (user_id, thread_id, slug) groups: ${JSON.stringify(dups.slice(0, 5))}`
+    );
+  }
+
+  db.exec("PRAGMA foreign_keys = OFF");
+  try {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE notes_new (
+          uuid TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL DEFAULT 'default',
+          slug TEXT NOT NULL,
+          thread_id TEXT NOT NULL,
+          title TEXT NOT NULL,
+          type TEXT NOT NULL,
+          theme TEXT NOT NULL DEFAULT 'linen',
+          theme_profile TEXT NOT NULL DEFAULT 'hosted',
+          body_html TEXT NOT NULL,
+          plain_text TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          expires_at TEXT,
+          is_final INTEGER NOT NULL DEFAULT 0,
+          live INTEGER NOT NULL DEFAULT 0,
+          owner_device_id TEXT,
+          origin_device_id TEXT NOT NULL,
+          word_count INTEGER NOT NULL DEFAULT 0,
+          summary TEXT,
+          server_seq INTEGER NOT NULL,
+          UNIQUE(user_id, thread_id, slug)
+        );
+        INSERT INTO notes_new
+          SELECT uuid, user_id, slug, thread_id, title, type, theme, theme_profile,
+                 body_html, plain_text, created_at, updated_at, expires_at,
+                 is_final, live, owner_device_id, origin_device_id,
+                 word_count, summary, server_seq
+            FROM notes;
+        DROP TABLE notes;
+        ALTER TABLE notes_new RENAME TO notes;
+        CREATE INDEX notes_by_thread ON notes(thread_id, created_at DESC);
+        CREATE INDEX notes_by_seq ON notes(server_seq);
+        CREATE INDEX notes_by_origin ON notes(origin_device_id, server_seq);
+        CREATE INDEX notes_by_user_thread ON notes(user_id, thread_id, created_at DESC);
+        CREATE INDEX notes_by_user_seq ON notes(user_id, server_seq);
+      `);
+      const violations = db
+        .query<{ table: string; rowid: number; parent: string; fkid: number }, []>(
+          "PRAGMA foreign_key_check"
+        )
+        .all();
+      if (violations.length > 0) {
+        throw new Error(
+          `notes rebuild left FK violations: ${JSON.stringify(violations.slice(0, 5))}`
+        );
+      }
+    })();
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
+  }
 }
 
 export function closeCloudDb(): void {

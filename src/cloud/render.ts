@@ -53,7 +53,7 @@ function rewriteAssetUrls(bodyHtml: string, userId: string): string {
  * Build a standalone HTML page (theme.css inlined, body_html slotted in).
  * This is what cloud serves at /raw/:uuid behind the iframe-isolation CSP.
  * `iframe-isolation` here means: the PWA wraps this in an iframe with
- * sandbox="allow-scripts allow-popups allow-forms" (no allow-same-origin),
+ * sandbox="allow-scripts allow-popups allow-forms allow-modals" (no allow-same-origin),
  * matching how the local viewer works.
  *
  * When `userId` is supplied, body_html asset refs are rewritten to the
@@ -113,7 +113,7 @@ export function renderSharedNotePage(token: string, uuid: string, title: string)
 <body>
   <iframe
     src="/p/${esc(token)}/raw/${esc(uuid)}"
-    sandbox="allow-scripts allow-popups allow-forms"
+    sandbox="allow-scripts allow-popups allow-forms allow-modals"
     referrerpolicy="no-referrer"
     title="${esc(title || "Folio note")}"></iframe>
 </body>
@@ -308,7 +308,7 @@ export function renderNotePage(uuid: string, _title: string): string {
 <body>
   <a href="/" class="back" id="back">‹ back</a>
   <div id="state" class="state">Loading…</div>
-  <iframe id="frame" sandbox="allow-scripts allow-popups allow-forms" referrerpolicy="no-referrer" style="display: none;"></iframe>
+  <iframe id="frame" sandbox="allow-scripts allow-popups allow-forms allow-modals" referrerpolicy="no-referrer" style="display: none;"></iframe>
   <aside class="live-panel" id="live-panel" aria-label="Live entries">
     <div class="lp-h"><span class="dot"></span><span>Live</span><span id="lp-count" style="color:#666;">(0)</span></div>
     <div class="lp-list" id="lp-list">

@@ -1275,7 +1275,7 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
   <main class="note-main">
     ${banner}
     <div class="note-iframe-wrap">
-      <iframe class="note-iframe" src="/raw/${note.id}" title="${esc(note.title)}" sandbox="allow-scripts allow-popups allow-forms"></iframe>
+      <iframe class="note-iframe" src="/raw/${note.id}" title="${esc(note.title)}" sandbox="allow-scripts allow-popups allow-forms allow-modals"></iframe>
     </div>
   </main>${livePanelHtml}
 </div>${noteScript}${liveScript}`);

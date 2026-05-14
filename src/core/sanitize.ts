@@ -68,7 +68,10 @@ const ALLOWED_ATTRIBUTES: Record<string, string[]> = {
 
 // Default sandbox flags applied to every iframe — explicit allow-list, never
 // includes `allow-same-origin` (the only flag combo that can break out).
-const DEFAULT_IFRAME_SANDBOX = "allow-scripts allow-popups allow-forms";
+// allow-modals (v0.15.1+) so window.print() / alert() / confirm() / prompt()
+// work from inside the iframe. CSP + null-origin sandbox still hold; modals
+// can annoy but can't exfiltrate or reach the parent.
+const DEFAULT_IFRAME_SANDBOX = "allow-scripts allow-popups allow-forms allow-modals";
 
 function normalizeIframeSandbox(input?: string): string {
   // sanitize-html sometimes hands us an empty string for sandbox attribute → that

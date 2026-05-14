@@ -265,6 +265,10 @@ a { color: inherit; text-decoration: none; }
 .thread-card .latest { font-family: var(--vmono); font-size: 11.5px; color: var(--vmuted-2); text-align: right; min-width: 90px; }
 .thread-card .latest .final-marker { display: inline-block; color: var(--vorange); font-weight: 600; margin-top: 4px; }
 
+/* Note page: lock body to viewport so the topbar-height estimate (60px,
+   approximate) can't push the page into a few-px overflow. Side panel +
+   iframe wrap each scroll internally so nothing legitimate is hidden. */
+body.note-page { overflow: hidden; }
 .note-shell { display: grid; grid-template-columns: 360px 1fr; min-height: calc(100vh - 60px); }
 .note-shell.has-live { grid-template-columns: 360px minmax(0, 1fr) minmax(340px, 26vw); }
 @media (max-width: 1180px) { .note-shell.has-live { grid-template-columns: 360px 1fr; } .note-shell.has-live .live-panel { grid-column: 1 / -1; max-height: 60vh; } }
@@ -979,7 +983,14 @@ export function pageThread(threadId: string, notes: NoteMeta[]): string {
 
 export function pageNote(note: NoteMeta, _themeName: string): string {
   const expiring = note.is_final ? null : daysUntil(note.expires_at);
-  const banner = !note.is_final && expiring
+  // Banner shows only when expiry is genuinely close (≤7 days) — matches
+  // the `Expiring 7d` filter chip + `list_expiring` MCP tool's window.
+  // Showing it for fresh 30-day-old notes was just noise that everyone
+  // learned to ignore + pushed the viewport into a few-px overflow on
+  // some screen sizes.
+  const expiringDaysMatch = expiring && /^(\d+)d$/.exec(expiring);
+  const closeToExpiry = expiringDaysMatch && Number(expiringDaysMatch[1]) <= 7;
+  const banner = !note.is_final && closeToExpiry
     ? `<div class="note-banner">
         <div><span class="lbl">⏱ Auto-delete in ${expiring}</span>&nbsp; unless you mark final or publish</div>
         <form method="post" action="/api/notes/${note.id}/finalize" style="margin:0"><button class="finalize-btn" type="submit">★ Finalize</button></form>
@@ -1315,7 +1326,7 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
       <iframe class="note-iframe" src="/raw/${note.id}" title="${esc(note.title)}" sandbox="allow-scripts allow-popups allow-forms allow-modals"></iframe>
     </div>
   </main>${livePanelHtml}
-</div>${noteScript}${liveScript}`);
+</div>${noteScript}${liveScript}`, { bodyClass: "note-page" });
 }
 
 export function pageStats(s: any): string {
@@ -1357,8 +1368,9 @@ export function pageStats(s: any): string {
 </main>`);
 }
 
-function shell(title: string, body: string): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · Folio</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/favicon.svg"><style>${VIEWER_CSS}</style></head><body>${body}${KBD_SHORTCUT_JS}</body></html>`;
+function shell(title: string, body: string, opts: { bodyClass?: string } = {}): string {
+  const bodyAttr = opts.bodyClass ? ` class="${opts.bodyClass}"` : "";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · Folio</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/favicon.svg"><style>${VIEWER_CSS}</style></head><body${bodyAttr}>${body}${KBD_SHORTCUT_JS}</body></html>`;
 }
 
 export interface CloudPageState {

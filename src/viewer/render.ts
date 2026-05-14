@@ -1146,6 +1146,27 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
           p.resolve({ plain: String(d.plain || ''), markdown: String(d.markdown || '') });
           break;
         }
+        case 'iteration-pick': {
+          // v0.18+: iteration variant clicked inside the body iframe.
+          // Iframe runs in null-origin sandbox with connect-src 'none', so it
+          // cannot fetch the API itself — we relay the pick from the parent.
+          var vid = d.variant_id; var nid = d.note_id;
+          if (!vid || !nid) return;
+          fetch('/api/notes/' + encodeURIComponent(nid) + '/iter/pick', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ variant_id: vid })
+          }).then(function(r){
+            if (!r.ok) return r.json().then(function(j){ throw new Error(j.error || 'pick failed'); });
+            // Force a full iframe reload so the gallery re-renders with
+            // sibling variants greyed out and the picked one styled.
+            // Cache-buster prevents any stale response.
+            if (iframe) iframe.src = '/raw/' + encodeURIComponent(nid) + '?t=' + Date.now();
+          }).catch(function(err){
+            console.error('[folio] iteration pick failed:', err && err.message ? err.message : err);
+          });
+          break;
+        }
       }
     });
 

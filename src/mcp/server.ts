@@ -28,7 +28,7 @@ import { listThemes, getTheme } from "../core/themes";
 import { db, logEvent } from "../core/db";
 import type { NoteType, RenderProfile } from "../core/types";
 
-const ALLOWED_TYPES: NoteType[] = ["research", "comparison", "technical", "journal", "snippet"];
+const ALLOWED_TYPES: NoteType[] = ["research", "comparison", "technical", "journal", "snippet", "iteration"];
 const ALLOWED_PROFILES: RenderProfile[] = ["hosted", "standalone"];
 
 const tools: Tool[] = [
@@ -40,7 +40,7 @@ const tools: Tool[] = [
       type: "object",
       required: ["type", "title", "body_html"],
       properties: {
-        type: { type: "string", enum: ALLOWED_TYPES, description: "Note type. Pick `research` for deep dives, `comparison` for vs tables, `technical` for ADRs/specs, `journal` for chronological, `snippet` for short." },
+        type: { type: "string", enum: ALLOWED_TYPES, description: "Note type. Pick `research` for deep dives, `comparison` for vs tables, `technical` for ADRs/specs, `journal` for chronological, `snippet` for short, `iteration` (v0.18+) for design-iteration workflows — 3 candidates → user picks → 3 variants → repeat. Iteration notes have minimal body_html (chrome only); variants come via the propose_round tool." },
         title: { type: "string", description: "Human-readable title (used as h1)." },
         body_html: { type: "string", description: "HTML fragment for the article body. NO <html>/<body>/<head>/<title>/<meta>; these come from the template. <style> at body level IS allowed (v0.15+) — use it for the `plain` theme or per-note custom CSS. <script>, <button>, <input>, <select>, <textarea>, <form>, role/aria-* all pass the sanitizer (v0.17.1+). Default to theme utility classes for non-plain themes: .eyebrow, .lead, .pill, .card, .verdict." },
         thread_id: { type: "string", description: "Thread slug (kebab-case). Group related iterations. If omitted, slugified from title. PREFER calling suggest_thread first to continue an existing thread instead of creating duplicates." },
@@ -194,6 +194,51 @@ const tools: Tool[] = [
     },
   },
   {
+    name: "propose_round",
+    description: "Propose a fresh round of variants on an iteration note (v0.18+). Each variant is a self-contained HTML payload (full mockup, poster, layout sketch — anything you want the user to choose between). For round 1, omit parent_variant_id. For round N+1, pass parent_variant_id = the variant the user picked in round N (look it up via iteration_state). The user picks via the gallery viewer; the agent watches the SSE stream for the pick event, then calls propose_round again with the picked variant as parent. Errors: WRONG_TYPE (note isn't an iteration note), FINALIZED, ROUND_OPEN (previous round still has no pick), PARENT_MISMATCH (parent_variant_id doesn't equal previous round's pick), EMPTY_VARIANTS.",
+    inputSchema: {
+      type: "object",
+      required: ["note_id", "variants"],
+      properties: {
+        note_id: { type: "string", description: "Iteration note id (created with type:'iteration')." },
+        variants: {
+          type: "array",
+          description: "Variants to propose in this round. Typically 3, no hard limit. Each has a self-contained content_html.",
+          items: {
+            type: "object",
+            required: ["content_html"],
+            properties: {
+              content_html: { type: "string", description: "HTML for the variant. Sanitized server-side. Inline styles + <style> + <script> all allowed (v0.15+/v0.17.1+); see SKILL.md. For maximum design freedom, use minimal scaffolding inside (the gallery card is the only chrome the viewer adds)." },
+              label: { type: "string", description: "Optional short name for the variant (e.g. 'sidebar-L', 'topnav-v2'). Shown in the gallery card meta + breadcrumb." },
+            },
+          },
+        },
+        parent_variant_id: { type: "string", description: "REQUIRED for round 2+. The variant id picked in the previous round (from iteration_state). Omit for round 1." },
+      },
+    },
+  },
+  {
+    name: "pick_variant",
+    description: "Mark a variant as the winner of the current round (v0.18+). Usually called by the viewer when the user clicks; agents can call it programmatically for headless workflows. Appends a pick event; computes rejection state for siblings on read. Errors: WRONG_TYPE, FINALIZED, NO_OPEN_ROUND (no current round), UNKNOWN_VARIANT (id not in current round).",
+    inputSchema: {
+      type: "object",
+      required: ["note_id", "variant_id"],
+      properties: {
+        note_id: { type: "string" },
+        variant_id: { type: "string", description: "Variant id from the current round (returned by propose_round or iteration_state)." },
+      },
+    },
+  },
+  {
+    name: "iteration_state",
+    description: "Read the current state of an iteration note (v0.18+) — rounds, variants, picks, lineage, whether a round is open. Use on session resume before calling propose_round, OR when the agent is woken by the SSE pick event and needs to look up which variant was picked. Returns null when note isn't an iteration note or doesn't exist.",
+    inputSchema: {
+      type: "object",
+      required: ["note_id"],
+      properties: { note_id: { type: "string" } },
+    },
+  },
+  {
     name: "version",
     description: "Return Folio version + system info: storage root, viewer URL, default theme. Useful when the agent wants to confirm which Folio installation it's talking to (e.g. before bulk operations, or when the user asks 'what version are we on?').",
     inputSchema: { type: "object", properties: {} },
@@ -275,8 +320,9 @@ export async function buildServer(): Promise<Server> {
           // the content; body is just chrome scaffolding until finalize).
           const live = typeof args.live === "boolean" ? args.live : false;
           const inline = typeof args.inline === "boolean" ? args.inline : false;
-          if (!live && !String(args.body_html).trim()) {
-            return errContent("body_html cannot be empty unless live:true (live notes start with chrome only).");
+          const isIteration = args.type === "iteration";
+          if (!live && !isIteration && !String(args.body_html).trim()) {
+            return errContent("body_html cannot be empty unless live:true or type:iteration (both start with chrome only — content is appended via append_entry / propose_round).");
           }
           const note = await createNote({
             type: args.type,
@@ -621,6 +667,50 @@ export async function buildServer(): Promise<Server> {
             pinned: toPin,
             unpinned: toUnpin,
           });
+        }
+
+        case "propose_round": {
+          const note_id = String(args.note_id ?? "");
+          if (!note_id) return errContent("Missing note_id");
+          const variants = Array.isArray(args.variants) ? args.variants : [];
+          if (variants.length === 0) return errContent("variants[] cannot be empty");
+          const parent_variant_id = args.parent_variant_id != null ? String(args.parent_variant_id) : null;
+          try {
+            const iter = await import("../core/iteration");
+            const result = iter.proposeRound({
+              note_id,
+              variants: variants.map((v: any) => ({
+                content_html: String(v.content_html ?? ""),
+                label: v.label != null ? String(v.label) : null,
+              })),
+              parent_variant_id,
+            });
+            return jsonContent(result);
+          } catch (e: any) {
+            return errContent(e?.message ?? String(e));
+          }
+        }
+
+        case "pick_variant": {
+          const note_id = String(args.note_id ?? "");
+          const variant_id = String(args.variant_id ?? "");
+          if (!note_id || !variant_id) return errContent("Missing note_id or variant_id");
+          try {
+            const iter = await import("../core/iteration");
+            const result = iter.pickVariant({ note_id, variant_id });
+            return jsonContent(result);
+          } catch (e: any) {
+            return errContent(e?.message ?? String(e));
+          }
+        }
+
+        case "iteration_state": {
+          const note_id = String(args.note_id ?? "");
+          if (!note_id) return errContent("Missing note_id");
+          const iter = await import("../core/iteration");
+          const state = iter.getIterationState(note_id);
+          if (!state) return errContent(`Note ${note_id} not found, or not an iteration note.`);
+          return jsonContent(state);
         }
 
         case "version": {

@@ -2,6 +2,26 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.18.0 — 2026-05-14
+
+New note type primitive: **`iteration`** — for design-iteration workflows where the agent generates N candidates, the user clicks one, the agent generates N variants of the pick, repeat. Tree-shaped (every variant has a `parent_variant_id` pointing at the round-winner that spawned it), append-only on the live-entries JSONL substrate.
+
+### Added
+- **`iteration` note type.** `create({ type: "iteration", title, body_html, thread_id })`. body_html is chrome only (h1 + intro); variants live in entries, not in body.
+- **Three new MCP tools** — `propose_round({ note_id, variants[], parent_variant_id? })` returning `{ round, variant_ids[] }`; `pick_variant({ note_id, variant_id })` returning `{ round, variant_id, rejected_variant_ids[] }`; `iteration_state({ note_id })` returning `{ rounds[], lineage[], current_round, is_finalized }`. Tool count: 16 → 19.
+- **Gallery renderer.** Viewer `/raw/:id` for iteration notes swaps the article body for a server-rendered grid of variant cards, each in its own sandboxed sub-iframe so per-variant CSS/JS stays isolated. Click-to-pick wired via parent-iframe `postMessage` → `POST /api/notes/:id/iter/pick` → iframe reload. Empty / waiting / multi-round breadcrumb states all handled.
+- **Cloud-side rendering.** Cloud `/raw/:uuid` renders the same gallery but read-only (no pick buttons, no click handlers — picks happen on the device that owns the note). Iteration entries now sync to cloud via the existing `live_entries` push pipeline.
+- **`finalize` for iteration notes.** Compiles the picked lineage into a static artifact (Final design block + Iteration history list), archives the JSONL (including discarded variants) to `~/Folio/.trash/`. Permissive — finalize with no picks writes a "no design selected" stub instead of erroring, mirroring `finalizeLive` behavior on empty notes.
+
+### Migration / compatibility
+- No schema migration. Iteration notes reuse the v0.9 `live_entries` JSONL + cloud table.
+- Sync push query updated: previously gated on `live = 1`, now also pushes notes WHERE `type = 'iteration'`. Cloud's accept path was already type-agnostic — no cloud changes required for sync.
+- Existing live notes / journal / snippet / research / comparison / technical flows are unchanged.
+
+### SKILL
+- New "Iteration notes" section with workflow, tool surface, and labeling guidance.
+- `iteration` row added to the type-selection table.
+
 ## v0.17.2 — 2026-05-14
 
 ### Fixed

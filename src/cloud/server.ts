@@ -1126,14 +1126,53 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
             // the same "not found" as a truly missing uuid.
             const row = cloudDb()
               .query<
-                { uuid: string; title: string; theme: string; body_html: string; live: number; is_final: number; inline_render: number },
+                { uuid: string; title: string; theme: string; type: string; body_html: string; live: number; is_final: number; inline_render: number },
                 [string, string]
               >(
-                "SELECT uuid, title, theme, body_html, live, is_final, inline_render FROM notes WHERE uuid = ? AND user_id = ?"
+                "SELECT uuid, title, theme, type, body_html, live, is_final, inline_render FROM notes WHERE uuid = ? AND user_id = ?"
               )
               .get(m[1]!, device!.userId);
             if (!row) return notFound("note not found");
             let bodyHtml = row.body_html;
+            // v0.18 iteration notes: cloud renders the same gallery the
+            // local viewer does, but read-only — pick happens on the
+            // device that owns the note (no /iter/pick endpoint on cloud).
+            // We share the renderer + state-compute helpers with the
+            // local viewer; entries come from `live_entries` mirrored
+            // up by sync. Skip when finalized — final iteration notes
+            // have body_html compiled in Phase 6 and render like any
+            // static note.
+            if (row.type === "iteration" && row.is_final === 0) {
+              const cloudEntries = cloudDb()
+                .query<{ id: string; ts: string; content_html: string; tags_json: string; refs_json: string; source_ref: string | null }, [string]>(
+                  "SELECT id, ts, content_html, tags_json, refs_json, source_ref FROM live_entries WHERE note_uuid = ? ORDER BY ts ASC"
+                )
+                .all(row.uuid)
+                .map((e) => ({
+                  id: e.id,
+                  ts: e.ts,
+                  content_html: e.content_html,
+                  plain: "",
+                  tags: jsonArray(e.tags_json),
+                  refs: jsonArray(e.refs_json),
+                  source_ref: e.source_ref ?? undefined,
+                }));
+              const { computeIterationState } = await import("../core/iteration");
+              const { renderIterationRaw, extractChrome } = await import("../viewer/iteration-render");
+              const state = computeIterationState(row.uuid, cloudEntries as any, false);
+              const chrome = extractChrome(bodyHtml);
+              const iterFragment = renderIterationRaw({
+                noteId: row.uuid,
+                title: row.title,
+                chromeHtml: chrome,
+                state,
+                readonly: true,
+              });
+              bodyHtml = bodyHtml.replace(
+                /(<article[^>]*data-folio-content[^>]*>)([\s\S]*?)(<\/article>)/,
+                (_m, open, _content, close) => `${open}${iterFragment}${close}`
+              );
+            }
             // v0.17 inline-rendered live notes: splice the cloud-side
             // live_entries into <section data-folio-live-feed> on every
             // serve. New entries during the session arrive via the PWA

@@ -2,6 +2,12 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.17.2 — 2026-05-14
+
+### Fixed
+- **Auto-delete banner only when ≤7 days from expiry.** Previously it showed for every non-final note from creation (29d → 1d), so users learned to ignore it. The 7-day threshold matches `list_expiring` and the topbar "Expiring 7d" chip — the banner is load-bearing again.
+- **Bouncy few-px scrollbar on note pages.** `.note-shell` / `.note-side` / `.note-main` assumed a 60px topbar but actual height can be 64-65px depending on font rendering. `body.note-page` now has `overflow: hidden`; the iframe wrap + side panel each scroll internally so nothing legitimate is hidden.
+
 ## v0.17.1 — 2026-05-14
 
 Drop the silly `<button>` strip + adjacent form-control bans. Sanitizer was being conservative-by-default in a setup where the actual threat model already neutralizes the entire class of risk: notes render in a sandboxed null-origin iframe with `form-action 'none'` + `connect-src 'none'` + `on*` handlers stripped. Static `<button>` is no different from `<div>` for security purposes; the createElement workaround was security theatre.

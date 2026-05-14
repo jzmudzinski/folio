@@ -305,6 +305,7 @@ interface PushNotePayload {
   is_final: 0 | 1;
   live: 0 | 1;
   owner_device_id: string | null;
+  inline_render: 0 | 1;
   tags: string[];
   summary: string | null;
   word_count: number;
@@ -361,6 +362,7 @@ interface PullNote {
   live: 0 | 1;
   owner_device_id: string | null;
   origin_device_id: string;
+  inline_render?: 0 | 1;
   tags: string[];
   summary: string | null;
   word_count: number;
@@ -450,12 +452,13 @@ export async function pushNotes(state: SyncState, selfDeviceId: string): Promise
         summary: string | null;
         origin_device_id: string | null;
         owner_device_id: string | null;
+        inline_render: number;
       },
       [string, string]
     >(
       `SELECT id, slug, path, title, type, theme, theme_profile, thread_id,
               is_final, live, created, updated, expires_at, word_count, summary,
-              origin_device_id, owner_device_id
+              origin_device_id, owner_device_id, inline_render
          FROM notes
         WHERE status = 'active'
           AND (origin_device_id IS NULL OR origin_device_id = ?)
@@ -514,6 +517,7 @@ export async function pushNotes(state: SyncState, selfDeviceId: string): Promise
       is_final: (r.is_final ? 1 : 0) as 0 | 1,
       live: (r.live ? 1 : 0) as 0 | 1,
       owner_device_id: r.owner_device_id,
+      inline_render: (r.inline_render ? 1 : 0) as 0 | 1,
       tags,
       summary: r.summary,
       word_count: r.word_count,
@@ -783,8 +787,8 @@ async function applyPulledNote(n: PullNote): Promise<void> {
       `INSERT INTO notes (
          id, slug, path, title, type, theme, theme_profile, thread_id,
          is_final, created, updated, expires_at, word_count, summary, status,
-         live, last_entry_at, origin_device_id, owner_device_id
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, ?, ?)
+         live, last_entry_at, origin_device_id, owner_device_id, inline_render
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          slug = excluded.slug,
          path = excluded.path,
@@ -800,7 +804,8 @@ async function applyPulledNote(n: PullNote): Promise<void> {
          summary = excluded.summary,
          live = excluded.live,
          origin_device_id = excluded.origin_device_id,
-         owner_device_id = excluded.owner_device_id`,
+         owner_device_id = excluded.owner_device_id,
+         inline_render = excluded.inline_render`,
       [
         n.uuid,
         slug,
@@ -819,6 +824,7 @@ async function applyPulledNote(n: PullNote): Promise<void> {
         n.live ? 1 : 0,
         n.origin_device_id,
         n.owner_device_id,
+        (n.inline_render ?? 0) ? 1 : 0,
       ]
     );
     // Tag set replace.

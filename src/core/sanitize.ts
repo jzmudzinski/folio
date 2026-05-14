@@ -50,7 +50,7 @@ const ALLOWED_TAGS = [
 ];
 
 const ALLOWED_ATTRIBUTES: Record<string, string[]> = {
-  "*": ["class", "id", "style", "data-folio-id", "data-folio-type", "data-folio-thread", "data-folio-content", "data-folio-selectable", "lang"],
+  "*": ["class", "id", "style", "data-folio-id", "data-folio-type", "data-folio-thread", "data-folio-content", "data-folio-selectable", "data-folio-live-feed", "data-entry-id", "lang"],
   a: ["href", "title", "rel", "target"],
   img: ["src", "alt", "title", "width", "height", "loading"],
   source: ["src", "srcset", "type", "media"],

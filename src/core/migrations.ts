@@ -113,6 +113,20 @@ export const MIGRATIONS: Migration[] = [
       db.run("UPDATE notes SET owner_device_id = ? WHERE live = 1 AND owner_device_id IS NULL", [dev.id]);
     },
   },
+  {
+    from: "3",
+    to: "4",
+    description:
+      "Add inline_render column to notes (v0.17.0). When 1, a live note's " +
+      "entries are spliced directly into body_html at /raw/ render time + " +
+      "parent chrome postMessages new entries into the body iframe — no " +
+      "side panel. Default 0: live notes keep using the side panel.",
+    up: (db) => {
+      if (!hasColumn(db, "notes", "inline_render")) {
+        db.exec("ALTER TABLE notes ADD COLUMN inline_render INTEGER NOT NULL DEFAULT 0");
+      }
+    },
+  },
 ];
 
 /**

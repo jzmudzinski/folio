@@ -52,7 +52,13 @@ CREATE TABLE IF NOT EXISTS notes (
   -- notes only) the device id allowed to append entries. Both populated by
   -- createNote() and backfilled by migrations.ts v2→v3.
   origin_device_id TEXT,
-  owner_device_id TEXT
+  owner_device_id TEXT,
+  -- v0.17 inline-rendered live notes: when 1, entries are spliced into
+  -- body_html at /raw/ render time (server-side) + new entries arrive via
+  -- parent→iframe postMessage. When 0 (default), live note body stays
+  -- static and entries render in the side panel. Migration v3→v4 adds
+  -- the column to pre-existing dbs.
+  inline_render INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS notes_by_type ON notes(type, created DESC);
 CREATE INDEX IF NOT EXISTS notes_by_thread ON notes(thread_id, created DESC);

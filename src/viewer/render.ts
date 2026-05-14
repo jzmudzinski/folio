@@ -1227,9 +1227,14 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
   // null-origin (no allow-same-origin); chrome and panel talk via
   // postMessage. Body iframe is unchanged — its CSP stays connect-src:'none'.
   const isLive = note.live && !note.is_final;
+  // v0.17 inline_render: entries are spliced into body_html at /raw/ time
+  // (server-side) + parent forwards new SSE entries to the body iframe via
+  // postMessage. Side panel is suppressed for these notes — body owns the
+  // visual. Non-inline live notes keep the panel as before.
+  const isInlineLive = isLive && note.inline_render;
   let livePanelHtml = "";
   let liveScript = "";
-  if (isLive) {
+  if (isLive && !isInlineLive) {
     const themeCss = loadThemeCss(note.theme) ?? "";
     const srcdoc = panelIframeSrcdoc({ theme_css: themeCss, entries_css: ENTRIES_CSS });
     livePanelHtml = `
@@ -1237,8 +1242,40 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
     <iframe class="live-panel-iframe" title="Live feed" sandbox="allow-scripts" srcdoc="${esc(srcdoc)}"></iframe>
   </aside>`;
     liveScript = `<script>window.__folioLiveNoteId = ${JSON.stringify(note.id)};</script>${LIVE_CHROME_JS}`;
+  } else if (isInlineLive) {
+    // Parent chrome opens the same SSE stream the panel would, but instead
+    // of postMessage'ing into a side-panel iframe, it postMessage's into
+    // the body iframe. The body iframe's bootstrap (appended in /raw/)
+    // listens and appends entries to <section data-folio-live-feed>.
+    liveScript = `<script>(function(){
+      var noteId = ${JSON.stringify(note.id)};
+      var bodyFrame = document.querySelector(".note-iframe");
+      if (!bodyFrame) return;
+      function sendToBody(payload){
+        try { bodyFrame.contentWindow && bodyFrame.contentWindow.postMessage(payload, "*"); } catch (_e) {}
+      }
+      // Open SSE. EventSource auto-retries on transient hiccups.
+      var ev = new EventSource("/n/" + encodeURIComponent(noteId) + "/stream");
+      var queued = [];
+      var ready = false;
+      ev.addEventListener("entry", function(e){
+        try {
+          var entry = JSON.parse(e.data);
+          var payload = { ns: "folio", type: "entry", entry: entry };
+          if (ready) sendToBody(payload);
+          else queued.push(payload);
+        } catch (_err) {}
+      });
+      window.addEventListener("message", function(ev){
+        var d = ev.data;
+        if (!d || d.ns !== "folio" || d.type !== "inline-feed-ready") return;
+        ready = true;
+        for (var i = 0; i < queued.length; i++) sendToBody(queued[i]);
+        queued.length = 0;
+      });
+    })();</script>`;
   }
-  const shellClass = isLive ? "note-shell has-live" : "note-shell";
+  const shellClass = isLive && !isInlineLive ? "note-shell has-live" : "note-shell";
 
   return shell(note.title, `${topbar()}
 <div class="reading-progress"><div class="reading-progress-fill"></div></div>

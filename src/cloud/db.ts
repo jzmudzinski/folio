@@ -131,6 +131,7 @@ CREATE TABLE IF NOT EXISTS notes (
   live INTEGER NOT NULL DEFAULT 0,
   owner_device_id TEXT,          -- non-null for live notes only (W2 owner-locked)
   origin_device_id TEXT NOT NULL,
+  inline_render INTEGER NOT NULL DEFAULT 0, -- v0.17: entries spliced into body_html at /raw/ render
   word_count INTEGER NOT NULL DEFAULT 0,
   summary TEXT,
   server_seq INTEGER NOT NULL,   -- monotonic per-row, used for pull cursor
@@ -378,6 +379,13 @@ function ensureMultiUserSchema(db: Database): void {
     })();
   } finally {
     db.exec("PRAGMA foreign_keys = ON");
+  }
+
+  // v0.17: notes.inline_render. Runs AFTER any UNIQUE rebuild above so the
+  // column survives the table swap. Idempotent on already-migrated dbs.
+  const notesCols = db.query<{ name: string }, []>("PRAGMA table_info(notes)").all();
+  if (notesCols.length > 0 && !notesCols.some((c) => c.name === "inline_render")) {
+    db.exec("ALTER TABLE notes ADD COLUMN inline_render INTEGER NOT NULL DEFAULT 0");
   }
 }
 

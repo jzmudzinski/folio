@@ -36,6 +36,7 @@ export interface PushNote {
   is_final?: 0 | 1;
   live?: 0 | 1;
   owner_device_id?: string | null;
+  inline_render?: 0 | 1;
   tags?: string[];
   summary?: string | null;
   word_count?: number;
@@ -105,6 +106,7 @@ export interface PullNote {
   live: 0 | 1;
   owner_device_id: string | null;
   origin_device_id: string;
+  inline_render: 0 | 1;
   tags: string[];
   summary: string | null;
   word_count: number;
@@ -172,9 +174,9 @@ export function handlePush(payload: PushPayload, device: Device, db: Database = 
         `INSERT INTO notes (
           uuid, user_id, slug, thread_id, title, type, theme, theme_profile,
           body_html, plain_text, created_at, updated_at, expires_at,
-          is_final, live, owner_device_id, origin_device_id,
+          is_final, live, owner_device_id, origin_device_id, inline_render,
           word_count, summary, server_seq
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(uuid) DO UPDATE SET
           slug = excluded.slug,
           thread_id = excluded.thread_id,
@@ -189,6 +191,7 @@ export function handlePush(payload: PushPayload, device: Device, db: Database = 
           is_final = excluded.is_final,
           live = excluded.live,
           owner_device_id = excluded.owner_device_id,
+          inline_render = excluded.inline_render,
           word_count = excluded.word_count,
           summary = excluded.summary,
           server_seq = excluded.server_seq`,
@@ -210,6 +213,7 @@ export function handlePush(payload: PushPayload, device: Device, db: Database = 
           n.live ?? 0,
           n.owner_device_id ?? null,
           originDeviceId,
+          n.inline_render ?? 0,
           n.word_count ?? 0,
           n.summary ?? null,
           seq,
@@ -357,6 +361,7 @@ export function handlePull(since: number, device: Device, db: Database = cloudDb
         live: number;
         owner_device_id: string | null;
         origin_device_id: string;
+        inline_render: number;
         word_count: number;
         summary: string | null;
         server_seq: number;
@@ -365,7 +370,7 @@ export function handlePull(since: number, device: Device, db: Database = cloudDb
     >(
       `SELECT uuid, slug, thread_id, title, type, theme, theme_profile,
               body_html, plain_text, created_at, updated_at, expires_at,
-              is_final, live, owner_device_id, origin_device_id,
+              is_final, live, owner_device_id, origin_device_id, inline_render,
               word_count, summary, server_seq
          FROM notes WHERE user_id = ? AND server_seq > ? ORDER BY server_seq ASC`
     )
@@ -472,6 +477,7 @@ export function handlePull(since: number, device: Device, db: Database = cloudDb
       live: (n.live as 0 | 1),
       owner_device_id: n.owner_device_id,
       origin_device_id: n.origin_device_id,
+      inline_render: (n.inline_render as 0 | 1),
       tags: tagsByNote.get(n.uuid) ?? [],
       summary: n.summary,
       word_count: n.word_count,

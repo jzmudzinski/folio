@@ -15,6 +15,7 @@ interface NewOpts {
   tags?: string[];
   isFinal?: boolean;
   live?: boolean;
+  inline?: boolean;
   jsonOut?: boolean;
 }
 
@@ -74,6 +75,7 @@ export async function newNote(opts: NewOpts): Promise<number> {
     tags: opts.tags,
     is_final: opts.isFinal,
     live: opts.live,
+    inline: opts.inline,
   };
 
   const note = await createNote(input);

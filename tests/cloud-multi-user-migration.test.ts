@@ -371,3 +371,140 @@ test("createPairingCode without --user defaults to 'default'", async () => {
   ).get(deviceId);
   expect(row?.user_id).toBe("default");
 });
+
+test("regression v0.18.1: v0.13-era DB (new UNIQUE, no inline_render) gets inline_render added on next boot", async () => {
+  // Reproduce production bug from folio.notibox.ai: the cloud was first
+  // installed at v0.13/v0.14, so its notes table was created with the new
+  // UNIQUE(user_id, thread_id, slug) constraint baked in BUT without the
+  // v0.17 inline_render column (which wasn't in CLOUD_SCHEMA back then).
+  // The old migrator had `if (hasNewUnique) return;` BEFORE the
+  // inline_render ALTER, so on every reboot the ALTER was silently
+  // skipped → /raw/:uuid 500'd with "no such column: inline_render".
+  //
+  // This test seeds that exact pre-condition (multi-user schema + no
+  // inline_render column) and asserts that opening the DB through
+  // cloudDb() runs the migrator and adds the column.
+  const dbFile = join(tmpDir, "cloud.sqlite");
+  const raw = new Database(dbFile, { create: true });
+  raw.exec(`
+    CREATE TABLE users (
+      id TEXT PRIMARY KEY,
+      display_name TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      is_operator INTEGER NOT NULL DEFAULT 0
+    );
+    INSERT INTO users (id, display_name, created_at) VALUES ('default', 'default', '2026-05-01T10:00:00Z');
+    CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE devices (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      token_hash TEXT NOT NULL,
+      paired_at TEXT NOT NULL,
+      last_seen_at TEXT,
+      revoked_at TEXT,
+      user_id TEXT NOT NULL DEFAULT 'default'
+    );
+    CREATE TABLE pairing_codes (
+      code TEXT PRIMARY KEY,
+      expires_at TEXT NOT NULL,
+      used_by_device_id TEXT,
+      user_id TEXT NOT NULL DEFAULT 'default'
+    );
+    -- notes table built with v0.13 multi-user UNIQUE but no inline_render column.
+    CREATE TABLE notes (
+      uuid TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT 'default',
+      slug TEXT NOT NULL,
+      thread_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      type TEXT NOT NULL,
+      theme TEXT NOT NULL DEFAULT 'linen',
+      theme_profile TEXT NOT NULL DEFAULT 'hosted',
+      body_html TEXT NOT NULL,
+      plain_text TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      expires_at TEXT,
+      is_final INTEGER NOT NULL DEFAULT 0,
+      live INTEGER NOT NULL DEFAULT 0,
+      owner_device_id TEXT,
+      origin_device_id TEXT NOT NULL,
+      word_count INTEGER NOT NULL DEFAULT 0,
+      summary TEXT,
+      server_seq INTEGER NOT NULL,
+      UNIQUE(user_id, thread_id, slug)
+    );
+    CREATE TABLE note_tags (
+      note_uuid TEXT NOT NULL REFERENCES notes(uuid) ON DELETE CASCADE,
+      tag TEXT NOT NULL,
+      PRIMARY KEY (note_uuid, tag)
+    );
+    CREATE TABLE live_entries (
+      id TEXT NOT NULL,
+      note_uuid TEXT NOT NULL REFERENCES notes(uuid) ON DELETE CASCADE,
+      ts TEXT NOT NULL,
+      content_html TEXT NOT NULL,
+      tags_json TEXT NOT NULL DEFAULT '[]',
+      occurred_at TEXT,
+      refs_json TEXT NOT NULL DEFAULT '[]',
+      importance INTEGER,
+      source_ref TEXT,
+      server_seq INTEGER NOT NULL,
+      PRIMARY KEY (note_uuid, id)
+    );
+    CREATE TABLE assets (
+      hash TEXT PRIMARY KEY,
+      filename TEXT NOT NULL,
+      thread_id TEXT NOT NULL,
+      content_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      blob_path TEXT NOT NULL,
+      uploaded_at TEXT NOT NULL,
+      user_id TEXT NOT NULL DEFAULT 'default'
+    );
+    CREATE TABLE tombstones (
+      uuid TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      origin_device_id TEXT,
+      deleted_at TEXT NOT NULL,
+      server_seq INTEGER NOT NULL,
+      user_id TEXT NOT NULL DEFAULT 'default'
+    );
+    CREATE TABLE shares (
+      token TEXT PRIMARY KEY,
+      scope_type TEXT NOT NULL,
+      scope_id TEXT NOT NULL,
+      created_by_device TEXT NOT NULL REFERENCES devices(id),
+      created_at TEXT NOT NULL,
+      expires_at TEXT,
+      revoked_at TEXT,
+      recipient_email_hash TEXT,
+      max_views INTEGER,
+      view_count INTEGER NOT NULL DEFAULT 0,
+      user_id TEXT NOT NULL DEFAULT 'default'
+    );
+    CREATE TABLE server_seq (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      value INTEGER NOT NULL DEFAULT 0
+    );
+    INSERT INTO server_seq (id, value) VALUES (1, 0);
+  `);
+  // Confirm pre-condition: inline_render absent, new UNIQUE present.
+  expect(hasColumn(raw, "notes", "inline_render")).toBe(false);
+  expect(notesUniqueSql(raw)).toMatch(/UNIQUE\s*\(\s*user_id\s*,\s*thread_id\s*,\s*slug\s*\)/i);
+  raw.close();
+
+  // Boot through cloudDb() — migrator should now ALWAYS reach the
+  // inline_render ALTER, even when the UNIQUE rebuild branch was skipped.
+  const db = cloudDb();
+  expect(hasColumn(db, "notes", "inline_render")).toBe(true);
+
+  // Default value works as expected for a row insert that doesn't set it.
+  db.run(
+    `INSERT INTO notes (uuid, user_id, slug, thread_id, title, type, body_html, created_at, updated_at, origin_device_id, server_seq)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ["n-test", "default", "x", "t", "x", "snippet", "<p>x</p>", "2026-05-14T10:00:00Z", "2026-05-14T10:00:00Z", "d-1", 1]
+  );
+  const row = db.query<{ inline_render: number }, [string]>("SELECT inline_render FROM notes WHERE uuid = ?").get("n-test");
+  expect(row?.inline_render).toBe(0);
+});

@@ -302,13 +302,15 @@ function ensureMultiUserSchema(db: Database): void {
 
   // Detect whether the UNIQUE constraint on `notes` is already the new
   // shape. sqlite_master.sql holds the original CREATE TABLE statement.
+  // If yes, skip the UNIQUE rebuild — but ALWAYS continue past it to the
+  // per-version ALTER blocks below (inline_render, future columns).
   const tblRow = db
     .query<{ sql: string | null }, []>("SELECT sql FROM sqlite_master WHERE type='table' AND name='notes'")
     .get();
   const tblSql = tblRow?.sql ?? "";
   const hasNewUnique =
     /UNIQUE\s*\(\s*user_id\s*,\s*thread_id\s*,\s*slug\s*\)/i.test(tblSql);
-  if (hasNewUnique) return;
+  if (!hasNewUnique) {
 
   // Rebuild notes with UNIQUE(user_id, thread_id, slug). Defensive checks
   // first: bail out (with diagnostic) if existing rows would collide under
@@ -380,9 +382,18 @@ function ensureMultiUserSchema(db: Database): void {
   } finally {
     db.exec("PRAGMA foreign_keys = ON");
   }
+  } // end if (!hasNewUnique) — UNIQUE rebuild block
 
-  // v0.17: notes.inline_render. Runs AFTER any UNIQUE rebuild above so the
-  // column survives the table swap. Idempotent on already-migrated dbs.
+  // v0.17: notes.inline_render. ALWAYS runs (outside the UNIQUE-rebuild
+  // branch above) so clouds created with v0.13+ schema directly — which
+  // skip the rebuild — still get the column. Runs AFTER any rebuild that
+  // did happen so the column survives the table swap. Idempotent.
+  //
+  // History (v0.18.1 fix): this block originally sat below an
+  // `if (hasNewUnique) return;` early-return, which silently skipped
+  // the ALTER on any cloud that didn't need a v0.12→v0.13 rebuild.
+  // Symptom on folio.notibox.ai: every /raw/:uuid GET returned
+  // `{"error":"no such column: inline_render"}`.
   const notesCols = db.query<{ name: string }, []>("PRAGMA table_info(notes)").all();
   if (notesCols.length > 0 && !notesCols.some((c) => c.name === "inline_render")) {
     db.exec("ALTER TABLE notes ADD COLUMN inline_render INTEGER NOT NULL DEFAULT 0");

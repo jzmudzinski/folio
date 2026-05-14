@@ -37,6 +37,16 @@ const ALLOWED_TAGS = [
   "svg", "g", "path", "circle", "rect", "line", "polyline", "polygon", "text", "tspan",
   "iframe",
   "script",
+  // Form controls (v0.17.1+). Threat surface in our setup is genuinely zero:
+  //   - Notes render in a sandboxed null-origin iframe (no allow-same-origin)
+  //   - CSP `form-action 'none'` blocks form submits entirely
+  //   - CSP `connect-src 'none'` blocks any fetch from runtime-built code
+  //   - on*-handlers are stripped by sanitize-html as before
+  // So <button>, <input>, etc. are just structurally-meaningful elements,
+  // no different from <div>. Pre-v0.17.1 the SKILL told agents to build
+  // these via createElement — that workaround was security theatre.
+  "button", "input", "select", "option", "optgroup", "textarea",
+  "label", "form", "fieldset", "legend", "output", "progress", "meter",
   // <style> at body level was previously stripped (per the v0.3 doc) under
   // the assumption that theme.css is the only authority. v0.15 reverses that:
   // notes render in a sandboxed null-origin iframe with CSP `connect-src
@@ -50,7 +60,21 @@ const ALLOWED_TAGS = [
 ];
 
 const ALLOWED_ATTRIBUTES: Record<string, string[]> = {
-  "*": ["class", "id", "style", "data-folio-id", "data-folio-type", "data-folio-thread", "data-folio-content", "data-folio-selectable", "data-folio-live-feed", "data-entry-id", "lang"],
+  // aria-* + role are universally needed for accessibility once form
+  // controls are in play; allow them globally. data-* attributes are also
+  // common for runtime hook points (data-folio-live-feed, data-entry-id,
+  // and now arbitrary data-* for agent-built interactive widgets).
+  "*": [
+    "class", "id", "style", "lang", "role", "title", "tabindex", "hidden",
+    "data-folio-id", "data-folio-type", "data-folio-thread", "data-folio-content",
+    "data-folio-selectable", "data-folio-live-feed", "data-entry-id",
+    "aria-label", "aria-labelledby", "aria-describedby", "aria-hidden",
+    "aria-live", "aria-atomic", "aria-busy", "aria-controls", "aria-current",
+    "aria-disabled", "aria-expanded", "aria-haspopup", "aria-invalid",
+    "aria-modal", "aria-pressed", "aria-readonly", "aria-required",
+    "aria-selected", "aria-checked", "aria-valuemin", "aria-valuemax",
+    "aria-valuenow", "aria-valuetext", "aria-orientation", "aria-sort",
+  ],
   a: ["href", "title", "rel", "target"],
   img: ["src", "alt", "title", "width", "height", "loading"],
   source: ["src", "srcset", "type", "media"],
@@ -64,6 +88,32 @@ const ALLOWED_ATTRIBUTES: Record<string, string[]> = {
   iframe: ["src", "srcdoc", "sandbox", "width", "height", "title", "allow", "loading", "name", "referrerpolicy", "allowfullscreen"],
   time: ["datetime"],
   script: ["src", "type", "async", "defer", "crossorigin", "integrity", "nomodule", "referrerpolicy"],
+  // Form controls (v0.17.1+) — CSP form-action 'none' blocks submits;
+  // these attrs only affect in-iframe layout / state / accessibility.
+  button: ["type", "name", "value", "disabled", "autofocus", "form"],
+  input: [
+    "type", "name", "value", "placeholder", "disabled", "readonly", "required",
+    "checked", "min", "max", "step", "pattern", "maxlength", "minlength",
+    "size", "multiple", "list", "accept", "autocomplete", "autocapitalize",
+    "autocorrect", "inputmode", "spellcheck", "autofocus", "form",
+  ],
+  select: ["name", "disabled", "required", "multiple", "size", "autocomplete", "autofocus", "form"],
+  option: ["value", "selected", "disabled", "label"],
+  optgroup: ["label", "disabled"],
+  textarea: [
+    "name", "placeholder", "disabled", "readonly", "required", "rows", "cols",
+    "wrap", "maxlength", "minlength", "autocomplete", "autocapitalize",
+    "autocorrect", "inputmode", "spellcheck", "autofocus", "form",
+  ],
+  label: ["for", "form"],
+  // form-action 'none' in CSP neuters submission regardless of action attr,
+  // so we let action through (could be referenced for visual indication
+  // or replaced at runtime). method/enctype/etc. are equally inert.
+  form: ["action", "method", "enctype", "name", "autocomplete", "novalidate", "target"],
+  fieldset: ["disabled", "form", "name"],
+  output: ["for", "form", "name"],
+  progress: ["value", "max"],
+  meter: ["value", "min", "max", "low", "high", "optimum"],
 };
 
 // Default sandbox flags applied to every iframe — explicit allow-list, never

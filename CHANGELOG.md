@@ -2,6 +2,28 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.17.1 — 2026-05-14
+
+Drop the silly `<button>` strip + adjacent form-control bans. Sanitizer was being conservative-by-default in a setup where the actual threat model already neutralizes the entire class of risk: notes render in a sandboxed null-origin iframe with `form-action 'none'` + `connect-src 'none'` + `on*` handlers stripped. Static `<button>` is no different from `<div>` for security purposes; the createElement workaround was security theatre.
+
+### Added (sanitizer allow-list)
+- **Form controls in static HTML:** `<button>`, `<input>`, `<select>`, `<option>`, `<optgroup>`, `<textarea>`, `<label>`, `<form>`, `<fieldset>`, `<legend>`, `<output>`, `<progress>`, `<meter>`. With pragmatic attribute allow-lists (`type` / `name` / `value` / `disabled` / `placeholder` / `required` / `min` / `max` / `step` / `pattern` / etc.).
+- **Accessibility attrs:** `role`, `tabindex`, `title`, `hidden`, and 25 standard `aria-*` attributes allowed globally on any element. Screen reader support for interactive widgets, no asterisks needed.
+
+### Docs
+- **SKILL.md** + **STYLEBOOK.md** updated — old "build via createElement" workaround for form controls replaced with the natural static-HTML pattern. SKILL example now shows a button + input directly in body_html with click handler in `<script>`.
+- **MCP `create` tool description** updated — previously claimed `<style>` was forbidden (stale since v0.15) and didn't mention form controls. Now accurate.
+
+### Safety check
+
+Triple-locked threat model is unchanged:
+- Sandboxed null-origin iframe (no `allow-same-origin`) — no parent reach, no cookies, no localStorage
+- CSP `form-action 'none'` — submissions blocked at the policy layer, regardless of `action` attribute
+- CSP `connect-src 'none'` — fetch/XHR/WebSocket all blocked, so runtime-built code can't exfil either
+- `on*` handler attributes stripped by sanitize-html as before
+
+`<button>` and friends are structural elements with zero exfil surface in this configuration. They've been on the SKILL's "build via JS" workaround list since v0.3 with no actual security justification.
+
 ## v0.17.0 — 2026-05-14
 
 **Inline-rendered live notes** — entries render INSIDE body_html (not in a side panel). The note body grows as you append. Cloud-side runtime changes — VPS deploy needs `sudo ./deploy/update.sh`.

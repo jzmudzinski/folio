@@ -69,6 +69,21 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
       const path = url.pathname;
 
       try {
+        // Favicon — both /favicon.svg (modern, what the <link> in shell()
+        // points at) and /favicon.ico (legacy browser auto-request). Both
+        // serve the same SVG with image/svg+xml content-type. Chrome / Safari
+        // / Firefox accept SVG via the .ico path; older browsers silently
+        // fail to render which is fine — the <link> tag wins in modern UAs.
+        if (req.method === "GET" && (path === "/favicon.svg" || path === "/favicon.ico")) {
+          const { FOLIO_ICON_SVG } = await import("../core/brand");
+          return new Response(FOLIO_ICON_SVG, {
+            headers: {
+              "Content-Type": "image/svg+xml; charset=utf-8",
+              "Cache-Control": "public, max-age=86400, immutable",
+            },
+          });
+        }
+
         // GET /
         if (req.method === "GET" && path === "/") {
           const type = url.searchParams.get("type") as NoteType | null;

@@ -102,7 +102,7 @@ function sharedHeaders(): Record<string, string> {
  * (including iframe-loaded /raw/ — each child iframe load counts). For
  * MVP this is fine; if it becomes noisy, throttle by token+UA later.
  */
-async function handleCapabilityRoute(req: Request, path: string, method: string): Promise<Response> {
+async function handleCapabilityRoute(req: Request, path: string, method: string, publicUrl: string): Promise<Response> {
   const parts = path.split("/").filter(Boolean); // ["p", token, kind, id, ...]
   if (parts.length < 3 || parts[0] !== "p") {
     return new Response("not found", { status: 404 });
@@ -157,6 +157,73 @@ async function handleCapabilityRoute(req: Request, path: string, method: string)
   if (method !== "GET") {
     return new Response("method not allowed", { status: 405 });
   }
+
+  // /p/<token>/og.svg — Open Graph image for the share. Public (no cookie
+  // gate even for recipient-bound shares — social previewers fetch this
+  // before the user has confirmed email; title leakage in og:image is the
+  // accepted trade-off, mirrors Notion/Google Docs behaviour). Same
+  // share-validity rules as the main page (revoked/expired → 404/410).
+  if (parts.length === 3 && parts[2] === "og.svg") {
+    if (share.revoked_at) return new Response("not found", { status: 404 });
+    if (share.expires_at && new Date(share.expires_at).getTime() <= Date.now()) {
+      return new Response("link expired", { status: 410 });
+    }
+    const { generateOgSvg } = await import("./og");
+    let title = "Folio";
+    let theme = "linen";
+    let scope_type: "note" | "thread" = share.scope_type;
+    let thread_id: string | null = null;
+    if (share.scope_type === "note") {
+      const note = cloudDb()
+        .query<{ title: string; theme: string; thread_id: string }, [string, string]>(
+          "SELECT title, theme, thread_id FROM notes WHERE uuid = ? AND user_id = ?"
+        )
+        .get(share.scope_id, share.user_id);
+      if (note) {
+        title = note.title;
+        theme = note.theme;
+        thread_id = note.thread_id;
+      }
+    } else {
+      title = share.scope_id;
+      thread_id = share.scope_id;
+    }
+    const svg = generateOgSvg({ title, theme, scope_type, scope_id: share.scope_id, thread_id });
+    return new Response(svg, {
+      status: 200,
+      headers: {
+        "Content-Type": "image/svg+xml; charset=utf-8",
+        // Modest cache so the preview unfurls fast on repeated paste in
+        // Slack/Telegram. Title rarely changes on a published note, but
+        // 5min lets us recover from a typo + republish without waiting
+        // a day.
+        "Cache-Control": "public, max-age=300",
+        "X-Robots-Tag": "noindex, nofollow, noarchive",
+        "Referrer-Policy": "no-referrer",
+      },
+    });
+  }
+
+  // /p/<token>/qr.svg — QR code encoding the share URL itself. Same
+  // share-validity rules as og.svg.
+  if (parts.length === 3 && parts[2] === "qr.svg") {
+    if (share.revoked_at) return new Response("not found", { status: 404 });
+    if (share.expires_at && new Date(share.expires_at).getTime() <= Date.now()) {
+      return new Response("link expired", { status: 410 });
+    }
+    const { generateQrSvg } = await import("./qr");
+    const shareUrl = `${publicUrl}/p/${token}/${share.scope_type === "note" ? "n" : "t"}/${share.scope_id}`;
+    const svg = await generateQrSvg(shareUrl);
+    return new Response(svg, {
+      status: 200,
+      headers: {
+        "Content-Type": "image/svg+xml; charset=utf-8",
+        "Cache-Control": "public, max-age=86400, immutable",
+        "X-Robots-Tag": "noindex, nofollow, noarchive",
+      },
+    });
+  }
+
   if (parts.length < 4) return new Response("not found", { status: 404 });
   const kind = parts[2]!;
   const id = parts.slice(3).join("/");
@@ -239,7 +306,7 @@ async function handleCapabilityRoute(req: Request, path: string, method: string)
     if (!v.ok) return shareFailure(v.reason);
 
     if (kind === "n") {
-      const body = renderSharedNotePage(token, note.uuid, note.title);
+      const body = renderSharedNotePage(token, note.uuid, note.title, publicUrl);
       const res = new Response(body, {
         status: 200,
         headers: {
@@ -293,7 +360,8 @@ async function handleCapabilityRoute(req: Request, path: string, method: string)
         type: n.type,
         created_at: n.created_at,
         is_final: n.is_final === 1,
-      }))
+      })),
+      publicUrl
     );
     const res = new Response(body, {
       status: 200,
@@ -478,7 +546,7 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
       // credential; server validates on every hit. Atomic view_count bump
       // happens after the response is rendered (caller chooses idempotency).
       if (path.startsWith("/p/")) {
-        return handleCapabilityRoute(req, path, method);
+        return handleCapabilityRoute(req, path, method, publicUrl);
       }
 
       // Auth: public paths skip; everything else needs a valid bearer.

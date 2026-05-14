@@ -293,6 +293,24 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
               `<link rel="stylesheet" href="/themes/${themeOverride}/theme.css">`
             );
           }
+          // v0.17: inline-rendered live notes — splice current feed entries
+          // into <section data-folio-live-feed> and append the postMessage
+          // bootstrap so new entries land in real time from parent SSE.
+          if (note.live && note.inline_render && !note.is_final) {
+            const { entriesPath, readEntries, compileRendered } = await import("../core/live");
+            const { renderFeedHtml, spliceFeedIntoBody, INLINE_FEED_BOOTSTRAP_JS } = await import("../core/feed-render");
+            const jsonl = entriesPath(join(folioRoot(), note.path));
+            const entries = readEntries(jsonl);
+            const compiled = compileRendered(entries);
+            const feedHtml = renderFeedHtml(compiled);
+            // Splice into the article body, then append the bootstrap script
+            // just before </body> so it runs after the DOM is in place.
+            html = html.replace(
+              /(<article[^>]*data-folio-content[^>]*>)([\s\S]*?)(<\/article>)/,
+              (_m, open, content, close) => `${open}${spliceFeedIntoBody(content, feedHtml)}${close}`
+            );
+            html = html.replace("</body>", `<script>${INLINE_FEED_BOOTSTRAP_JS}</script></body>`);
+          }
           // Inject postMessage bootstrap so notes (including pre-v0.3 archive)
           // talk to the viewer chrome from inside their null-origin sandbox.
           html = injectBootstrap(html);

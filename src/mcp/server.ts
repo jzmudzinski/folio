@@ -49,6 +49,7 @@ const tools: Tool[] = [
         tags: { type: "array", items: { type: "string" }, description: "Free-form tags." },
         is_final: { type: "boolean", description: "Mark as final (no auto-cleanup). User typically does this from viewer; agent only when explicitly asked." },
         live: { type: "boolean", description: "Create as a live note (append-only journal/log/feed). body_html may be empty/minimal chrome. Use append_entry to add entries over time; viewer streams them via SSE. Finalize compiles the feed back into body_html." },
+        inline: { type: "boolean", description: "Live notes only (v0.17+). When true, entries render INSIDE body_html (not in a side panel). Include a <section data-folio-live-feed></section> placeholder in body_html where entries should land; Folio auto-injects one at the end if you omit it. Use for journal/feed shapes where the document IS the feed — entries appear inline on every viewer hit + arrive in real time via postMessage. Ignored when live=false." },
       },
     },
   },
@@ -273,6 +274,7 @@ export async function buildServer(): Promise<Server> {
           // body_html may be empty string for live notes (the feed becomes
           // the content; body is just chrome scaffolding until finalize).
           const live = typeof args.live === "boolean" ? args.live : false;
+          const inline = typeof args.inline === "boolean" ? args.inline : false;
           if (!live && !String(args.body_html).trim()) {
             return errContent("body_html cannot be empty unless live:true (live notes start with chrome only).");
           }
@@ -286,6 +288,7 @@ export async function buildServer(): Promise<Server> {
             tags: Array.isArray(args.tags) ? args.tags.map(String) : undefined,
             is_final: typeof args.is_final === "boolean" ? args.is_final : undefined,
             live,
+            inline,
           });
           const cfg = await loadConfig();
           const localUrl = `${viewerLocalBaseUrl(cfg)}/n/${note.id}`;

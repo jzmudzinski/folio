@@ -510,6 +510,13 @@ function serverError(msg: string): Response {
   return json({ error: msg }, 500);
 }
 
+function jsonArray(s: string): string[] {
+  try {
+    const v = JSON.parse(s);
+    return Array.isArray(v) ? v.map(String) : [];
+  } catch { return []; }
+}
+
 async function readJsonBody<T>(req: Request): Promise<T> {
   const text = await req.text();
   if (!text) throw new Error("empty body");
@@ -1119,31 +1126,61 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
             // the same "not found" as a truly missing uuid.
             const row = cloudDb()
               .query<
-                { title: string; theme: string; body_html: string; live: number; is_final: number },
+                { uuid: string; title: string; theme: string; body_html: string; live: number; is_final: number; inline_render: number },
                 [string, string]
               >(
-                "SELECT title, theme, body_html, live, is_final FROM notes WHERE uuid = ? AND user_id = ?"
+                "SELECT uuid, title, theme, body_html, live, is_final, inline_render FROM notes WHERE uuid = ? AND user_id = ?"
               )
               .get(m[1]!, device!.userId);
             if (!row) return notFound("note not found");
-            // Expose live/is_final via response headers so the /n/:uuid
-            // shell can decide whether to open the SSE stream without an
-            // extra metadata roundtrip. Custom X-Folio-* names — never
-            // collide with anything Caddy/Traefik care about.
+            let bodyHtml = row.body_html;
+            // v0.17 inline-rendered live notes: splice the cloud-side
+            // live_entries into <section data-folio-live-feed> on every
+            // serve. New entries during the session arrive via the PWA
+            // shell's SSE → postMessage forward (same bootstrap script
+            // appended below).
+            if (row.live === 1 && row.inline_render === 1 && row.is_final === 0) {
+              const cloudEntries = cloudDb()
+                .query<{ id: string; ts: string; content_html: string; tags_json: string; occurred_at: string | null; refs_json: string; importance: number | null; source_ref: string | null }, [string]>(
+                  "SELECT id, ts, content_html, tags_json, occurred_at, refs_json, importance, source_ref FROM live_entries WHERE note_uuid = ? ORDER BY ts ASC"
+                )
+                .all(row.uuid)
+                .map((e) => ({
+                  id: e.id,
+                  ts: e.ts,
+                  content_html: e.content_html,
+                  tags: jsonArray(e.tags_json),
+                  occurred_at: e.occurred_at,
+                  refs: jsonArray(e.refs_json),
+                  importance: e.importance,
+                  source_ref: e.source_ref,
+                }));
+              const { compileRendered } = await import("../core/live");
+              const { renderFeedHtml, spliceFeedIntoBody } = await import("../core/feed-render");
+              const compiled = compileRendered(cloudEntries as any);
+              bodyHtml = spliceFeedIntoBody(bodyHtml, renderFeedHtml(compiled));
+            }
+            // Expose live/is_final/inline via response headers so the
+            // /n/:uuid PWA shell can decide whether to open SSE + whether
+            // to postMessage entries down to the body iframe.
             const headers: Record<string, string> = {
               ...rawNoteHeaders(),
               "X-Folio-Live": row.live === 1 ? "1" : "0",
               "X-Folio-Final": row.is_final === 1 ? "1" : "0",
+              "X-Folio-Inline": row.inline_render === 1 ? "1" : "0",
             };
-            return new Response(
-              renderStandaloneNote({
-                title: row.title,
-                theme: row.theme,
-                bodyHtml: row.body_html,
-                userId: device!.userId,
-              }),
-              { status: 200, headers }
-            );
+            let html = renderStandaloneNote({
+              title: row.title,
+              theme: row.theme,
+              bodyHtml,
+              userId: device!.userId,
+            });
+            // Append the bootstrap script (matches viewer/server.ts pattern).
+            if (row.live === 1 && row.inline_render === 1 && row.is_final === 0) {
+              const { INLINE_FEED_BOOTSTRAP_JS } = await import("../core/feed-render");
+              html = html.replace("</body>", `<script>${INLINE_FEED_BOOTSTRAP_JS}</script></body>`);
+            }
+            return new Response(html, { status: 200, headers });
           }
         }
 

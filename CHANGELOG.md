@@ -2,6 +2,24 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.17.0 — 2026-05-14
+
+**Inline-rendered live notes** — entries render INSIDE body_html (not in a side panel). The note body grows as you append. Cloud-side runtime changes — VPS deploy needs `sudo ./deploy/update.sh`.
+
+### Added
+- **`create({live:true, inline:true})`** — new flag on MCP `create` + CLI `folio new --inline`. Side panel is suppressed for inline notes; entries appear directly in the note document. Body_html should contain a `<section data-folio-live-feed></section>` placeholder where entries land; if omitted, Folio auto-injects one at the end of body. `inline` is ignored when `live=false`.
+- **Server-side entry compile.** Local viewer `/raw/:uuid` and cloud `/raw/:uuid` both splice the current feed into `<section data-folio-live-feed>` on every GET. Recipient opens the note — sees all entries immediately, even without a SSE-connected chrome. New entries during the session arrive via SSE → parent → postMessage → body iframe.
+- **`src/core/feed-render.ts`** — shared helper (`renderEntryHtml`, `renderFeedHtml`, `spliceFeedIntoBody`, `INLINE_FEED_BOOTSTRAP_JS`) used by both `finalize()` and the inline `/raw/` path. Single source of truth for the entry HTML shape.
+- **Schema v3 → v4** — `notes.inline_render INTEGER NOT NULL DEFAULT 0`. Local viewer migration in `src/core/migrations.ts`; cloud-side ALTER ADD COLUMN in `ensureMultiUserSchema()`. Sync push/pull payloads carry `inline_render` so the flag rides along to phone PWA and back.
+- **Sanitizer allows `data-folio-live-feed`** (and `data-entry-id`) on any element so the placeholder + compiled entry articles survive `sanitize-html`.
+
+### Fixed
+- **SKILL clarity around live note UX.** SKILL.md "Live notes" section now states "Two render modes" and walks the agent through picking inline vs panel. Adds an explicit rule: don't tell the user "feed refreshes via SSE" without saying WHERE (body vs side panel) — that's where humans get confused.
+
+### Notes for operators
+
+Cloud-side runtime change — `sudo ./deploy/update.sh` on the VPS. Existing live notes default to panel mode (`inline_render=0` from the migration). To upgrade a note to inline, recreate it with `inline:true` and re-append the entries — schema is append-only so there's no in-place flip. Most new live notes (journal, todo, log) should default to inline.
+
 ## v0.16.0 — 2026-05-14
 
 Three polish items around sharing + branding. Cloud-side runtime changes — VPS deploy needs `sudo ./deploy/update.sh` for the new `/p/<token>/og.svg` + `/qr.svg` routes.

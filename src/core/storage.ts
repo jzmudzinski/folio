@@ -41,8 +41,17 @@ export async function createNote(input: CreateNoteInput): Promise<NoteMeta> {
   const thread_id = input.thread_id ?? slugify(input.title);
   const slugBase = slugify(input.title);
 
+  // For inline-rendered live notes, ensure body_html has a place to
+  // splice entries. If the agent didn't include the placeholder, append
+  // one at the end before sanitize. The data-folio-live-feed attribute
+  // is preserved by the sanitizer (data-* attrs are allowed globally).
+  let bodyHtmlIn = input.body_html;
+  if ((input.live ?? false) && (input.inline ?? false) && !/data-folio-live-feed/.test(bodyHtmlIn)) {
+    bodyHtmlIn += `\n<section data-folio-live-feed></section>`;
+  }
+
   // Sanitize body
-  const { html: cleanBody, drops } = sanitize(input.body_html);
+  const { html: cleanBody, drops } = sanitize(bodyHtmlIn);
 
   // Extract text for FTS + analytics
   const stats = extractText(cleanBody);
@@ -60,6 +69,10 @@ export async function createNote(input: CreateNoteInput): Promise<NoteMeta> {
   const created = isoNow();
   const is_final = input.is_final ?? false;
   const live = input.live ?? false;
+  // inline_render is meaningful only when live=true. Silently ignored on
+  // non-live notes (rather than erroring) so a flag-passing agent doesn't
+  // need a branch.
+  const inline_render = live && (input.inline ?? false);
   // Live notes auto-expire based on inactivity, not absolute age. Set
   // expires_at to the lifespan default at creation; list_expiring uses
   // last_entry_at (NULL initially) for the actual idle check.
@@ -97,9 +110,9 @@ export async function createNote(input: CreateNoteInput): Promise<NoteMeta> {
   const d = db();
   d.transaction(() => {
     d.run(
-      `INSERT INTO notes (id, slug, path, title, type, theme, theme_profile, thread_id, is_final, created, updated, expires_at, word_count, summary, status, live, last_entry_at, origin_device_id, owner_device_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, ?, ?)`,
-      [id, slug, relPath, input.title, input.type, theme, theme_profile, thread_id, is_final ? 1 : 0, created, created, expires_at, stats.word_count, stats.summary, live ? 1 : 0, origin_device_id, owner_device_id]
+      `INSERT INTO notes (id, slug, path, title, type, theme, theme_profile, thread_id, is_final, created, updated, expires_at, word_count, summary, status, live, last_entry_at, origin_device_id, owner_device_id, inline_render)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, ?, ?, ?)`,
+      [id, slug, relPath, input.title, input.type, theme, theme_profile, thread_id, is_final ? 1 : 0, created, created, expires_at, stats.word_count, stats.summary, live ? 1 : 0, origin_device_id, owner_device_id, inline_render ? 1 : 0]
     );
     for (const tag of input.tags ?? []) {
       d.run("INSERT OR IGNORE INTO tags (note_id, tag) VALUES (?, ?)", [id, tag]);
@@ -155,6 +168,7 @@ export async function createNote(input: CreateNoteInput): Promise<NoteMeta> {
     tags: input.tags ?? [],
     origin_device_id,
     owner_device_id,
+    inline_render,
   };
 }
 
@@ -729,6 +743,7 @@ function rowToMeta(row: Record<string, any>): NoteMeta {
     tags,
     origin_device_id: row.origin_device_id ?? null,
     owner_device_id: row.owner_device_id ?? null,
+    inline_render: row.inline_render === 1,
   };
 }
 

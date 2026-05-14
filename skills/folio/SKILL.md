@@ -83,26 +83,50 @@ description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp)
 
 ## Live notes (v0.9.0+)
 
-Some notes grow over time — a journal that gets a new entry every morning, a todo list whose items change state, an ops feed an agent appends to all day. Create them with `live: true`. The note's body_html stays minimal (or empty) at create time; entries land in a sidecar `<slug>.entries.jsonl` via `append_entry`. The viewer chrome streams them into a panel beside the body iframe. When the user (or you, when explicitly asked) calls `finalize`, Folio compiles the feed back into the note's body_html and the live behavior shuts off — it becomes indistinguishable from any other final note.
+Some notes grow over time — a journal that gets a new entry every morning, a todo list whose items change state, an ops feed an agent appends to all day. Create them with `live: true`. The note's body_html stays minimal (or empty) at create time; entries land in a sidecar `<slug>.entries.jsonl` via `append_entry`.
+
+**Two render modes** (v0.17+):
+
+- **Panel mode** (default — `live: true`, `inline` omitted or false): entries render in a separate panel beside the body iframe. The body itself stays static. Best when the body is its own document and the feed is metadata about it (e.g. an ADR with running comments, a research note with live citations).
+- **Inline mode** (`live: true, inline: true`): entries render INSIDE body_html on every viewer hit, plus new entries arrive in real time via parent→iframe postMessage. **No side panel.** Best when the document IS the feed — daily journal, todo list, ops log, capture target. The body grows as you append.
+
+The viewer chrome streams entries via SSE; for inline notes the chrome forwards each entry into the body iframe's `<section data-folio-live-feed>` placeholder. When the user (or you, when explicitly asked) calls `finalize`, Folio compiles the feed into body_html permanently and the live behavior shuts off — note becomes indistinguishable from any other final note.
+
+> **Talking to the user about live notes — be precise about WHERE updates appear.** For panel-mode notes: "entries appear in the side panel on the right." For inline-mode notes: "entries appear inline in the note body." Don't say "feed refreshes via SSE" without specifying the location — that's where humans get confused and think the document body should be updating when it's actually the panel.
 
 **When to use `live: true`:**
-- ✅ Long-running observation (daily journal, weekly retro, project ops log)
-- ✅ Todo list / inbox / capture target — items appear, mutate, get resolved
-- ✅ Agent watches an external source and posts what arrives (CI, Slack, Linear, sensor data)
+- ✅ Long-running observation (daily journal, weekly retro, project ops log) — usually `inline: true`
+- ✅ Todo list / inbox / capture target — items appear, mutate, get resolved → `inline: true`
+- ✅ Agent watches an external source and posts what arrives (CI, Slack, Linear, sensor data) → `inline: true`
 - ✅ Multi-session context — you want to be able to append more entries hours/days later
+- ✅ Long-form note that grows annotations / comments over time → panel mode (body stays the canonical document)
 
 **When NOT to use:**
 - ❌ One-off note (regular `create` is the right call)
 - ❌ Anything that's already finished thinking — just write it as body_html
 
+**Picking inline vs panel:**
+- The document IS the feed (journal, todo, log, capture) → `inline: true`
+- The document has its own structure and the feed is meta-commentary → panel mode (default)
+- Default to `inline: true` for `type: "journal"` unless you have a reason not to.
+
+**Inline body_html shape:** include a `<section data-folio-live-feed></section>` placeholder where you want entries to land. If you omit it, Folio appends one to the end of body. Around the placeholder, you can put any static chrome — heading, lead paragraph, footer:
+
+```html
+<span class="eyebrow">Daily journal · 2026-05-14</span>
+<h1>Today</h1>
+<p class="lead">Tracking what mattered.</p>
+<section data-folio-live-feed></section>
+```
+
 **Tool surface for live notes:**
 
 ```
-create({ ..., live: true })          → returns stream_url + local_stream_url
+create({ ..., live: true, inline?: boolean })  → returns stream_url + local_stream_url
 append_entry({ note_id, content_html, tags, refs?, importance?, source_ref? })
-list_entries({ note_id, since?, tag?, limit? })   → for context resume
+list_entries({ note_id, since?, tag?, limit? })  → for context resume
 set_pinned({ note_id, entry_ids[] })  → ≤ 5; full target list, diff is computed
-finalize({ id })                      → compiles entries into body_html, archives jsonl
+finalize({ id })  → compiles entries into body_html, archives jsonl
 ```
 
 **Chain-of-entries — how you "edit" tags:**

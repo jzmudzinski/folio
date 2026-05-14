@@ -36,6 +36,11 @@ export interface Note {
    *  pointing at the canonical workflow (create your own live note in the
    *  same thread). */
   owner_device_id: string | null;
+  /** v0.17: when true, /raw/:uuid splices entries into body_html at render
+   *  time and parent chrome postMessages new entries into the body iframe.
+   *  Side panel is suppressed for these notes. Only meaningful when live=1.
+   *  Default false (live notes keep using the side panel). */
+  inline_render: boolean;
 }
 
 export interface NoteMeta {
@@ -58,6 +63,7 @@ export interface NoteMeta {
   tags: string[];
   origin_device_id: string | null;
   owner_device_id: string | null;
+  inline_render: boolean;
 }
 
 export interface CreateNoteInput {
@@ -73,6 +79,11 @@ export interface CreateNoteInput {
    *  to be empty/minimal chrome, and a sidecar <slug>.entries.jsonl is
    *  ready for append_entry calls. Default false. */
   live?: boolean;
+  /** v0.17: when true (and live=true), entries render inline in body_html.
+   *  Side panel suppressed. Body_html should contain a
+   *  <section data-folio-live-feed></section> placeholder that entries
+   *  splice into; if omitted, Folio auto-injects one at the end of body. */
+  inline?: boolean;
 }
 
 /**

@@ -200,28 +200,25 @@ You generate ONLY the inner content_html — the `<article class="entry">` wrapp
 `<script>` at body level **runs**. The note is served from `/raw/:id` into a null-origin sandboxed iframe with CSP `connect-src 'none'`, so a script can build DOM and attach handlers but cannot reach the parent window, cookies, localStorage, or any network endpoint. **This is the default pattern for interactivity — not iframe srcdoc.**
 
 ```html
-<div id="my-widget"></div>
+<div id="my-widget">
+  <!-- v0.17.1+: form controls pass the sanitizer in static HTML. -->
+  <input id="q" type="search" placeholder="filter…">
+  <button id="go" type="button">Search</button>
+  <div id="results" class="cards"></div>
+</div>
 <script>
 (function () {
-  var root = document.getElementById("my-widget");
-
-  // Build form controls via createElement — the sanitizer strips static
-  // <input>/<select>/<button>/<textarea>/<form>/<label> but doesn't see
-  // runtime-built DOM. Theme.css still applies to .card/.pill/etc.
-  var input = document.createElement("input");
-  input.type = "search";
-  input.placeholder = "filter…";
-  input.style.cssText = "padding:7px 10px; border:1px solid rgba(0,0,0,0.15); border-radius:5px; font: inherit;";
-  root.appendChild(input);
-
-  // Create theme-styled cards via standard classes
-  var grid = document.createElement("div");
-  grid.className = "cards";
-  // …populate, wire up events…
-  root.appendChild(grid);
+  var input = document.getElementById("q");
+  var btn = document.getElementById("go");
+  var results = document.getElementById("results");
+  btn.addEventListener("click", function () {
+    // …populate `results` with theme-styled cards…
+  });
 })();
 </script>
 ```
+
+Form controls available in static HTML (v0.17.1+): `<button>`, `<input>`, `<select>`, `<option>`, `<optgroup>`, `<textarea>`, `<label>`, `<form>`, `<fieldset>`, `<legend>`, `<output>`, `<progress>`, `<meter>`. Plus `role`, `tabindex`, `aria-*` globally. CSP `form-action 'none'` blocks submission attempts; `connect-src 'none'` blocks data exfil — controls only affect in-iframe state.
 
 **Pattern advantages over iframe srcdoc:**
 - Theme.css applies natively — `.card`, `.pill`, `.verdict` inherit the user's chosen look

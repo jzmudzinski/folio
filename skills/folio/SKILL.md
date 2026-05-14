@@ -260,19 +260,26 @@ Full spec in `STYLEBOOK.md` in this folder. In short, use **utility classes from
 - ❌ `<font>`, `<center>`, deprecated HTML4 tags
 - ❌ Raw hex colors in attributes — use the classes
 
-**`<script>` at body level IS allowed** (since v0.3). Notes are served from `/raw/:id` into a null-origin sandboxed iframe with CSP `connect-src 'none'`, so your script can build DOM and run handlers but cannot reach the parent window, cookies, localStorage, or any network endpoint. Default pattern for interactivity — inline `<script>` in body, not iframe srcdoc:
+**`<script>` at body level IS allowed** (since v0.3). Notes are served from `/raw/:id` into a null-origin sandboxed iframe with CSP `connect-src 'none'` + `form-action 'none'`, so your script can build DOM and run handlers but cannot reach the parent window, cookies, localStorage, or any network endpoint. Default pattern for interactivity — inline `<script>` in body, not iframe srcdoc:
 
 ```html
-<div id="my-widget"></div>
+<button type="button" id="filter-btn" class="primary">Filter</button>
+<input type="text" id="filter-input" placeholder="filter…">
+<div id="results"></div>
 <script>
 (function () {
-  var root = document.getElementById("my-widget");
-  // Need <input>/<select>/<button>? Build via createElement — the sanitizer
-  // strips them from static HTML, but doesn't see runtime-built DOM.
-  var input = document.createElement("input");
-  input.placeholder = "filter…";
-  root.appendChild(input);
-  // theme.css applies natively to .card / .cards / .pill etc. that you create here.
+  // v0.17.1+: <button>, <input>, <select>, <option>, <textarea>, <label>,
+  // <form>, <fieldset>, <legend>, <output>, <progress>, <meter> all pass
+  // the sanitizer in static HTML. So do role="…", tabindex, aria-*, title.
+  // No createElement workaround needed for form controls.
+  var btn = document.getElementById("filter-btn");
+  var input = document.getElementById("filter-input");
+  var results = document.getElementById("results");
+  btn.addEventListener("click", function () {
+    results.textContent = "filtered: " + input.value;
+  });
+  // theme.css classes (.card / .pill / .verdict) apply natively whether
+  // you write the element statically or build it via createElement.
 })();
 </script>
 ```

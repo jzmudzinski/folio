@@ -1,6 +1,75 @@
 import { expect, test } from "bun:test";
 import { sanitize } from "../src/core/sanitize";
 
+test("preserves <button> with type + click handler markup (v0.17.1+)", () => {
+  const r = sanitize(`<button type="button" id="my-btn" class="primary" disabled>Click me</button>`);
+  expect(r.html).toContain("<button");
+  expect(r.html).toContain('type="button"');
+  expect(r.html).toContain('id="my-btn"');
+  expect(r.html).toContain("disabled");
+  expect(r.html).toContain("Click me");
+});
+
+test("preserves <button onclick=...> stripped of the inline handler", () => {
+  // sanitize-html drops on* handlers; button element itself stays.
+  const r = sanitize(`<button onclick="alert(1)">Bad</button>`);
+  expect(r.html).toContain("<button");
+  expect(r.html).not.toContain("onclick");
+  expect(r.html).not.toContain("alert");
+});
+
+test("preserves <input> with type variants + form attrs", () => {
+  const r = sanitize(
+    `<input type="text" name="q" placeholder="search" maxlength="100" required>` +
+    `<input type="checkbox" name="agree" checked>` +
+    `<input type="range" min="0" max="10" step="1" value="5">`
+  );
+  expect(r.html).toContain('type="text"');
+  expect(r.html).toContain('placeholder="search"');
+  expect(r.html).toContain('type="checkbox"');
+  expect(r.html).toContain("checked");
+  expect(r.html).toContain('type="range"');
+  expect(r.html).toContain('step="1"');
+});
+
+test("preserves <select>/<option>/<optgroup>", () => {
+  const r = sanitize(
+    `<select name="theme"><optgroup label="Light"><option value="linen" selected>Linen</option><option value="newsroom">Newsroom</option></optgroup></select>`
+  );
+  expect(r.html).toContain("<select");
+  expect(r.html).toContain("<optgroup");
+  expect(r.html).toContain('label="Light"');
+  expect(r.html).toContain('value="linen"');
+  expect(r.html).toContain("selected");
+});
+
+test("preserves <textarea>, <label for>, <form>, <fieldset>, <legend>", () => {
+  const r = sanitize(
+    `<form action="/x" method="post" novalidate>` +
+    `<fieldset><legend>Profile</legend>` +
+    `<label for="bio">Bio</label>` +
+    `<textarea id="bio" name="bio" rows="4" placeholder="…"></textarea>` +
+    `</fieldset></form>`
+  );
+  expect(r.html).toContain("<form");
+  expect(r.html).toContain("<fieldset");
+  expect(r.html).toContain("<legend>Profile</legend>");
+  expect(r.html).toContain('<label for="bio">');
+  expect(r.html).toContain("<textarea");
+  expect(r.html).toContain('rows="4"');
+});
+
+test("preserves aria-* attrs + role globally (v0.17.1+)", () => {
+  const r = sanitize(
+    `<div role="button" tabindex="0" aria-label="Close" aria-pressed="false">×</div>` +
+    `<div role="status" aria-live="polite" aria-atomic="true">Saved.</div>`
+  );
+  expect(r.html).toContain('role="button"');
+  expect(r.html).toContain('aria-label="Close"');
+  expect(r.html).toContain('aria-pressed="false"');
+  expect(r.html).toContain('aria-live="polite"');
+});
+
 test("iframe DEFAULT_IFRAME_SANDBOX includes allow-modals (v0.15.1+)", () => {
   const r = sanitize(`<iframe src="https://example.com/embed"></iframe>`);
   // window.print() / alert() inside the iframe need allow-modals.

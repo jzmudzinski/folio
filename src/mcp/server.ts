@@ -42,7 +42,7 @@ const tools: Tool[] = [
       properties: {
         type: { type: "string", enum: ALLOWED_TYPES, description: "Note type. Pick `research` for deep dives, `comparison` for vs tables, `technical` for ADRs/specs, `journal` for chronological, `snippet` for short." },
         title: { type: "string", description: "Human-readable title (used as h1)." },
-        body_html: { type: "string", description: "HTML fragment for the article body. NO <html>/<body>/<head>/<style>/<title>/<meta>; these come from template. Use semantic tags + theme utility classes (.eyebrow, .lead, .pill, .card, .verdict)." },
+        body_html: { type: "string", description: "HTML fragment for the article body. NO <html>/<body>/<head>/<title>/<meta>; these come from the template. <style> at body level IS allowed (v0.15+) — use it for the `plain` theme or per-note custom CSS. <script>, <button>, <input>, <select>, <textarea>, <form>, role/aria-* all pass the sanitizer (v0.17.1+). Default to theme utility classes for non-plain themes: .eyebrow, .lead, .pill, .card, .verdict." },
         thread_id: { type: "string", description: "Thread slug (kebab-case). Group related iterations. If omitted, slugified from title. PREFER calling suggest_thread first to continue an existing thread instead of creating duplicates." },
         theme: { type: "string", description: "Theme name (default from user config, usually 'linen'). Call list_themes to discover." },
         theme_profile: { type: "string", enum: ALLOWED_PROFILES, description: "'hosted' (default, links theme.css, ~50% less tokens) or 'standalone' (inline CSS, share-ready)." },

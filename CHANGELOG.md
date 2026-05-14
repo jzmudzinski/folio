@@ -2,6 +2,13 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.13.1 — 2026-05-14
+
+Hotfix for v0.13.0's CLI dispatcher: top-level `parseArgs` consumed `--flag value` pairs into `flags` before dispatch, so `folio cloud pair-code --user alice` reached `cloudCmd` with no flags and errored with "--user required". Local tests passed because they called `cloudCmd` directly; only the actual binary invocation triggered it.
+
+### Fixed
+- **`folio cloud <sub> --flag …` now reaches the subcommand handler.** Dispatcher reconstructs `--flag value` and bare `--flag` pairs from `flags` and appends them to `cloudCmd`'s args. Affects every cloud subcommand that takes flags (`pair-code --user`, `user-add --display`, `user-list --json`, `user-revoke --purge --yes`). New regression test in `tests/cloud-user-cli.test.ts` drives through `main()` end-to-end.
+
 ## v0.13.0 — 2026-05-14
 
 Multi-user cloud relay. One `folio.notibox.ai` instance now serves any number of independent users — each user pairs their Notibox + laptop + phone, and the cloud filters every read/write by user_id so accounts are invisible to each other. Cloud-side runtime changes — VPS deploys need `sudo ./deploy/update.sh`. Existing v0.12 paired devices keep working: the migration auto-runs and backfills to a single `default` user, which the operator can rename via the new CLI.

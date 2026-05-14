@@ -239,8 +239,19 @@ export async function main(argv = process.argv): Promise<number> {
           jsonOut: flagBool(flags.json),
           offline: flagBool(flags.offline),
         });
-      case "cloud":
-        return await cloudCmd(positional[0], positional.slice(1));
+      case "cloud": {
+        // cloud subcommands have their own flag parser (see src/cli/commands/
+        // cloud.ts parseArgs) because top-level parseArgs already stripped
+        // --flag value pairs into `flags`. Reconstruct an args array that
+        // looks like the original argv tail so cloudCmd's parser can pick
+        // up things like `--user alice` or `--purge --yes`.
+        const cloudArgs: string[] = [...positional.slice(1)];
+        for (const [k, v] of Object.entries(flags)) {
+          if (v === true) cloudArgs.push(`--${k}`);
+          else if (typeof v === "string") { cloudArgs.push(`--${k}`); cloudArgs.push(v); }
+        }
+        return await cloudCmd(positional[0], cloudArgs);
+      }
       case "sync":
         return await syncCmd({
           sub: positional[0],

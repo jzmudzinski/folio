@@ -139,6 +139,10 @@ export async function publishCmd(opts: PublishOpts): Promise<number> {
       out(`  ${c.err("✉ email failed")} ${c.dim(respBody.email_error)}`);
     }
   }
+  // QR code URL (since v0.16) — paste in chat or open in browser for a
+  // scannable image. Same share-validity rules as the link itself.
+  const qrUrl = respBody.url.replace(/\/(n|t)\/[^/?#]+$/, "/qr.svg");
+  out(`  ${c.dim("QR code")} ${c.cyan(qrUrl)}`);
   out("");
   out(c.dim("  Revoke with: ") + `folio shares revoke ${respBody.token.slice(0, 8)}…`);
   return 0;

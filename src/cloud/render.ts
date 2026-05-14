@@ -94,9 +94,16 @@ ${body}
  * Referrer-Policy: no-referrer. These reduce capability-URL leakage via
  * search indexes and external Referer logs.
  */
-export function renderSharedNotePage(token: string, uuid: string, title: string): string {
+export function renderSharedNotePage(token: string, uuid: string, title: string, publicUrl: string = ""): string {
   const esc = (s: string): string =>
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  // Absolute URL for og:image / og:url so social previewers don't try to
+  // resolve a relative path against their own host. publicUrl is the
+  // cloud's externally-reachable origin (https://folio.notibox.ai); empty
+  // string falls back to relative URLs (fine for testing).
+  const ogImg = `${publicUrl}/p/${esc(token)}/og.svg`;
+  const ogUrl = `${publicUrl}/p/${esc(token)}/n/${esc(uuid)}`;
+  const safeTitle = title || "Folio note";
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -104,7 +111,18 @@ export function renderSharedNotePage(token: string, uuid: string, title: string)
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <meta name="theme-color" content="#1a1a1a">
-  <title>${esc(title || "Folio")}</title>
+  <title>${esc(safeTitle)}</title>
+  <meta property="og:title" content="${esc(safeTitle)}">
+  <meta property="og:type" content="article">
+  <meta property="og:image" content="${esc(ogImg)}">
+  <meta property="og:image:type" content="image/svg+xml">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:url" content="${esc(ogUrl)}">
+  <meta property="og:site_name" content="Folio">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${esc(safeTitle)}">
+  <meta name="twitter:image" content="${esc(ogImg)}">
   <style>
     html, body { margin: 0; padding: 0; height: 100%; background: #1a1a1a; }
     iframe { width: 100%; height: 100vh; border: 0; display: block; background: #fff; }
@@ -115,7 +133,7 @@ export function renderSharedNotePage(token: string, uuid: string, title: string)
     src="/p/${esc(token)}/raw/${esc(uuid)}"
     sandbox="allow-scripts allow-popups allow-forms allow-modals"
     referrerpolicy="no-referrer"
-    title="${esc(title || "Folio note")}"></iframe>
+    title="${esc(safeTitle)}"></iframe>
 </body>
 </html>`;
 }
@@ -133,7 +151,7 @@ export interface SharedThreadNote {
   is_final: boolean;
 }
 
-export function renderSharedThreadPage(token: string, threadId: string, notes: SharedThreadNote[]): string {
+export function renderSharedThreadPage(token: string, threadId: string, notes: SharedThreadNote[], publicUrl: string = ""): string {
   const esc = (s: string): string =>
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const rows = notes
@@ -145,6 +163,9 @@ export function renderSharedThreadPage(token: string, threadId: string, notes: S
       </a>`;
     })
     .join("\n");
+  const ogImg = `${publicUrl}/p/${esc(token)}/og.svg`;
+  const ogUrl = `${publicUrl}/p/${esc(token)}/t/${esc(threadId)}`;
+  const ogTitle = `Thread: ${threadId}`;
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -153,6 +174,18 @@ export function renderSharedThreadPage(token: string, threadId: string, notes: S
   <meta name="robots" content="noindex,nofollow,noarchive">
   <meta name="theme-color" content="#f5f3ee">
   <title>${esc(threadId)} · Folio</title>
+  <meta property="og:title" content="${esc(ogTitle)}">
+  <meta property="og:type" content="article">
+  <meta property="og:image" content="${esc(ogImg)}">
+  <meta property="og:image:type" content="image/svg+xml">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:url" content="${esc(ogUrl)}">
+  <meta property="og:site_name" content="Folio">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${esc(ogTitle)}">
+  <meta name="twitter:image" content="${esc(ogImg)}">
+  <meta name="description" content="${notes.length} note${notes.length === 1 ? "" : "s"} in this thread.">
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400..700&family=Instrument+Serif:ital@0;1&display=swap');
     :root { --bg: #f5f3ee; --bg-2: #efeae0; --ink: #0a0a0a; --muted: #6b6b66; --line: rgba(10,10,10,0.10); --accent: #ff5a1f; }

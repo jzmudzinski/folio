@@ -2,6 +2,21 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.16.0 — 2026-05-14
+
+Three polish items around sharing + branding. Cloud-side runtime changes — VPS deploy needs `sudo ./deploy/update.sh` for the new `/p/<token>/og.svg` + `/qr.svg` routes.
+
+### Added
+- **Favicon for local viewer.** New routes `/favicon.svg` + `/favicon.ico` (both serve the same SVG with `image/svg+xml`), `<link rel="icon">` + `<link rel="apple-touch-icon">` injected into the viewer `shell()` template. Brand icon ("f" + orange dot, square, 96px corner radius) extracted to `src/core/brand.ts` so favicon + PWA icon never drift. Fixes the `GET /favicon.ico 404` console noise.
+- **Open Graph image for shared notes.** New module `src/cloud/og.ts` generates a 1200×630 SVG card with the note title, scope chip (`note` / `thread`), theme-accent stripe down the left edge, and the `folio.` wordmark in the bottom-left. Served at `/p/<token>/og.svg`. `renderSharedNotePage` + `renderSharedThreadPage` inject the full OG meta set: `og:title` / `og:type` / `og:image` (+ dimensions + image:type) / `og:url` / `og:site_name`, plus `twitter:card=summary_large_image`. Slack / Telegram / iMessage / Discord / Twitter unfurl the link with a real preview instead of a bare URL.
+- **QR code for capability URLs.** New module `src/cloud/qr.ts` (wraps the `qrcode` npm package in SVG-string mode, brand-colored ink/bg). Served at `/p/<token>/qr.svg`. `folio publish` output gains a `QR code` line pointing at the URL — paste it in chat or open in browser, scan with phone camera, lands on the share page.
+
+### Notes for operators
+
+Cloud-side runtime change — `sudo ./deploy/update.sh` on the VPS. Existing share links continue working unchanged; the new routes layer on alongside.
+
+Recipient-bound shares: `og.svg` is publicly fetchable so social previewers can render the unfurl card (otherwise the link preview shows just the URL string). The note title surfaces in the OG, matching Notion / Google Docs behaviour where the title leaks via link preview but content stays behind the email confirmation gate. If a future use case wants to suppress title for bound shares, gate `og.svg` in `handleCapabilityRoute` on cookie state.
+
 ## v0.15.1 — 2026-05-14
 
 Two follow-ups to v0.15.0.

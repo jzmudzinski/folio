@@ -820,21 +820,10 @@ self.addEventListener('fetch', function (event) {
 `;
 }
 
-// Icon: square version of the brand wordmark — lowercase "f" + single orange
-// "." that reads as the full "folio." mark. Familjen Grotesk weight 500,
-// matching assets/wordmark-light.svg typography. Linen cream background,
-// 96px corner radius so iOS/Android render with consistent rounding.
-export const FOLIO_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#f5f3ee"/>
-  <text x="190" y="380"
-        font-family="'Familjen Grotesk', 'Inter', system-ui, -apple-system, sans-serif"
-        font-weight="500" font-size="420" letter-spacing="-16"
-        fill="#0a0a0a">f</text>
-  <text x="340" y="380"
-        font-family="'Familjen Grotesk', 'Inter', system-ui, -apple-system, sans-serif"
-        font-weight="500" font-size="420"
-        fill="#ff5a1f">.</text>
-</svg>`;
+// Icon SVG lives in src/core/brand.ts now — single source of truth for both
+// the cloud PWA's apple-touch-icon + manifest, and the local viewer's
+// favicon. Re-exported here so existing imports (server.ts) keep working.
+export { FOLIO_ICON_SVG } from "../core/brand";
 
 export function manifestJson(publicUrl: string): unknown {
   const u = new URL(publicUrl);

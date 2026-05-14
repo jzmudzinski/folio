@@ -2,6 +2,14 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.18.1 — 2026-05-14
+
+### Fixed
+- **Cloud `/raw/:uuid` 500 on every note** for clouds first installed at v0.13–v0.14. The v0.17 `inline_render` column-add lived inside the v0.12→v0.13 UNIQUE-rebuild branch in `ensureMultiUserSchema`, behind an `if (hasNewUnique) return;` early-return. Clouds created with the v0.13+ schema directly (multi-user UNIQUE present from day one — e.g. `folio.notibox.ai`) skipped the rebuild → never ran the ALTER → every `/raw/:uuid` SELECT failed with `no such column: inline_render`. Migrator restructured so the inline_render block now runs on every boot, after any rebuild path. Regression test in `tests/cloud-multi-user-migration.test.ts` reproduces the v0.13-era seed shape and asserts the column lands.
+
+### Hotfix without upgrade
+Affected operators can patch in place: `sqlite3 <cloud.db> "ALTER TABLE notes ADD COLUMN inline_render INTEGER NOT NULL DEFAULT 0;"` then restart the service. v0.18.1 fixes it for new boots; the hotfix is idempotent with the migrator.
+
 ## v0.18.0 — 2026-05-14
 
 New note type primitive: **`iteration`** — for design-iteration workflows where the agent generates N candidates, the user clicks one, the agent generates N variants of the pick, repeat. Tree-shaped (every variant has a `parent_variant_id` pointing at the round-winner that spawned it), append-only on the live-entries JSONL substrate.

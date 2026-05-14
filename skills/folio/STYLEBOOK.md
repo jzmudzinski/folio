@@ -277,7 +277,7 @@ Your note renders in the viewer with helpers attached parent-side. **Design cont
 
 ❌ **Hex colors in attributes** — use classes like `.pill.good` instead of `style="background:#34c759"`
 
-❌ **`<style>` in body_html** — that's the template's job (theme.css). For one-off layout tweaks use the allowed inline `style` props on the element itself.
+⚠️ **`<style>` in body_html** — allowed since v0.15 (per [ADR-style note], the sandboxed null-origin iframe + CSP make CSS injection harmless). But default to theme.css classes anyway; reach for a body-level `<style>` block only when the **`plain`** theme is in play or when standard utilities (`.eyebrow` / `.card` / `.pill` / `.verdict`) genuinely don't fit. Don't redefine theme classes inside body_html — that's just confusing.
 
 ❌ **`<font>`, `<center>`, `<u>`** — deprecated HTML4
 
@@ -299,6 +299,7 @@ Each theme has `theme.md` with "Voice" and "Avoid" sections — read **the curre
 **Terminal:** log-entry tone, imperatives, code-aggressive.
 **Pastel:** warm, encouraging, gentle.
 **Dossier:** investigative, factual, third-person.
+**Plain:** **no voice opinion — agent picks what the content needs.** Almost-bare canvas: no utility classes, no accent color, no typography stack. Use for poster-style layouts, custom diagrams, hand-built data viz, ASCII art, experimental one-offs. Expected pattern is a `<style>` block at the top of body_html defining the note's own classes; CSS variables for theming; everything else is your call. Sandboxed iframe + CSP still protect the boundary — the freedom is creative, not security.
 
 ## We measure (ADR-017)
 

@@ -2,6 +2,23 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.15.0 — 2026-05-14
+
+`plain` theme — almost-bare canvas for notes that want their own visual identity. Sanitizer now preserves `<style>` blocks at body level, so agents can write idiomatic HTML with a local stylesheet inside the note. No cloud-side runtime changes — pure local + skill update; the cloud just serves whatever the agent put in body_html.
+
+### Added
+- **`themes/plain/`** (new bundled theme). 60 lines of `theme.css`: CSS reset, body padding, fluid headings, sensible defaults for `<table>` / `<pre>` / `<code>` / `<blockquote>` / `<img>`, dark-mode pairing via `@media (prefers-color-scheme: dark)`. **No** `.eyebrow` / `.lead` / `.card` / `.cards` / `.pill` / `.verdict` — that's the point. Agent owns the per-note visual identity.
+- **`<style>` tag allowed at body level** (`src/core/sanitize.ts` ALLOWED_TAGS). Notes render in a sandboxed null-origin iframe with `connect-src 'none'`, so CSS injection is bounded — no network exfiltration, no parent-window reach. Inline `style="..."` attrs were already allowed; this is just a smaller, more idiomatic surface for the same capability.
+- **STYLEBOOK update** in `skills/folio/SKILL.md` / `STYLEBOOK.md`: new "Plain" entry in the theme tone matrix + expected pattern (a `<style>` block at the top of body_html). Old `❌ <style> in body_html` rule downgraded to `⚠️ — use sparingly, prefer theme.css classes for non-plain themes`.
+
+### When to use the plain theme
+
+The agent should reach for `plain` when the user asks for something visually idiosyncratic — a poster, a fake terminal, a custom diagram, an ASCII map, an experimental data viz — anything the standard utility classes would fight rather than support. For `research` / `comparison` / `technical` / `journal` shape the existing themes (`linen` / `folio` / `newsroom` / …) still win — they keep the user's Folio visually coherent across notes.
+
+### Safety note
+
+The threat model is unchanged. Every note still renders inside a sandboxed null-origin iframe with `script-src 'self' 'unsafe-inline' https:` + `connect-src 'none'` + `frame-ancestors 'self'`. CSS in body-level `<style>` can't fetch external URLs that would leak data (CSP blocks `background: url(...)` to non-same-origin), can't reach the parent window's DOM, can't read cookies or localStorage. The creative freedom is creative, not security.
+
 ## v0.14.0 — 2026-05-14
 
 Operator UI for the multi-user cloud. Every CLI subcommand (`folio cloud user-add / user-rename / user-revoke / user-promote / pair-code --user`) now has a clickable equivalent in the local viewer's `/cloud` page, gated by `users.is_operator`. Six new HTTP endpoints + a viewer proxy + a PWA identity hint. Cloud-side runtime changes — VPS deploys need `sudo ./deploy/update.sh` and an explicit `folio cloud user-promote <id>` to designate the first operator.

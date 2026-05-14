@@ -37,6 +37,16 @@ const ALLOWED_TAGS = [
   "svg", "g", "path", "circle", "rect", "line", "polyline", "polygon", "text", "tspan",
   "iframe",
   "script",
+  // <style> at body level was previously stripped (per the v0.3 doc) under
+  // the assumption that theme.css is the only authority. v0.15 reverses that:
+  // notes render in a sandboxed null-origin iframe with CSP `connect-src
+  // 'none'`, so CSS injection can't reach the parent window, cookies, or any
+  // network endpoint. The `plain` theme depends on this — agents own the
+  // visual identity per-note via a <style> block at the top of body_html.
+  // Inline style="..." attributes were already allowed (see ALLOWED_ATTRIBUTES
+  // below), so this is just a smaller, more idiomatic surface for the same
+  // capability.
+  "style",
 ];
 
 const ALLOWED_ATTRIBUTES: Record<string, string[]> = {

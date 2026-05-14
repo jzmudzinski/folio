@@ -217,6 +217,27 @@ test("user-revoke --purge --yes: cascades delete + sets users.deleted_at", async
   expect(db.query<{ deleted_at: string | null }, [string]>("SELECT deleted_at FROM users WHERE id = ?").get("alice")?.deleted_at).not.toBeNull();
 });
 
+test("regression: top-level dispatcher forwards --flag value to cloud subcommand", async () => {
+  // The bug: parseArgs in src/cli/index.ts pulled --user alice into `flags`
+  // before dispatch, so cloudCmd's own parseArgs never saw it. Drive through
+  // main() with a full argv to confirm the reconstruction is in place.
+  const { main } = await import("../src/cli/index");
+  await main(["bun", "folio", "cloud", "user-add", "alice"]);
+  stderr.length = 0;
+  stdout.length = 0;
+  const rc = await main(["bun", "folio", "cloud", "pair-code", "--user", "alice"]);
+  expect(rc).toBe(0);
+  // Output should contain the user we asked for + the minted code.
+  const text = stdout.join("");
+  expect(text).toContain("User:");
+  expect(text).toContain("alice");
+  // Verify the pairing_codes row was actually stamped with user_id=alice.
+  const row = cloudDb()
+    .query<{ user_id: string }, []>("SELECT user_id FROM pairing_codes ORDER BY expires_at DESC LIMIT 1")
+    .get();
+  expect(row?.user_id).toBe("alice");
+});
+
 test("user-revoke --purge without --yes: confirmation gate refuses", async () => {
   await run("user-add", ["alice"]);
   const db = cloudDb();

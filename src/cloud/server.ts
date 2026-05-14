@@ -52,8 +52,16 @@ import {
   validateShareAccess,
   incrementShareViews,
 } from "./shares";
-import { buildAdminStats } from "./stats";
+import { buildAdminStats, buildGlobalStats } from "./stats";
 import { getMailer, isMailerConfigured, renderShareEmail } from "./mailer";
+import {
+  whoami,
+  createUser,
+  patchUser,
+  deleteUser,
+  mintPairCodeFor,
+  AdminError,
+} from "./admin";
 import { createHash } from "node:crypto";
 import { rawNoteHeaders } from "../core/csp";
 import pkg from "../../package.json" with { type: "json" };
@@ -300,6 +308,110 @@ async function handleCapabilityRoute(req: Request, path: string, method: string)
   }
 
   return new Response("not found", { status: 404 });
+}
+
+/**
+ * Operator-only admin routes (v0.14+). Caller's device must have
+ * `device.isOperator === true`, otherwise 403. Returns null when no route
+ * matches so the dispatcher in startCloudServer can fall through to the
+ * default 404 handler.
+ */
+async function handleAdminRoute(
+  path: string,
+  method: string,
+  req: Request,
+  device: Device,
+  publicUrl: string
+): Promise<Response | null> {
+  // Operator gate. /v1/admin/whoami and /v1/admin/stats are handled BEFORE
+  // this helper is reached, so anything that lands here is an operator path.
+  if (!device.isOperator) {
+    return new Response(JSON.stringify({ error: "operator role required" }, null, 2), {
+      status: 403,
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+    });
+  }
+
+  function adminJson(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body, null, 2), {
+      status,
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+    });
+  }
+  function adminErr(e: unknown): Response {
+    if (e instanceof AdminError) return adminJson({ error: e.message }, e.status);
+    return adminJson({ error: (e as Error)?.message ?? "internal error" }, 500);
+  }
+
+  // GET /v1/admin/users — global per-user table.
+  if (path === "/v1/admin/users" && method === "GET") {
+    return adminJson(buildGlobalStats(publicUrl));
+  }
+
+  // POST /v1/admin/users — create user; optional mint_pair_code=true.
+  if (path === "/v1/admin/users" && method === "POST") {
+    try {
+      const body = (await req.json()) as {
+        id?: string;
+        display_name?: string;
+        is_operator?: boolean;
+        mint_pair_code?: boolean;
+      };
+      if (!body.id) return adminJson({ error: "id required" }, 400);
+      const result = createUser({
+        id: body.id,
+        display_name: body.display_name,
+        is_operator: body.is_operator,
+        mint_pair_code: body.mint_pair_code,
+      });
+      return adminJson(result);
+    } catch (e) {
+      return adminErr(e);
+    }
+  }
+
+  // /v1/admin/users/<id>[/pair-code]
+  const userMatch = path.match(/^\/v1\/admin\/users\/([^/]+)(?:\/(pair-code))?$/);
+  if (userMatch) {
+    const targetId = decodeURIComponent(userMatch[1]!);
+    const sub = userMatch[2];
+
+    if (sub === "pair-code" && method === "POST") {
+      try {
+        return adminJson(mintPairCodeFor(targetId));
+      } catch (e) {
+        return adminErr(e);
+      }
+    }
+
+    if (!sub && method === "PATCH") {
+      try {
+        const body = (await req.json()) as {
+          new_id?: string;
+          display_name?: string;
+          is_operator?: boolean;
+          reactivate?: boolean;
+        };
+        const result = patchUser(targetId, body);
+        return adminJson(result);
+      } catch (e) {
+        return adminErr(e);
+      }
+    }
+
+    if (!sub && method === "DELETE") {
+      try {
+        const url = new URL(req.url);
+        const purge = url.searchParams.get("purge") === "1";
+        const result = deleteUser(targetId, { purge });
+        return adminJson(result);
+      } catch (e) {
+        return adminErr(e);
+      }
+    }
+  }
+
+  return null;
 }
 
 function shareFailure(reason: string): Response {
@@ -559,10 +671,24 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
 
         // Read-only observability snapshot — see src/cloud/stats.ts. Authed:
         // any paired device can read its OWN USER's metrics. Cross-user
-        // numbers stay invisible; operator gets the global view via the CLI
-        // (folio cloud user-list), not this endpoint.
+        // numbers stay invisible; operators get the global view via the new
+        // /v1/admin/users endpoint below.
         if (path === "/v1/admin/stats" && method === "GET") {
           return json(buildAdminStats(publicUrl, device!.userId));
+        }
+
+        // /v1/admin/whoami — any authed device. Lets the local viewer
+        // decide whether to render the operator dashboard. Cheap lookup,
+        // not gated on is_operator.
+        if (path === "/v1/admin/whoami" && method === "GET") {
+          return json(whoami(device!));
+        }
+
+        // Operator-only mutation surface for managing users from the local
+        // viewer's dashboard. 403 if caller's device.isOperator !== true.
+        if (path.startsWith("/v1/admin/")) {
+          const adminResp = await handleAdminRoute(path, method, req, device!, publicUrl);
+          if (adminResp) return adminResp;
         }
 
         // Already-paired devices can request fresh pairing codes for

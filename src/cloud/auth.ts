@@ -187,6 +187,7 @@ export interface Device {
   id: string;
   name: string;
   userId: string;        // which account this device belongs to (v0.13+)
+  isOperator: boolean;   // mirror of users.is_operator (v0.14+)
   pairedAt: string;
   lastSeenAt: string | null;
 }
@@ -195,16 +196,31 @@ export interface Device {
  * Resolve a bearer token (raw, from the header) to a device. Returns null if
  * unknown, expired, or revoked. Updates last_seen_at if the previous touch was
  * more than 60s ago (cheap throttle to avoid write per request).
+ *
+ * Joins on users.is_operator so route handlers can check `device.isOperator`
+ * inline rather than running a second query per request.
  */
 export function authenticate(token: string, db: Database = cloudDb()): Device | null {
   if (!token || token.length < 16) return null;
   const tokenHash = hashToken(token);
   const row = db
     .query<
-      { id: string; name: string; user_id: string; paired_at: string; last_seen_at: string | null; revoked_at: string | null },
+      {
+        id: string;
+        name: string;
+        user_id: string;
+        paired_at: string;
+        last_seen_at: string | null;
+        revoked_at: string | null;
+        is_operator: number | null;
+      },
       [string]
     >(
-      "SELECT id, name, user_id, paired_at, last_seen_at, revoked_at FROM devices WHERE token_hash = ?"
+      `SELECT d.id, d.name, d.user_id, d.paired_at, d.last_seen_at, d.revoked_at,
+              u.is_operator
+         FROM devices d
+         LEFT JOIN users u ON u.id = d.user_id
+        WHERE d.token_hash = ?`
     )
     .get(tokenHash);
   if (!row) return null;
@@ -218,6 +234,7 @@ export function authenticate(token: string, db: Database = cloudDb()): Device | 
     id: row.id,
     name: row.name,
     userId: row.user_id,
+    isOperator: row.is_operator === 1,
     pairedAt: row.paired_at,
     lastSeenAt: row.last_seen_at,
   };
@@ -249,12 +266,24 @@ export function revokeDevice(id: string, db: Database = cloudDb()): void {
  */
 export function listDevices(userId?: string, db: Database = cloudDb()): Device[] {
   const sql = userId
-    ? "SELECT id, name, user_id, paired_at, last_seen_at FROM devices WHERE revoked_at IS NULL AND user_id = ? ORDER BY paired_at DESC"
-    : "SELECT id, name, user_id, paired_at, last_seen_at FROM devices WHERE revoked_at IS NULL ORDER BY paired_at DESC";
+    ? `SELECT d.id, d.name, d.user_id, d.paired_at, d.last_seen_at, u.is_operator
+         FROM devices d LEFT JOIN users u ON u.id = d.user_id
+        WHERE d.revoked_at IS NULL AND d.user_id = ? ORDER BY d.paired_at DESC`
+    : `SELECT d.id, d.name, d.user_id, d.paired_at, d.last_seen_at, u.is_operator
+         FROM devices d LEFT JOIN users u ON u.id = d.user_id
+        WHERE d.revoked_at IS NULL ORDER BY d.paired_at DESC`;
+  type Row = { id: string; name: string; user_id: string; paired_at: string; last_seen_at: string | null; is_operator: number | null };
   const rows = userId
-    ? db.query<{ id: string; name: string; user_id: string; paired_at: string; last_seen_at: string | null }, [string]>(sql).all(userId)
-    : db.query<{ id: string; name: string; user_id: string; paired_at: string; last_seen_at: string | null }, []>(sql).all();
-  return rows.map((r) => ({ id: r.id, name: r.name, userId: r.user_id, pairedAt: r.paired_at, lastSeenAt: r.last_seen_at }));
+    ? db.query<Row, [string]>(sql).all(userId)
+    : db.query<Row, []>(sql).all();
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    userId: r.user_id,
+    isOperator: r.is_operator === 1,
+    pairedAt: r.paired_at,
+    lastSeenAt: r.last_seen_at,
+  }));
 }
 
 /**

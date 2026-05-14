@@ -2,6 +2,27 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.14.0 — 2026-05-14
+
+Operator UI for the multi-user cloud. Every CLI subcommand (`folio cloud user-add / user-rename / user-revoke / user-promote / pair-code --user`) now has a clickable equivalent in the local viewer's `/cloud` page, gated by `users.is_operator`. Six new HTTP endpoints + a viewer proxy + a PWA identity hint. Cloud-side runtime changes — VPS deploys need `sudo ./deploy/update.sh` and an explicit `folio cloud user-promote <id>` to designate the first operator.
+
+### Added
+- **`users.is_operator INTEGER NOT NULL DEFAULT 0`** column (v4 → v5 migration, idempotent ADD COLUMN on pre-v14 DBs). New CLI: `folio cloud user-promote <id>` / `user-demote <id>`. Display surfaced in `user-list` "role" column (operator / active / deleted). Multiple operators allowed.
+- **`/v1/admin/*` operator endpoints.** `GET /whoami` (any device, returns user_id + display + is_operator). Operator-only: `GET /users` (global per-user breakdown), `POST /users` (create + optional first pair-code), `PATCH /users/:id` (rename · promote · demote · reactivate), `DELETE /users/:id[?purge=1]` (revoke / cascade purge), `POST /users/:id/pair-code` (mint for target user). Non-operator devices get `403`. All mutations share code with the CLI subcommands via the new `src/cloud/admin.ts` module.
+- **Viewer proxy `/api/cloud/admin/*`.** Same bearer-laundering pattern as `/api/cloud/stats`: the viewer process holds the token from `.sync-state.json` and forwards the request body. Page JS calls these with no Authorization header.
+- **Operator dashboard in `/cloud`.** Local viewer's `/cloud` page calls `/api/cloud/admin/whoami` on load and renders the new Operator panel only when `is_operator=true`. Click a user row to expand a detail panel (stats grid + actions: mint pair-code, rename, promote/demote, revoke devices, purge cascade). `+ Add user` opens an inline form with the option to mint the first pair-code in the same request. Purge requires typing the user id as a confirmation gate.
+- **PWA identity hint.** Top bar now shows `signed in as <display> · sign out` once the bearer is in IndexedDB. Tap "sign out" → confirms → clears IDB token + caches → redirects to `/pair`. SW version bumped to `folio-pwa-8`.
+
+### Notes for operators
+
+After deploying v0.14.0, designate the first operator (otherwise the new admin endpoints return 403 for everyone):
+
+```bash
+sudo -u folio /opt/folio/folio cloud user-promote jarek
+```
+
+From that point on, the local viewer's `/cloud` page shows the operator panel for that user's devices — no more SSH needed to onboard new accounts. The CLI subcommands keep working (single source of truth in `src/cloud/admin.ts`), so either path is fine.
+
 ## v0.13.1 — 2026-05-14
 
 Hotfix for v0.13.0's CLI dispatcher: top-level `parseArgs` consumed `--flag value` pairs into `flags` before dispatch, so `folio cloud pair-code --user alice` reached `cloudCmd` with no flags and errored with "--user required". Local tests passed because they called `cloudCmd` directly; only the actual binary invocation triggered it.

@@ -419,6 +419,43 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
           }
         }
 
+        // ---- /api/cloud/admin/* mirror routes (v0.14+) ----
+        // Same bearer-laundering pattern as /api/cloud/stats: the viewer
+        // process holds the token from .sync-state.json and proxies the
+        // request body straight through. Page JS calls these with no auth
+        // headers; the cloud's operator gate handles authorization.
+        if (path.startsWith("/api/cloud/admin/")) {
+          const { loadSyncState } = await import("../core/sync");
+          const state = loadSyncState();
+          if (!state) return jsonResp({ error: "not paired" }, 400);
+          const cloudPath = path.replace("/api/cloud/admin/", "/v1/admin/");
+          const cloudUrl = state.remote + cloudPath + (url.search || "");
+          const init: RequestInit = {
+            method: req.method,
+            headers: {
+              Authorization: `Bearer ${state.device_token}`,
+              "Content-Type": "application/json",
+            },
+          };
+          if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "DELETE") {
+            try {
+              (init as any).body = await req.text();
+            } catch {
+              (init as any).body = "";
+            }
+          }
+          try {
+            const res = await fetch(cloudUrl, init);
+            const body = await res.text();
+            return new Response(body, {
+              status: res.status,
+              headers: { "Content-Type": "application/json; charset=utf-8" },
+            });
+          } catch (e: any) {
+            return jsonResp({ error: e?.message ?? String(e) }, 502);
+          }
+        }
+
         // POST /api/sync/run — one-shot sync (mirrors `folio sync --once`)
         if (req.method === "POST" && path === "/api/sync/run") {
           const { loadSyncState, syncOnce } = await import("../core/sync");

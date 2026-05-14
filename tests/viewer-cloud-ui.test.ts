@@ -199,6 +199,85 @@ test("GET /api/cloud/stats (paired) proxies cloud admin stats", async () => {
   expect(Array.isArray(body.devices)).toBe(true);
 });
 
+test("/cloud (paired) renders Operator card placeholder + bootstrap JS", async () => {
+  const { createPairingCode } = await import("../src/cloud/auth");
+  const { code } = createPairingCode();
+  await fetch(`${viewerUrl}/api/sync/pair`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ remote: cloudUrl, code }),
+  });
+  const html = await fetch(`${viewerUrl}/cloud`).then((r) => r.text());
+  // Markup present even when JS hasn't decided whether to reveal it.
+  expect(html).toContain('id="operator-card"');
+  expect(html).toContain('id="add-user-form"');
+  expect(html).toContain('id="op-users-table"');
+  // JS calls whoami + admin/users.
+  expect(html).toContain("/api/cloud/admin/whoami");
+  expect(html).toContain("/api/cloud/admin");
+});
+
+test("/api/cloud/admin/whoami: proxies to cloud, returns operator flag", async () => {
+  const { createPairingCode } = await import("../src/cloud/auth");
+  // Pre-seed cloud user as operator.
+  const { cloudDb } = await import("../src/cloud/db");
+  cloudDb().run("UPDATE users SET is_operator = 1 WHERE id = 'default'");
+  const { code } = createPairingCode();
+  await fetch(`${viewerUrl}/api/sync/pair`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ remote: cloudUrl, code }),
+  });
+  const r = await fetch(`${viewerUrl}/api/cloud/admin/whoami`);
+  expect(r.status).toBe(200);
+  const body = (await r.json()) as any;
+  expect(body.user_id).toBe("default");
+  expect(body.is_operator).toBe(true);
+});
+
+test("/api/cloud/admin/* (unpaired): 400", async () => {
+  const r = await fetch(`${viewerUrl}/api/cloud/admin/users`);
+  expect(r.status).toBe(400);
+});
+
+test("/api/cloud/admin/users (non-operator): 403 surfaced from cloud", async () => {
+  // pair as default user, who's NOT an operator (default is_operator = 0).
+  const { createPairingCode } = await import("../src/cloud/auth");
+  const { code } = createPairingCode();
+  await fetch(`${viewerUrl}/api/sync/pair`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ remote: cloudUrl, code }),
+  });
+  const r = await fetch(`${viewerUrl}/api/cloud/admin/users`);
+  expect(r.status).toBe(403);
+});
+
+test("/api/cloud/admin/users (operator): POST creates user", async () => {
+  const { cloudDb } = await import("../src/cloud/db");
+  cloudDb().run("UPDATE users SET is_operator = 1 WHERE id = 'default'");
+  const { createPairingCode } = await import("../src/cloud/auth");
+  const { code } = createPairingCode();
+  await fetch(`${viewerUrl}/api/sync/pair`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ remote: cloudUrl, code }),
+  });
+
+  const r = await fetch(`${viewerUrl}/api/cloud/admin/users`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id: "bob", mint_pair_code: true }),
+  });
+  expect(r.status).toBe(200);
+  const body = (await r.json()) as any;
+  expect(body.user.id).toBe("bob");
+  expect(body.pair_code.code).toMatch(/^[0-9]{6}$/);
+
+  // Bearer never made it to page JS — the call had no Authorization header.
+  // The viewer process handled the laundering.
+});
+
 test("/cloud (paired) renders Cloud stats panel that loads via /api/cloud/stats", async () => {
   const { createPairingCode } = await import("../src/cloud/auth");
   const { code } = createPairingCode();

@@ -1,6 +1,12 @@
 import { expect, test } from "bun:test";
 import { sanitize } from "../src/core/sanitize";
 
+test("iframe DEFAULT_IFRAME_SANDBOX includes allow-modals (v0.15.1+)", () => {
+  const r = sanitize(`<iframe src="https://example.com/embed"></iframe>`);
+  // window.print() / alert() inside the iframe need allow-modals.
+  expect(r.html).toContain("allow-modals");
+});
+
 test("preserves <style> at body level (v0.15+ — for plain theme + custom looks)", () => {
   const r = sanitize(`<style>.hero{font-size:64px;color:#ff5a1f}</style><div class="hero">Hi</div>`);
   expect(r.html).toContain("<style");

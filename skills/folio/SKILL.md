@@ -186,8 +186,9 @@ Default user-wide: usually **linen** (Apple-grade minimal). Override when:
 | Nature writing, gentle research | `garden` | Cormorant italic + sage + ❀ |
 | DIY zine, indie hot take | `kraft` | Bricolage + risograph duotone |
 | Editorial feature, opinion essay | `prism` | Space Grotesk + Newsreader italic |
+| Custom layout, poster, demo, ASCII art, experimental viz | `plain` | Almost-bare canvas (reset + container + dark-mode); **no utility classes** — agent writes its own `<style>` block at the top of body_html and owns the visual identity |
 
-**Rule:** if the user didn't say, use the default. Suggest an override ONLY when the context strongly fits (e.g. user says "make me an ADR" → suggest `folio` or `terminal`).
+**Rule:** if the user didn't say, use the default. Suggest an override ONLY when the context strongly fits (e.g. user says "make me an ADR" → suggest `folio` or `terminal`; "build me a poster" or "draw an ASCII map" → suggest `plain`).
 
 **After picking:** `list_themes` returns a `prompt_addendum` for each — read the relevant one before generating body. The theme's stylebook dictates markup structure (newsroom prose-forward, brutalist short sentences, etc.).
 
@@ -229,9 +230,9 @@ Full spec in `STYLEBOOK.md` in this folder. In short, use **utility classes from
 **Allowed classes:** `.eyebrow`, `.lead`, `.card`, `.cards`, `.verdict`, `.pill` (variants: `.good`, `.bad`, `.mid`, `.acc`, `.info`).
 
 **DO NOT:**
-- ❌ `style="..."` inline (beyond exceptional cases — bar width, custom accent)
+- ❌ `style="..."` inline (beyond exceptional cases — bar width, custom accent — or in the `plain` theme where it's the expected pattern)
 - ❌ `<html>`, `<head>`, `<body>`, `<title>`, `<meta>` — the template wraps your fragment
-- ❌ `<style>` at body level — that's theme.css's job
+- ⚠️ `<style>` at body level — allowed since v0.15 but **default to theme.css classes**. Reach for a body-level `<style>` block only when (a) `theme: "plain"` is in play, or (b) the standard utilities genuinely don't fit the layout. Don't redefine `.eyebrow` / `.card` / `.pill` inside body_html — confusing for the user previewing across themes.
 - ❌ `<font>`, `<center>`, deprecated HTML4 tags
 - ❌ Raw hex colors in attributes — use the classes
 

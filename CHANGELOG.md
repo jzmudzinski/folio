@@ -2,6 +2,19 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.15.1 — 2026-05-14
+
+Two follow-ups to v0.15.0.
+
+### Fixed
+- **`window.print()` / `alert()` / `confirm()` / `prompt()` now work inside notes.** All three note-iframe spots (local viewer, capability URL render, PWA `/n/:uuid` shell) gain `allow-modals` in their `sandbox` attribute. Without it, Chromium silently logs "Ignored call to 'print()'. The document is sandboxed, and the 'allow-modals' keyword is not set." Sanitizer's `DEFAULT_IFRAME_SANDBOX` updated to match for body-embedded iframes. Threat model unchanged — modals can annoy but can't exfiltrate (CSP `connect-src 'none'` still holds; null-origin sandbox still holds). SW bumped to `folio-pwa-9` to evict cached `/n/:uuid` HTML with the old sandbox attr.
+
+### Docs
+- **`skills/folio/SKILL.md`** updated for the plain theme that landed in v0.15.0:
+  - New `plain` row in the theme matrix (custom layout / poster / ASCII art / experimental viz)
+  - `<style>` rule softened from strict `❌` to `⚠️ — allowed since v0.15 but default to theme.css classes; reach for a body-level <style> block only when plain is in play or utilities don't fit`
+  - `style=` rule notes the `plain` exception
+
 ## v0.15.0 — 2026-05-14
 
 `plain` theme — almost-bare canvas for notes that want their own visual identity. Sanitizer now preserves `<style>` blocks at body level, so agents can write idiomatic HTML with a local stylesheet inside the note. No cloud-side runtime changes — pure local + skill update; the cloud just serves whatever the agent put in body_html.

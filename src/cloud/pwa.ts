@@ -719,7 +719,10 @@ function escapeHtml(s: string): string {
 //   v7 → v8: "signed in as <display>" identity hint + sign-out link in the
 //             top bar. Calls /v1/admin/whoami with bearer; sign-out clears
 //             IDB + caches and redirects to /pair.
-export const SW_VERSION = "folio-pwa-8";
+//   v8 → v9: iframe sandbox gains `allow-modals` so window.print() works
+//             from inside notes. Cache bust so cached /n/:uuid shell picks
+//             up the new sandbox attribute.
+export const SW_VERSION = "folio-pwa-9";
 
 export function serviceWorkerJs(): string {
   return `// Folio PWA service worker — auth injection + offline cache.

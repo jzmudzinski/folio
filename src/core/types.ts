@@ -1,4 +1,4 @@
-export type NoteType = "research" | "comparison" | "technical" | "journal" | "snippet";
+export type NoteType = "research" | "comparison" | "technical" | "journal" | "snippet" | "iteration";
 
 export type RenderProfile = "hosted" | "standalone";
 

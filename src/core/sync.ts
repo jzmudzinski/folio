@@ -557,10 +557,13 @@ export async function pushNotes(state: SyncState, selfDeviceId: string): Promise
 
 export async function pushLiveEntries(state: SyncState, selfDeviceId: string): Promise<number> {
   // Live notes owned by this device.
+  // Push entries for both live notes (v0.9+) and iteration notes (v0.18+).
+  // Iteration notes reuse the JSONL substrate to store variants/picks, so
+  // they need the same sync treatment even though live=0 on them.
   const notes = db()
     .query<{ id: string; path: string }, [string]>(
       `SELECT id, path FROM notes
-        WHERE live = 1 AND status = 'active'
+        WHERE (live = 1 OR type = 'iteration') AND status = 'active'
           AND (owner_device_id IS NULL OR owner_device_id = ?)`
     )
     .all(selfDeviceId);

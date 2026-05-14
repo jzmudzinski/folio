@@ -348,6 +348,8 @@ export function finalize(id: string): boolean {
 
   if (note.live) {
     finalizeLive(note);
+  } else if (note.type === "iteration") {
+    finalizeIteration(note);
   }
 
   db().run(
@@ -356,7 +358,7 @@ export function finalize(id: string): boolean {
   );
   logEvent(
     "note_finalized",
-    { age_days_at_finalize: ageDays, was_live: note.live },
+    { age_days_at_finalize: ageDays, was_live: note.live, was_iteration: note.type === "iteration" },
     id,
     note.thread_id,
   );
@@ -455,6 +457,91 @@ function finalizeLive(note: NoteMeta): void {
       entries_total: totalEntries,
       entries_rendered: renderedCount,
       pinned_count: pinned.length,
+    },
+    note.id,
+    note.thread_id,
+  );
+}
+
+/**
+ * Iteration finalize (v0.18+): collapse the design-iteration tree into a
+ * static artifact. The compiled body shows:
+ *   1. The final picked variant's content as the "Final design" (full,
+ *      not sandboxed — content was sanitized at append_entry time, and
+ *      the wrapping HTML we add is server-trusted).
+ *   2. An "Iteration history" section listing every round's pick in
+ *      order, each with its label + round number, so the artifact
+ *      records HOW the final design was reached without dragging in all
+ *      the discarded variants.
+ *
+ * If no pick exists yet (open round abandoned, or no rounds at all), we
+ * write a "no design selected" placeholder rather than erroring — same
+ * permissive stance as finalizeLive on an entries-less note.
+ *
+ * The JSONL is moved to .trash/ — same archival pattern as live notes.
+ * Discarded sibling variants live there if a future tool needs them.
+ */
+function finalizeIteration(note: NoteMeta): void {
+  const { entriesPath, readEntries } = require("./live") as typeof import("./live");
+  const { computeIterationState } = require("./iteration") as typeof import("./iteration");
+  const absPath = join(folioRoot(), note.path);
+  const jsonl = entriesPath(absPath);
+  const rawEntries = existsSync(jsonl) ? readEntries(jsonl) : [];
+  const state = computeIterationState(note.id, rawEntries, false);
+
+  const esc = (s: string): string =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+  const lineage = state.lineage;
+  const finalPick = lineage.length > 0 ? lineage[lineage.length - 1]! : null;
+
+  const finalDesignHtml = finalPick
+    ? `<section class="iter-final">
+  <header class="iter-final__head"><span class="eyebrow">Final design · Round ${finalPick.round}${finalPick.label ? ` · ${esc(finalPick.label)}` : ""}</span></header>
+  <div class="iter-final__content">${finalPick.content_html}</div>
+</section>`
+    : `<section class="iter-final iter-final--empty">
+  <p class="lead">No design was selected — this iteration was abandoned before a final pick.</p>
+</section>`;
+
+  const historyHtml = lineage.length > 0
+    ? `<section class="iter-history">
+  <h2>Iteration history</h2>
+  <ol class="iter-history__list">
+${lineage.map((v) => `    <li><strong>Round ${v.round}</strong>${v.label ? ` · ${esc(v.label)}` : ""}</li>`).join("\n")}
+  </ol>
+  <p class="iter-history__note">${lineage.length} round${lineage.length === 1 ? "" : "s"}, ${state.rounds.length} total batch${state.rounds.length === 1 ? "" : "es"} considered. Discarded variants archived to <code>.trash/</code>.</p>
+</section>`
+    : "";
+
+  const compiledBody = [finalDesignHtml, historyHtml].filter(Boolean).join("\n");
+
+  const existing = readFileSync(absPath, "utf-8");
+  // Preserve the agent's chrome (whatever was in body_html at create time)
+  // and append the compiled final + history. The original chrome usually
+  // has a title/intro that's still relevant on the static artifact.
+  const replaced = existing.replace(
+    /(<article[^>]*data-folio-content[^>]*>)([\s\S]*?)(<\/article>)/,
+    (_m, open, chrome, close) => `${open}${chrome}\n${compiledBody}\n${close}`,
+  );
+  const tmpPath = `${absPath}.tmp`;
+  writeFileSync(tmpPath, replaced, "utf-8");
+  renameSync(tmpPath, absPath);
+
+  // Archive the JSONL so discarded variants are recoverable.
+  if (existsSync(jsonl)) {
+    const trashDir = join(folioRoot(), ".trash");
+    ensureDir(trashDir);
+    const trashPath = join(trashDir, `${note.id}.entries.jsonl`);
+    renameSync(jsonl, trashPath);
+  }
+
+  logEvent(
+    "note_finalized_iteration",
+    {
+      rounds_total: state.rounds.length,
+      picks_made: lineage.length,
+      had_final_pick: finalPick !== null,
     },
     note.id,
     note.thread_id,

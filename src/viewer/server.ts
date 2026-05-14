@@ -311,6 +311,28 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
             );
             html = html.replace("</body>", `<script>${INLINE_FEED_BOOTSTRAP_JS}</script></body>`);
           }
+          // v0.18: iteration notes — swap the article body for a server-
+          // rendered gallery built from the JSONL state machine. Chrome
+          // (h1/intro from agent's body_html) survives via extractChrome.
+          // Once finalized, fall through to the normal rendering path.
+          if (note.type === "iteration" && !note.is_final) {
+            const { renderIterationRaw, extractChrome } = await import("./iteration-render");
+            const { getIterationState } = await import("../core/iteration");
+            const state = getIterationState(note.id);
+            if (state) {
+              const chrome = extractChrome(html);
+              const iterFragment = renderIterationRaw({
+                noteId: note.id,
+                title: note.title,
+                chromeHtml: chrome,
+                state,
+              });
+              html = html.replace(
+                /(<article[^>]*data-folio-content[^>]*>)([\s\S]*?)(<\/article>)/,
+                (_m, open, _content, close) => `${open}${iterFragment}${close}`
+              );
+            }
+          }
           // Inject postMessage bootstrap so notes (including pre-v0.3 archive)
           // talk to the viewer chrome from inside their null-origin sandbox.
           html = injectBootstrap(html);
@@ -487,6 +509,31 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
           } catch (e: any) {
             return jsonResp({ error: e?.message ?? String(e) }, 502);
           }
+        }
+
+        // POST /api/notes/:id/iter/pick  { variant_id }  (v0.18+)
+        //   Iteration notes: viewer's click-to-pick endpoint. Body is the
+        //   same shape as the MCP pick_variant tool would receive.
+        if (req.method === "POST" && /^\/api\/notes\/[^/]+\/iter\/pick$/.test(path)) {
+          const id = path.split("/")[3]!;
+          const body = await req.json().catch(() => ({})) as { variant_id?: string };
+          if (!body.variant_id) return jsonResp({ error: "variant_id required" }, 400);
+          try {
+            const { pickVariant } = await import("../core/iteration");
+            const result = pickVariant({ note_id: id, variant_id: body.variant_id });
+            return jsonResp(result);
+          } catch (e: any) {
+            return jsonResp({ error: e?.message ?? String(e) }, 400);
+          }
+        }
+
+        // GET /api/notes/:id/iter/state — JSON snapshot of iteration state.
+        if (req.method === "GET" && /^\/api\/notes\/[^/]+\/iter\/state$/.test(path)) {
+          const id = path.split("/")[3]!;
+          const { getIterationState } = await import("../core/iteration");
+          const state = getIterationState(id);
+          if (!state) return jsonResp({ error: "not found or not an iteration note" }, 404);
+          return jsonResp(state);
         }
 
         // POST /api/sync/run — one-shot sync (mirrors `folio sync --once`)

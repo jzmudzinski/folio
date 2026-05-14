@@ -38,6 +38,16 @@ test("/ serves app shell HTML without auth", async () => {
   expect(body).toContain("/v1/feed");
 });
 
+test("/ shell has whoami placeholder + sign-out wiring", async () => {
+  const res = await fetch(`${baseUrl}/`);
+  const body = await res.text();
+  expect(body).toContain('id="whoami"');
+  // Bootstrap JS calls whoami + handles sign-out.
+  expect(body).toContain("/v1/admin/whoami");
+  expect(body).toContain("setupWhoami");
+  expect(body).toContain("sign out");
+});
+
 test("/ exposes install banner markup + install-prompt handlers", async () => {
   const res = await fetch(`${baseUrl}/`);
   const body = await res.text();

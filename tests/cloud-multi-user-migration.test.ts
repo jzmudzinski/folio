@@ -283,6 +283,79 @@ test("createPairingCode + consumePairingCode stamps user_id end-to-end", async (
   expect(row?.user_id).toBe("alice");
 });
 
+test("v0.14 migration adds users.is_operator column with DEFAULT 0", () => {
+  const db = cloudDb();
+  expect(hasColumn(db, "users", "is_operator")).toBe(true);
+  // Default user got is_operator = 0 from the column default.
+  const row = db.query<{ is_operator: number }, []>("SELECT is_operator FROM users WHERE id = 'default'").get();
+  expect(row?.is_operator).toBe(0);
+});
+
+test("pre-v0.14 users table (no is_operator) migrated by re-open", () => {
+  // Build a synthetic v0.13-shape users table (no is_operator column).
+  const dbFile = join(tmpDir, "cloud.sqlite");
+  const raw = new Database(dbFile, { create: true });
+  raw.exec(`
+    CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE users (
+      id TEXT PRIMARY KEY,
+      display_name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      deleted_at TEXT
+    );
+    INSERT INTO users (id, display_name, created_at) VALUES ('jarek', 'Jarek', '2026-05-01T10:00:00Z');
+    -- All other tables need to exist for ensureMultiUserSchema's PRAGMA probes
+    -- not to crash. Minimal shapes:
+    CREATE TABLE devices (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, token_hash TEXT NOT NULL,
+      paired_at TEXT NOT NULL, last_seen_at TEXT, revoked_at TEXT,
+      user_id TEXT NOT NULL DEFAULT 'default'
+    );
+    CREATE TABLE pairing_codes (
+      code TEXT PRIMARY KEY, expires_at TEXT NOT NULL, used_by_device_id TEXT,
+      user_id TEXT NOT NULL DEFAULT 'default'
+    );
+    CREATE TABLE notes (
+      uuid TEXT PRIMARY KEY, user_id TEXT NOT NULL DEFAULT 'default',
+      slug TEXT NOT NULL, thread_id TEXT NOT NULL, title TEXT NOT NULL,
+      type TEXT NOT NULL, body_html TEXT NOT NULL, plain_text TEXT DEFAULT '',
+      theme TEXT DEFAULT 'linen', theme_profile TEXT DEFAULT 'hosted',
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, expires_at TEXT,
+      is_final INTEGER DEFAULT 0, live INTEGER DEFAULT 0,
+      owner_device_id TEXT, origin_device_id TEXT NOT NULL,
+      word_count INTEGER DEFAULT 0, summary TEXT, server_seq INTEGER NOT NULL,
+      UNIQUE(user_id, thread_id, slug)
+    );
+    CREATE TABLE note_tags (note_uuid TEXT, tag TEXT, PRIMARY KEY (note_uuid, tag));
+    CREATE TABLE live_entries (id TEXT, note_uuid TEXT, ts TEXT, content_html TEXT, tags_json TEXT, occurred_at TEXT, refs_json TEXT, importance INTEGER, source_ref TEXT, server_seq INTEGER, PRIMARY KEY (note_uuid, id));
+    CREATE TABLE assets (hash TEXT PRIMARY KEY, filename TEXT, thread_id TEXT, user_id TEXT NOT NULL DEFAULT 'default', content_type TEXT, size_bytes INTEGER, blob_path TEXT, uploaded_at TEXT);
+    CREATE TABLE tombstones (uuid TEXT PRIMARY KEY, user_id TEXT NOT NULL DEFAULT 'default', thread_id TEXT, origin_device_id TEXT, deleted_at TEXT, server_seq INTEGER);
+    CREATE TABLE shares (token TEXT PRIMARY KEY, user_id TEXT NOT NULL DEFAULT 'default', scope_type TEXT, scope_id TEXT, created_by_device TEXT, created_at TEXT, expires_at TEXT, revoked_at TEXT, recipient_email_hash TEXT, max_views INTEGER, view_count INTEGER);
+    CREATE TABLE server_seq (id INTEGER PRIMARY KEY CHECK (id = 1), value INTEGER NOT NULL DEFAULT 0);
+    INSERT INTO server_seq (id, value) VALUES (1, 0);
+  `);
+  raw.close();
+
+  const db = cloudDb();
+  expect(hasColumn(db, "users", "is_operator")).toBe(true);
+  // Existing 'jarek' row migrated to is_operator=0 (default value).
+  const jarek = db.query<{ is_operator: number }, []>("SELECT is_operator FROM users WHERE id = 'jarek'").get();
+  expect(jarek?.is_operator).toBe(0);
+});
+
+test("authenticate() returns Device.isOperator from users.is_operator", async () => {
+  cloudDb();
+  const db = cloudDb();
+  db.run("INSERT INTO users (id, display_name, is_operator, created_at) VALUES ('jarek', 'Jarek', 1, '2026-05-01T10:00:00Z')");
+  const { createPairingCode, consumePairingCode, authenticate } = await import("../src/cloud/auth");
+  const { code } = createPairingCode("jarek");
+  const { token } = consumePairingCode(code, "jarek-laptop", undefined);
+  const dev = authenticate(token);
+  expect(dev).not.toBeNull();
+  expect(dev?.userId).toBe("jarek");
+  expect(dev?.isOperator).toBe(true);
+});
+
 test("createPairingCode without --user defaults to 'default'", async () => {
   cloudDb();
   const { createPairingCode, consumePairingCode } = await import("../src/cloud/auth");

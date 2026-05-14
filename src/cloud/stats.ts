@@ -54,6 +54,7 @@ export interface GlobalStats {
   users: Array<{
     id: string;
     display_name: string;
+    is_operator: boolean;
     created_at: string;
     deleted_at: string | null;
     devices: number;
@@ -158,6 +159,7 @@ export function buildGlobalStats(publicUrl: string): GlobalStats {
       {
         id: string;
         display_name: string;
+        is_operator: number;
         created_at: string;
         deleted_at: string | null;
         devices: number;
@@ -171,7 +173,7 @@ export function buildGlobalStats(publicUrl: string): GlobalStats {
       },
       []
     >(
-      `SELECT u.id, u.display_name, u.created_at, u.deleted_at,
+      `SELECT u.id, u.display_name, u.is_operator, u.created_at, u.deleted_at,
               (SELECT COUNT(*) FROM devices WHERE user_id = u.id AND revoked_at IS NULL) AS devices,
               (SELECT COUNT(*) FROM devices WHERE user_id = u.id AND revoked_at IS NOT NULL) AS devices_revoked,
               (SELECT COUNT(*) FROM notes WHERE user_id = u.id) AS notes,
@@ -183,7 +185,8 @@ export function buildGlobalStats(publicUrl: string): GlobalStats {
          FROM users u
         ORDER BY (u.deleted_at IS NOT NULL), u.created_at ASC`
     )
-    .all();
+    .all()
+    .map((r) => ({ ...r, is_operator: r.is_operator === 1 }));
 
   return {
     cloud: { name: "folio-cloud", version: pkg.version, public_url: publicUrl },

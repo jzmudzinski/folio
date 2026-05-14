@@ -69,9 +69,14 @@ CREATE TABLE IF NOT EXISTS meta (
 
 -- Users (v0.13.0+). One row per operator-provisioned account. No password —
 -- bearer tokens live on devices. user-add via CLI; no self-service registration.
+-- is_operator (v0.14.0+): when 1, the user's devices can call /v1/admin/*
+-- routes (create/rename/revoke other users, list cloud-wide stats). Set via
+-- 'folio cloud user-promote <id>' or unset via user-demote. Multiple
+-- operators allowed — mirrors how systems with multiple admins work.
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,           -- kebab-case: 'jarek', 'alice', 'bob'
   display_name TEXT NOT NULL,
+  is_operator INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   deleted_at TEXT
 );
@@ -254,6 +259,16 @@ export function cloudDb(): Database {
  *   PRAGMA foreign_keys = ON
  */
 function ensureMultiUserSchema(db: Database): void {
+  // v0.14: users.is_operator column. Detect first because if the users table
+  // was created BEFORE this column existed, the CREATE TABLE IF NOT EXISTS
+  // above keeps the old shape. ALTER TABLE adds the column with DEFAULT 0
+  // so every existing row is a non-operator (operator must be explicitly
+  // promoted via `folio cloud user-promote <id>`).
+  const userCols = db.query<{ name: string }, []>("PRAGMA table_info(users)").all();
+  if (!userCols.some((c) => c.name === "is_operator")) {
+    db.exec("ALTER TABLE users ADD COLUMN is_operator INTEGER NOT NULL DEFAULT 0");
+  }
+
   const deviceCols = db.query<{ name: string }, []>("PRAGMA table_info(devices)").all();
   const devicesHaveUserId = deviceCols.some((c) => c.name === "user_id");
 

@@ -1417,6 +1417,17 @@ function cloudPairedBody(state: CloudPageState): string {
     <div id="cloud-stats-body" class="stats-body">
       <div class="stats-loading">Loading…</div>
     </div>
+  </div>
+  <div id="operator-card" class="cloud-card operator-card" hidden>
+    <h3>
+      <span class="op-badge">Operator</span>
+      Cloud accounts
+      <button id="add-user-btn" class="primary" type="button" style="margin-left:auto; font-size:12px; padding:6px 12px;">+ Add user</button>
+    </h3>
+    <div id="add-user-form" class="add-user-form" hidden></div>
+    <div id="op-users-table"></div>
+    <div id="op-detail" hidden></div>
+    <div id="op-err" class="err"></div>
   </div>`;
 }
 
@@ -1471,6 +1482,43 @@ function cloudScript(): string {
   .stats-table td.num { text-align: right; font-family: var(--vmono); font-size: 12px; color: var(--vmuted); }
   .stats-table td.dim { color: var(--vmuted-2); font-style: italic; }
   .stats-table .pill-rev { display: inline-block; padding: 1px 6px; font-size: 10.5px; background: rgba(192,57,43,0.08); color: #a4253a; border-radius: 4px; margin-left: 6px; }
+  /* Operator dashboard (v0.14+) — only rendered when /v1/admin/whoami says is_operator. */
+  .operator-card h3 { display: flex; align-items: center; gap: 10px; }
+  .op-badge { background: var(--vorange); color: var(--vbg); font-size: 10px; padding: 2px 7px; border-radius: 4px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; }
+  .op-users { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+  .op-user-row { display: grid; grid-template-columns: 1.4fr 2fr 1fr 24px; gap: 12px; padding: 11px 12px; border-radius: 6px; cursor: pointer; align-items: center; font-size: 13px; transition: background .1s; }
+  .op-user-row:hover { background: var(--vbg-2); }
+  .op-user-row.selected { background: var(--vorange-soft, rgba(255,90,31,0.10)); border-left: 3px solid var(--vorange); padding-left: 9px; }
+  .op-user-id { font-weight: 500; display: flex; align-items: center; gap: 8px; }
+  .op-user-stats { color: var(--vmuted); font-size: 12px; }
+  .op-user-last { color: var(--vmuted-2); font-size: 11px; text-align: right; }
+  .op-arrow { text-align: right; color: var(--vmuted-2); font-size: 11px; }
+  .op-status { font-size: 9.5px; padding: 1px 5px; border-radius: 3px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .op-status.operator { background: rgba(255,90,31,0.18); color: var(--vorange); }
+  .op-status.active { background: rgba(74,222,128,0.12); color: #15803d; }
+  .op-status.deleted { background: rgba(192,57,43,0.18); color: #c0392b; }
+  .add-user-form { padding: 14px 16px; background: var(--vbg-2); border-radius: 8px; margin-bottom: 12px; border: 1px solid var(--vline); }
+  .add-user-form .field { display: block; margin-bottom: 10px; }
+  .add-user-form .field label { display: block; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--vmuted); margin-bottom: 4px; }
+  .add-user-form .field input { width: 100%; padding: 9px 11px; background: var(--vbg); border: 1px solid var(--vline); border-radius: 6px; color: var(--vink); font-family: inherit; font-size: 13px; box-sizing: border-box; }
+  .add-user-form .field input:focus { outline: none; border-color: var(--vorange); box-shadow: 0 0 0 2px var(--vorange-soft, rgba(255,90,31,0.2)); }
+  .add-user-form .row { display: flex; gap: 8px; }
+  .add-user-form .row > .field { flex: 1; }
+  .add-user-form label.cb { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--vink); text-transform: none; letter-spacing: 0; margin-bottom: 12px; cursor: pointer; }
+  .op-detail { padding: 16px; background: var(--vbg-2); border-radius: 8px; margin-top: 12px; border: 1px solid var(--vline); }
+  .op-detail h4 { margin: 0 0 12px; font-family: var(--vhead); font-weight: 500; font-size: 15px; }
+  .op-detail h4 .id-mono { color: var(--vmuted); font-family: var(--vmono); font-size: 12px; margin-left: 6px; }
+  .op-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 12px; margin-bottom: 12px; }
+  .op-stat-grid .lbl { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--vmuted); }
+  .op-stat-grid .val { font-family: var(--vhead); font-size: 20px; font-weight: 500; margin-top: 3px; }
+  .op-stat-grid .sub { font-size: 10.5px; color: var(--vmuted-2); margin-top: 1px; }
+  .op-code-box { background: var(--vorange-soft, rgba(255,90,31,0.08)); border: 1px solid rgba(255,90,31,0.3); border-radius: 8px; padding: 14px; text-align: center; margin: 10px 0; }
+  .op-code-box .lbl { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--vmuted); margin-bottom: 6px; }
+  .op-code-box .code { font-family: var(--vmono); font-size: 26px; letter-spacing: 6px; color: var(--vorange); font-weight: 600; user-select: all; }
+  .op-code-box .hint { font-size: 11px; color: var(--vmuted); margin-top: 6px; font-family: var(--vserif); font-style: italic; }
+  .op-toast { padding: 8px 12px; border-radius: 6px; background: rgba(74,222,128,0.1); border: 1px solid rgba(74,222,128,0.3); color: #15803d; font-size: 12px; margin-top: 10px; }
+  .op-toast.muted { background: var(--vbg); border-color: var(--vline-2); color: var(--vmuted); }
+  .op-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 </style>
 <script>(function(){
   function showErr(elId, msg) {
@@ -1665,6 +1713,283 @@ function cloudScript(): string {
   if (document.getElementById('cloud-stats-body')) loadStats();
   var statsRefresh = document.getElementById('stats-refresh');
   if (statsRefresh) statsRefresh.addEventListener('click', loadStats);
+
+  // ---- Operator dashboard (v0.14+) ----
+  // Renders the user-management panel iff /v1/admin/whoami returns
+  // is_operator=true. Non-operator paired devices never see this section.
+  var opState = { selected: null, adding: false, mintedCode: null, toast: null, renaming: false, users: [] };
+  function opShowErr(msg) {
+    var e = document.getElementById('op-err');
+    if (!e) return;
+    e.textContent = msg || '';
+    if (msg) e.classList.add('shown'); else e.classList.remove('shown');
+  }
+  // bytesHuman() + ago() are defined earlier in this script (used by the
+  // stats panel above) — reuse rather than redeclare.
+  async function opCall(method, path, body) {
+    var init = { method: method, headers: { 'content-type': 'application/json' } };
+    if (body !== undefined) init.body = JSON.stringify(body);
+    var res = await fetch('/api/cloud/admin' + path, init);
+    var text = await res.text();
+    var data = text ? JSON.parse(text) : {};
+    if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    return data;
+  }
+  async function opRefresh() {
+    try {
+      var data = await opCall('GET', '/users');
+      opState.users = data.users || [];
+      renderOp();
+    } catch (e) { opShowErr(e.message || String(e)); }
+  }
+  function renderOp() {
+    var tableEl = document.getElementById('op-users-table');
+    var detailEl = document.getElementById('op-detail');
+    var addEl = document.getElementById('add-user-form');
+    if (!tableEl || !detailEl || !addEl) return;
+
+    // Users list
+    tableEl.innerHTML = '';
+    var listWrap = document.createElement('div');
+    listWrap.className = 'op-users';
+    for (var i = 0; i < opState.users.length; i++) {
+      (function(u){
+        var row = document.createElement('div');
+        row.className = 'op-user-row' + (opState.selected === u.id ? ' selected' : '');
+        var idCell = document.createElement('span');
+        idCell.className = 'op-user-id';
+        idCell.appendChild(document.createTextNode(u.id));
+        var statusCls = u.deleted_at ? 'deleted' : (u.is_operator ? 'operator' : 'active');
+        var statusText = u.deleted_at ? 'deleted' : (u.is_operator ? 'operator' : 'active');
+        var pill = document.createElement('span');
+        pill.className = 'op-status ' + statusCls;
+        pill.textContent = statusText;
+        idCell.appendChild(pill);
+        row.appendChild(idCell);
+        var stats = document.createElement('span');
+        stats.className = 'op-user-stats';
+        stats.textContent = u.devices + ' dev · ' + u.notes + ' notes · ' + bytesHuman(u.assets_bytes);
+        row.appendChild(stats);
+        var last = document.createElement('span');
+        last.className = 'op-user-last';
+        last.textContent = ago(u.last_seen_at);
+        row.appendChild(last);
+        var arrow = document.createElement('span');
+        arrow.className = 'op-arrow';
+        arrow.textContent = opState.selected === u.id ? '▼' : '›';
+        row.appendChild(arrow);
+        row.addEventListener('click', function(){
+          opState.selected = opState.selected === u.id ? null : u.id;
+          opState.adding = false;
+          opState.mintedCode = null;
+          opState.toast = null;
+          opState.renaming = false;
+          renderOp();
+        });
+        listWrap.appendChild(row);
+      })(opState.users[i]);
+    }
+    tableEl.appendChild(listWrap);
+
+    // Add-user form
+    addEl.innerHTML = '';
+    if (opState.adding) {
+      addEl.hidden = false;
+      var idField = document.createElement('div'); idField.className = 'field';
+      var idLab = document.createElement('label'); idLab.textContent = 'id (kebab-case)';
+      var idIn = document.createElement('input'); idIn.placeholder = 'alice'; idIn.id = 'new-uid';
+      idField.appendChild(idLab); idField.appendChild(idIn);
+      var dispField = document.createElement('div'); dispField.className = 'field';
+      var dispLab = document.createElement('label'); dispLab.textContent = 'display name (optional)';
+      var dispIn = document.createElement('input'); dispIn.placeholder = 'Alice'; dispIn.id = 'new-disp';
+      dispField.appendChild(dispLab); dispField.appendChild(dispIn);
+      var opLabel = document.createElement('label'); opLabel.className = 'cb';
+      var opCb = document.createElement('input'); opCb.type = 'checkbox'; opCb.id = 'new-op';
+      opLabel.appendChild(opCb);
+      opLabel.appendChild(document.createTextNode(' make this user an operator'));
+      var mintLabel = document.createElement('label'); mintLabel.className = 'cb';
+      var mintCb = document.createElement('input'); mintCb.type = 'checkbox'; mintCb.id = 'new-mint'; mintCb.checked = true;
+      mintLabel.appendChild(mintCb);
+      mintLabel.appendChild(document.createTextNode(' mint pair-code immediately'));
+      var actions = document.createElement('div'); actions.className = 'op-actions';
+      var createBtn = document.createElement('button'); createBtn.className = 'primary'; createBtn.type = 'button'; createBtn.textContent = 'Create user';
+      var cancelBtn = document.createElement('button'); cancelBtn.type = 'button'; cancelBtn.textContent = 'Cancel';
+      createBtn.addEventListener('click', async function(){
+        opShowErr('');
+        var id = idIn.value.trim();
+        var disp = dispIn.value.trim();
+        try {
+          var data = await opCall('POST', '/users', {
+            id: id,
+            display_name: disp || undefined,
+            is_operator: opCb.checked,
+            mint_pair_code: mintCb.checked,
+          });
+          opState.adding = false;
+          opState.selected = data.user.id;
+          opState.mintedCode = data.pair_code; // null if mint_pair_code=false
+          opState.toast = "user '" + data.user.id + "' created";
+          await opRefresh();
+        } catch (e) { opShowErr(e.message || String(e)); }
+      });
+      cancelBtn.addEventListener('click', function(){ opState.adding = false; renderOp(); });
+      actions.appendChild(createBtn); actions.appendChild(cancelBtn);
+      addEl.appendChild(idField);
+      addEl.appendChild(dispField);
+      addEl.appendChild(opLabel);
+      addEl.appendChild(mintLabel);
+      addEl.appendChild(actions);
+    } else {
+      addEl.hidden = true;
+    }
+
+    // Detail pane
+    if (opState.selected) {
+      var u = null;
+      for (var k = 0; k < opState.users.length; k++) { if (opState.users[k].id === opState.selected) { u = opState.users[k]; break; } }
+      if (u) {
+        detailEl.hidden = false;
+        detailEl.className = 'op-detail';
+        detailEl.innerHTML = '';
+        var h = document.createElement('h4');
+        h.appendChild(document.createTextNode(u.display_name));
+        var idMono = document.createElement('span'); idMono.className = 'id-mono'; idMono.textContent = u.id;
+        h.appendChild(idMono);
+        detailEl.appendChild(h);
+
+        if (opState.renaming) {
+          var rf = document.createElement('div'); rf.className = 'field';
+          var rl = document.createElement('label'); rl.textContent = 'new id';
+          var ri = document.createElement('input'); ri.value = u.id;
+          rf.appendChild(rl); rf.appendChild(ri);
+          detailEl.appendChild(rf);
+          var ra = document.createElement('div'); ra.className = 'op-actions';
+          var saveBtn = document.createElement('button'); saveBtn.className = 'primary'; saveBtn.type = 'button'; saveBtn.textContent = 'Save';
+          var cancelR = document.createElement('button'); cancelR.type = 'button'; cancelR.textContent = 'Cancel';
+          saveBtn.addEventListener('click', async function(){
+            opShowErr('');
+            try {
+              var data = await opCall('PATCH', '/users/' + encodeURIComponent(u.id), { new_id: ri.value.trim() });
+              opState.selected = data.id;
+              opState.toast = "renamed → '" + data.id + "' (bearer tokens unchanged)";
+              opState.renaming = false;
+              await opRefresh();
+            } catch (e) { opShowErr(e.message || String(e)); }
+          });
+          cancelR.addEventListener('click', function(){ opState.renaming = false; renderOp(); });
+          ra.appendChild(saveBtn); ra.appendChild(cancelR);
+          detailEl.appendChild(ra);
+        } else {
+          var grid = document.createElement('div'); grid.className = 'op-stat-grid';
+          var cells = [
+            { lbl: 'Devices', val: u.devices, sub: u.devices_revoked > 0 ? u.devices_revoked + ' revoked' : null },
+            { lbl: 'Notes',   val: u.notes },
+            { lbl: 'Assets',  val: u.assets, sub: bytesHuman(u.assets_bytes) },
+            { lbl: 'Shares',  val: u.shares_active },
+          ];
+          for (var c = 0; c < cells.length; c++) {
+            var cell = document.createElement('div');
+            var lbl = document.createElement('div'); lbl.className = 'lbl'; lbl.textContent = cells[c].lbl;
+            var val = document.createElement('div'); val.className = 'val'; val.textContent = String(cells[c].val);
+            cell.appendChild(lbl); cell.appendChild(val);
+            if (cells[c].sub) { var sub = document.createElement('div'); sub.className = 'sub'; sub.textContent = cells[c].sub; cell.appendChild(sub); }
+            grid.appendChild(cell);
+          }
+          detailEl.appendChild(grid);
+
+          if (opState.mintedCode && opState.mintedCode.user_id === u.id) {
+            var box = document.createElement('div'); box.className = 'op-code-box';
+            var bl = document.createElement('div'); bl.className = 'lbl'; bl.textContent = 'Pair code · expires ' + (opState.mintedCode.expires_at || '').replace('T',' ').slice(0,19);
+            var bv = document.createElement('div'); bv.className = 'code'; bv.textContent = opState.mintedCode.code;
+            var bh = document.createElement('div'); bh.className = 'hint'; bh.textContent = "Hand to " + u.display_name + " over a side channel (Signal, SMS, in-person).";
+            box.appendChild(bl); box.appendChild(bv); box.appendChild(bh);
+            detailEl.appendChild(box);
+          }
+          if (opState.toast) {
+            var t = document.createElement('div'); t.className = 'op-toast'; t.textContent = '✓ ' + opState.toast;
+            detailEl.appendChild(t);
+          }
+          if (u.deleted_at) {
+            var dt = document.createElement('div'); dt.className = 'op-toast muted';
+            dt.textContent = 'Deleted on ' + u.deleted_at.slice(0, 10) + '. Reactivate via CLI.';
+            detailEl.appendChild(dt);
+          } else {
+            var acts = document.createElement('div'); acts.className = 'op-actions';
+            function mkBtn(label, cls, fn){ var b = document.createElement('button'); b.type='button'; if(cls) b.className=cls; b.textContent=label; b.addEventListener('click', fn); return b; }
+            acts.appendChild(mkBtn('↻ Mint pair-code', 'primary', async function(){
+              opShowErr('');
+              try {
+                var data = await opCall('POST', '/users/' + encodeURIComponent(u.id) + '/pair-code');
+                opState.mintedCode = data;
+                opState.toast = null;
+                renderOp();
+              } catch (e) { opShowErr(e.message || String(e)); }
+            }));
+            acts.appendChild(mkBtn('✎ Rename', '', function(){ opState.renaming = true; renderOp(); }));
+            acts.appendChild(mkBtn(u.is_operator ? '↓ Demote' : '↑ Promote', '', async function(){
+              opShowErr('');
+              try {
+                await opCall('PATCH', '/users/' + encodeURIComponent(u.id), { is_operator: !u.is_operator });
+                opState.toast = u.is_operator ? 'demoted from operator' : 'promoted to operator';
+                opState.mintedCode = null;
+                await opRefresh();
+              } catch (e) { opShowErr(e.message || String(e)); }
+            }));
+            acts.appendChild(mkBtn('☒ Revoke devices', 'danger', async function(){
+              if (u.devices === 0) { opState.toast = 'no active devices'; renderOp(); return; }
+              if (!window.confirm("Revoke all of " + u.display_name + "'s devices? Data preserved.")) return;
+              opShowErr('');
+              try {
+                await opCall('DELETE', '/users/' + encodeURIComponent(u.id));
+                opState.toast = 'all devices revoked — data preserved';
+                opState.mintedCode = null;
+                await opRefresh();
+              } catch (e) { opShowErr(e.message || String(e)); }
+            }));
+            acts.appendChild(mkBtn('⌧ Purge (cascade)', 'danger', async function(){
+              if (!window.confirm("PURGE " + u.display_name + " — deletes " + u.notes + " notes, " + u.assets + " assets, " + u.shares_active + " shares. Cannot undo. Type yes to confirm.")) return;
+              var typed = window.prompt("Type the user id to confirm purge:");
+              if (typed !== u.id) { opState.toast = 'cancelled — id mismatch'; renderOp(); return; }
+              opShowErr('');
+              try {
+                var data = await opCall('DELETE', '/users/' + encodeURIComponent(u.id) + '?purge=1');
+                opState.toast = "purged " + (data.purged ? data.purged.notes + ' notes, ' + data.purged.assets + ' assets' : '');
+                opState.selected = null;
+                opState.mintedCode = null;
+                await opRefresh();
+              } catch (e) { opShowErr(e.message || String(e)); }
+            }));
+            detailEl.appendChild(acts);
+          }
+        }
+      } else {
+        detailEl.hidden = true;
+      }
+    } else {
+      detailEl.hidden = true;
+    }
+  }
+  // Bootstrap: check whoami and conditionally show operator card.
+  (async function(){
+    var card = document.getElementById('operator-card');
+    if (!card) return;
+    try {
+      var r = await fetch('/api/cloud/admin/whoami');
+      if (!r.ok) return; // not paired or other error → leave card hidden
+      var me = await r.json();
+      if (!me.is_operator) return;
+      card.hidden = false;
+      var addBtn = document.getElementById('add-user-btn');
+      if (addBtn) addBtn.addEventListener('click', function(){
+        opState.adding = !opState.adding;
+        opState.selected = null;
+        opState.mintedCode = null;
+        opState.toast = null;
+        renderOp();
+      });
+      await opRefresh();
+    } catch (_e) {}
+  })();
 
   var unpairBtn = document.getElementById('unpair-btn');
   if (unpairBtn) {

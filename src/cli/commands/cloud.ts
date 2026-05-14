@@ -36,15 +36,17 @@ import { c, out, err } from "../io";
 
 export async function cloudCmd(sub: string | undefined, args: string[]): Promise<number> {
   switch (sub) {
-    case "init":        return cloudInitVerbose();
-    case "serve":       return cloudServe();
-    case "pair-code":   return cloudPairCode(args);
-    case "user-add":    return userAdd(args);
-    case "user-list":   return userList(args);
-    case "user-rename": return userRename(args);
-    case "user-revoke": return userRevoke(args);
+    case "init":         return cloudInitVerbose();
+    case "serve":        return cloudServe();
+    case "pair-code":    return cloudPairCode(args);
+    case "user-add":     return userAdd(args);
+    case "user-list":    return userList(args);
+    case "user-rename":  return userRename(args);
+    case "user-revoke":  return userRevoke(args);
+    case "user-promote": return userPromote(args, true);
+    case "user-demote":  return userPromote(args, false);
     default:
-      err("Usage: folio cloud {init|serve|pair-code [--user <id>]|user-add <id> [--display \"Name\"]|user-list [--json]|user-rename <old> <new>|user-revoke <id> [--purge --yes]}");
+      err("Usage: folio cloud {init|serve|pair-code [--user <id>]|user-add <id> [--display \"Name\"]|user-list [--json]|user-rename <old> <new>|user-revoke <id> [--purge --yes]|user-promote <id>|user-demote <id>}");
       return 1;
   }
 }
@@ -218,8 +220,8 @@ function userList(args: string[]): number {
     return 0;
   }
   // Plain text table — keep columns narrow so it fits a 100-col terminal.
-  const cols = ["id", "display", "devices", "notes", "live", "assets", "shares", "last_seen", "status"];
-  const widths = [16, 16, 7, 6, 5, 16, 7, 19, 9];
+  const cols = ["id", "display", "devices", "notes", "live", "assets", "shares", "last_seen", "role"];
+  const widths = [16, 16, 7, 6, 5, 16, 7, 19, 10];
   const headerLine = cols.map((c, i) => c.padEnd(widths[i]!)).join("  ");
   out(c.dim(headerLine));
   out(c.dim("-".repeat(headerLine.length)));
@@ -227,7 +229,7 @@ function userList(args: string[]): number {
     const devicesCell = u.devices_revoked > 0 ? `${u.devices}/-${u.devices_revoked}` : `${u.devices}`;
     const assetsCell = `${u.assets} (${bytesHuman(u.assets_bytes)})`;
     const lastSeen = u.last_seen_at ? u.last_seen_at.slice(0, 19).replace("T", " ") : "—";
-    const status = u.deleted_at ? c.dim("deleted") : "active";
+    const role = u.deleted_at ? c.dim("deleted") : (u.is_operator ? c.bold("operator") : "active");
     out(
       [
         u.id.padEnd(widths[0]!),
@@ -238,7 +240,7 @@ function userList(args: string[]): number {
         assetsCell.slice(0, widths[5]!).padEnd(widths[5]!),
         String(u.shares_active).padEnd(widths[6]!),
         lastSeen.padEnd(widths[7]!),
-        status,
+        role,
       ].join("  ")
     );
   }
@@ -345,5 +347,37 @@ function userRevoke(args: string[]): number {
     } catch {}
   }
   out(c.ok(`✓ user '${id}' purged: ${counts.notes} notes, ${counts.assets} assets, ${counts.shares} shares, ${counts.tombstones} tombstones removed.`));
+  return 0;
+}
+
+function userPromote(args: string[], promote: boolean): number {
+  ensureCloudReady();
+  const { positional } = parseArgs(args);
+  const id = positional[0];
+  const verb = promote ? "promote" : "demote";
+  if (!id) {
+    err(c.err(`✗ Usage: folio cloud user-${verb} <id>\n`));
+    return 2;
+  }
+  const db = cloudDb();
+  const user = db.query<{ id: string; is_operator: number }, [string]>("SELECT id, is_operator FROM users WHERE id = ? AND deleted_at IS NULL").get(id);
+  if (!user) {
+    err(c.err(`✗ user '${id}' not found (or deleted).\n`));
+    return 3;
+  }
+  const currentlyOp = user.is_operator === 1;
+  if (promote && currentlyOp) {
+    out(c.dim(`user '${id}' is already an operator — nothing to do.`));
+    return 0;
+  }
+  if (!promote && !currentlyOp) {
+    out(c.dim(`user '${id}' is not an operator — nothing to do.`));
+    return 0;
+  }
+  db.run("UPDATE users SET is_operator = ? WHERE id = ?", [promote ? 1 : 0, id]);
+  out(c.ok(`✓ user '${id}' ${promote ? "promoted to operator" : "demoted from operator"}`));
+  if (promote) {
+    out(c.dim(`  '${id}'s devices can now call /v1/admin/* routes from the local viewer.`));
+  }
   return 0;
 }

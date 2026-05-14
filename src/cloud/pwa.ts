@@ -44,6 +44,10 @@ header.top { padding: 14px 20px; border-bottom: 1px solid var(--line); display: 
 header.top .brand { font-family: 'Familjen Grotesk', system-ui, sans-serif; font-weight: 500; font-size: 22px; letter-spacing: -0.04em; color: var(--ink); }
 header.top .brand .dot { color: var(--accent); }
 header.top .meta { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+header.top .whoami { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.06em; color: var(--muted); margin-left: 4px; }
+header.top .whoami a { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--line); }
+header.top .whoami a:hover { color: var(--ink); border-bottom-color: var(--muted); }
+header.top .whoami .display { color: var(--ink-2); }
 main { padding: 16px 20px 60px; max-width: 760px; margin: 0 auto; }
 .empty, .loading { color: var(--muted); text-align: center; padding: 60px 20px; font-style: italic; font-family: 'Instrument Serif', serif; font-size: 18px; }
 .offline-banner { background: #fff6d6; color: #5a4400; border-bottom: 1px solid var(--line); padding: 8px 20px; font-size: 13px; text-align: center; }
@@ -398,6 +402,42 @@ ${IDB_HELPERS_JS}
     });
   }
 
+  // ---- Identity hint (v0.14+) ----
+  // Calls /v1/admin/whoami with the bearer from IDB; renders
+  // "signed in as <display>" + a tiny "sign out" link in the top bar.
+  // Sign-out clears IDB token + reloads → /pair flow.
+  (async function setupWhoami(){
+    var el = document.getElementById('whoami');
+    if (!el) return;
+    var tok = await window.folioKV.get('token');
+    if (!tok) return;
+    try {
+      var r = await fetch('/v1/admin/whoami', { headers: { Authorization: 'Bearer ' + tok } });
+      if (!r.ok) return;
+      var me = await r.json();
+      el.hidden = false;
+      el.innerHTML = '';
+      el.appendChild(document.createTextNode('signed in as '));
+      var disp = document.createElement('span');
+      disp.className = 'display';
+      disp.textContent = me.display_name || me.user_id;
+      el.appendChild(disp);
+      el.appendChild(document.createTextNode(' · '));
+      var out = document.createElement('a');
+      out.href = '#sign-out';
+      out.textContent = 'sign out';
+      out.addEventListener('click', async function(ev){
+        ev.preventDefault();
+        if (!window.confirm('Sign out of ' + (me.display_name || me.user_id) + '?')) return;
+        await window.folioKV.del('token');
+        await window.folioKV.del('paired_at');
+        try { var caches2 = await caches.keys(); for (var k of caches2) await caches.delete(k); } catch (_e) {}
+        window.location.href = '/pair';
+      });
+      el.appendChild(out);
+    } catch (_e) {}
+  })();
+
   // ---- Install prompt ----
   // beforeinstallprompt: Chrome/Edge/Samsung capture so we can offer an
   // explicit Install button rather than burying it in the browser menu.
@@ -516,6 +556,7 @@ export function renderHome(publicUrl: string): string {
   <div id="offline-banner" class="offline-banner hidden">Offline — showing cached notes.</div>
   <header class="top">
     <a href="/" style="text-decoration: none;"><span class="brand">folio<span class="dot">.</span></span></a>
+    <span id="whoami" class="whoami" hidden></span>
     <span id="ctx"></span>
   </header>
   <main>
@@ -675,7 +716,10 @@ function escapeHtml(s: string): string {
 //             Old cached /t/<thread>/asset/ URLs would 404 in multi-user
 //             setups; bump SW invalidates the cache so the new rewrite path
 //             takes over cleanly.
-export const SW_VERSION = "folio-pwa-7";
+//   v7 → v8: "signed in as <display>" identity hint + sign-out link in the
+//             top bar. Calls /v1/admin/whoami with bearer; sign-out clears
+//             IDB + caches and redirects to /pair.
+export const SW_VERSION = "folio-pwa-8";
 
 export function serviceWorkerJs(): string {
   return `// Folio PWA service worker — auth injection + offline cache.

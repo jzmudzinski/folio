@@ -238,6 +238,66 @@ test("regression: top-level dispatcher forwards --flag value to cloud subcommand
   expect(row?.user_id).toBe("alice");
 });
 
+test("user-promote: flips is_operator → 1; idempotent", async () => {
+  await run("user-add", ["jarek"]);
+  stdout.length = 0;
+  const rc = await run("user-promote", ["jarek"]);
+  expect(rc).toBe(0);
+  expect(stdout.join("")).toContain("promoted to operator");
+  const row = cloudDb()
+    .query<{ is_operator: number }, [string]>("SELECT is_operator FROM users WHERE id = ?")
+    .get("jarek");
+  expect(row?.is_operator).toBe(1);
+
+  // Re-promote → idempotent no-op.
+  stdout.length = 0;
+  const rc2 = await run("user-promote", ["jarek"]);
+  expect(rc2).toBe(0);
+  expect(stdout.join("")).toContain("already an operator");
+});
+
+test("user-demote: flips is_operator → 0; idempotent on non-operator", async () => {
+  await run("user-add", ["alice"]);
+  await run("user-promote", ["alice"]);
+  stdout.length = 0;
+  const rc = await run("user-demote", ["alice"]);
+  expect(rc).toBe(0);
+  expect(stdout.join("")).toContain("demoted from operator");
+  const row = cloudDb()
+    .query<{ is_operator: number }, [string]>("SELECT is_operator FROM users WHERE id = ?")
+    .get("alice");
+  expect(row?.is_operator).toBe(0);
+
+  // Re-demote → idempotent no-op.
+  stdout.length = 0;
+  const rc2 = await run("user-demote", ["alice"]);
+  expect(rc2).toBe(0);
+  expect(stdout.join("")).toContain("not an operator");
+});
+
+test("user-promote: unknown user errors", async () => {
+  stderr.length = 0;
+  const rc = await run("user-promote", ["phantom"]);
+  expect(rc).not.toBe(0);
+  expect(stderr.join("")).toContain("not found");
+});
+
+test("user-list: 'role' column shows operator | active | deleted", async () => {
+  await run("user-add", ["jarek"]);
+  await run("user-promote", ["jarek"]);
+  await run("user-add", ["alice"]);
+  await run("user-add", ["bob"]);
+  await run("user-revoke", ["bob", "--purge", "--yes"]);
+  stdout.length = 0;
+  const rc = await run("user-list", ["--json"]);
+  expect(rc).toBe(0);
+  const data = JSON.parse(stdout.join("").trim());
+  const byId = Object.fromEntries(data.users.map((u: any) => [u.id, u]));
+  expect(byId.jarek.is_operator).toBe(true);
+  expect(byId.alice.is_operator).toBe(false);
+  expect(byId.bob.deleted_at).not.toBeNull();
+});
+
 test("user-revoke --purge without --yes: confirmation gate refuses", async () => {
   await run("user-add", ["alice"]);
   const db = cloudDb();

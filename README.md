@@ -23,7 +23,7 @@ When your agent has something to show — research, comparison, technical doc, s
 
 ## Status
 
-**v0.13.0 — functional, multi-user-capable cloud, shippable.** Public release: 2026-05-14.
+**v0.14.0 — multi-user cloud + operator dashboard, shippable.** Public release: 2026-05-14.
 
 - ✅ Core flow: agent → MCP `create` → note on disk → `/n/<id>` renders
 - ✅ Sync daemon (`folio sync`) mirrors `~/Folio/` to an optional cloud relay — bidirectional notes + assets + tombstones

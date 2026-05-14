@@ -174,7 +174,9 @@ async function handleCapabilityRoute(req: Request, path: string, method: string)
 
   // /p/:token/t/:thread/asset/:filename — capability-scoped asset access.
   // The share must cover the requested thread (either thread-scoped to it,
-  // or note-scoped to a note in it).
+  // or note-scoped to a note in it). Asset lookup pinned to share.user_id
+  // so a cross-user (thread, filename) collision can never serve another
+  // user's bytes through a single user's capability token.
   if (kind === "t" && parts.length === 6 && parts[4] === "asset") {
     const threadId = decodeURIComponent(parts[3]!);
     const filename = decodeURIComponent(parts[5]!);
@@ -183,18 +185,18 @@ async function handleCapabilityRoute(req: Request, path: string, method: string)
     const validScope = share.scope_type === "thread"
       ? share.scope_id === threadId
       : (cloudDb()
-          .query<{ thread_id: string }, [string]>("SELECT thread_id FROM notes WHERE uuid = ?")
-          .get(share.scope_id)?.thread_id === threadId);
+          .query<{ thread_id: string }, [string, string]>("SELECT thread_id FROM notes WHERE uuid = ? AND user_id = ?")
+          .get(share.scope_id, share.user_id)?.thread_id === threadId);
     if (!validScope) return new Response("not found", { status: 404 });
     if (share.revoked_at) return new Response("not found", { status: 404 });
     if (share.expires_at && new Date(share.expires_at).getTime() <= Date.now()) {
       return new Response("link expired", { status: 410 });
     }
     const row = cloudDb()
-      .query<{ hash: string }, [string, string]>(
-        "SELECT hash FROM assets WHERE thread_id = ? AND filename = ?"
+      .query<{ hash: string }, [string, string, string]>(
+        "SELECT hash FROM assets WHERE user_id = ? AND thread_id = ? AND filename = ?"
       )
-      .get(threadId, filename);
+      .get(share.user_id, threadId, filename);
     if (!row) return new Response("not found", { status: 404 });
     const a = readAsset(row.hash);
     if (!a) return new Response("not found", { status: 404 });
@@ -214,13 +216,15 @@ async function handleCapabilityRoute(req: Request, path: string, method: string)
 
   if (kind === "n" || kind === "raw") {
     // Look up note for thread context (needed for thread-scoped validation
-    // when caller targets a note). Same lookup is reused for rendering below.
+    // when caller targets a note). Same lookup is reused for rendering
+    // below. Pinned to share.user_id so a leaked token from user A can
+    // never address user B's notes even if the uuid happens to collide.
     const note = cloudDb()
       .query<
         { uuid: string; title: string; theme: string; body_html: string; thread_id: string },
-        [string]
-      >("SELECT uuid, title, theme, body_html, thread_id FROM notes WHERE uuid = ?")
-      .get(id);
+        [string, string]
+      >("SELECT uuid, title, theme, body_html, thread_id FROM notes WHERE uuid = ? AND user_id = ?")
+      .get(id, share.user_id);
     if (!note) return new Response("not found", { status: 404 });
 
     const v = validateShareAccess(share, { type: "note", uuid: note.uuid, thread_id: note.thread_id });
@@ -266,12 +270,12 @@ async function handleCapabilityRoute(req: Request, path: string, method: string)
     const notes = cloudDb()
       .query<
         { uuid: string; title: string; type: string; created_at: string; is_final: number },
-        [string]
+        [string, string]
       >(
         `SELECT uuid, title, type, created_at, is_final FROM notes
-          WHERE thread_id = ? ORDER BY created_at DESC`
+          WHERE thread_id = ? AND user_id = ? ORDER BY created_at DESC`
       )
-      .all(id);
+      .all(id, share.user_id);
     const body = renderSharedThreadPage(
       token,
       id,
@@ -466,18 +470,59 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
         // iframes can't reliably carry bearer headers. URLs aren't trivially
         // enumerable (need to know both thread_id slug and filename),
         // matching the local viewer's posture.
+        // /u/:user/t/:thread/asset/:filename — per-user public asset route
+        // (v0.13+). Pinned to user_id so two users with the same
+        // (thread, filename) never serve each other's bytes. Iframe srcs in
+        // newly-rendered notes use this path via renderStandaloneNote's
+        // rewrite. Public (no bearer) for the same reason as the legacy
+        // /t/.../asset/... route: sub-resource fetches from sandboxed null-
+        // origin iframes can't reliably carry Authorization headers.
+        {
+          const m = path.match(/^\/u\/([^/]+)\/t\/([^/]+)\/asset\/([^/]+)$/);
+          if (m && method === "GET") {
+            const userId = decodeURIComponent(m[1]!);
+            const threadId = decodeURIComponent(m[2]!);
+            const filename = decodeURIComponent(m[3]!);
+            const row = cloudDb()
+              .query<
+                { blob_path: string; content_type: string; size_bytes: number; hash: string },
+                [string, string, string]
+              >("SELECT blob_path, content_type, size_bytes, hash FROM assets WHERE user_id = ? AND thread_id = ? AND filename = ?")
+              .get(userId, threadId, filename);
+            if (!row) return notFound("asset not found");
+            const a = readAsset(row.hash);
+            if (!a) return notFound("asset bytes missing");
+            return new Response(a.bytes, {
+              status: 200,
+              headers: {
+                "Content-Type": a.content_type,
+                "Content-Length": String(a.size_bytes),
+                "Cache-Control": "public, max-age=86400, immutable",
+                "X-Content-Type-Options": "nosniff",
+              },
+            });
+          }
+        }
+
+        // Legacy /t/<thread>/asset/<file> kept for backward-compat with
+        // v0.12 PWAs that still have cached body_html. Resolves only when
+        // exactly one user owns the (thread, filename) pair; multi-user
+        // collisions return 404 so the iframe falls back to a broken
+        // image rather than getting someone else's bytes. New body_html
+        // gets the /u/... form via renderStandaloneNote rewrite.
         {
           const m = path.match(/^\/t\/([^/]+)\/asset\/([^/]+)$/);
           if (m && method === "GET") {
             const threadId = decodeURIComponent(m[1]!);
             const filename = decodeURIComponent(m[2]!);
-            const row = cloudDb()
+            const rows = cloudDb()
               .query<
                 { blob_path: string; content_type: string; size_bytes: number; hash: string },
                 [string, string]
               >("SELECT blob_path, content_type, size_bytes, hash FROM assets WHERE thread_id = ? AND filename = ?")
-              .get(threadId, filename);
-            if (!row) return notFound("asset not found");
+              .all(threadId, filename);
+            if (rows.length !== 1) return notFound("asset not found");
+            const row = rows[0]!;
             const a = readAsset(row.hash);
             if (!a) return notFound("asset bytes missing");
             return new Response(a.bytes, {
@@ -508,38 +553,49 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
         if (!device) return unauthorized(); // belt-and-braces; isPublicPath gate above ensures this
 
         if (path === "/v1/auth/devices" && method === "GET") {
-          return json({ devices: listDevices() });
+          // Caller only sees their own user's devices (v0.13+).
+          return json({ devices: listDevices(device!.userId) });
         }
 
         // Read-only observability snapshot — see src/cloud/stats.ts. Authed:
-        // any paired device can read its own cloud's metrics, but the surface
-        // doesn't leak content (only counts, bytes, device names already
-        // visible via /v1/auth/devices).
+        // any paired device can read its OWN USER's metrics. Cross-user
+        // numbers stay invisible; operator gets the global view via the CLI
+        // (folio cloud user-list), not this endpoint.
         if (path === "/v1/admin/stats" && method === "GET") {
-          return json(buildAdminStats(publicUrl));
+          return json(buildAdminStats(publicUrl, device!.userId));
         }
 
         // Already-paired devices can request fresh pairing codes for
-        // onboarding additional devices — eliminates the SSH-to-server
-        // step for every device after the first. Caller's token must be
-        // valid; the new code itself is no-auth-needed by design (so
-        // the recipient device can pair without any pre-shared state).
+        // onboarding additional devices within the SAME user account.
+        // Cross-user pairing is operator-only (CLI `folio cloud pair-code
+        // --user <other>`). Code carries device.userId so the new device
+        // joins the caller's account, never another's.
         if (path === "/v1/auth/pair-code" && method === "POST") {
-          const { code, expiresAt } = createPairingCode();
-          return json({ code, expires_at: expiresAt });
+          const { code, expiresAt, userId } = createPairingCode(device!.userId);
+          return json({ code, expires_at: expiresAt, user_id: userId });
         }
 
         {
           const m = path.match(/^\/v1\/auth\/device\/([^/]+)$/);
           if (m && method === "DELETE") {
-            revokeDevice(m[1]!);
-            return json({ revoked: m[1] });
+            // Cross-user revoke is operator-only; restrict via the API to
+            // own-user devices so a compromised bearer can't kick out other
+            // users' devices.
+            const target = m[1]!;
+            const row = cloudDb()
+              .query<{ user_id: string }, [string]>("SELECT user_id FROM devices WHERE id = ?")
+              .get(target);
+            if (!row || row.user_id !== device!.userId) {
+              return notFound("device not found");
+            }
+            revokeDevice(target);
+            return json({ revoked: target });
           }
         }
 
         if (path === "/v1/sync/push" && method === "POST") {
           const payload = await readJsonBody<PushPayload>(req);
-          const result = handlePush(payload, device.id);
+          const result = handlePush(payload, device!);
           return json(result);
         }
 
@@ -551,14 +607,15 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
         if (path === "/v1/sync/live-stream" && method === "GET") {
           const noteUuid = url.searchParams.get("note_uuid");
           if (!noteUuid) return badRequest("note_uuid query param required");
-          // Verify the note exists + is live + not finalized. Skip subscribers
-          // for non-live or finalized notes — they'd just hang forever.
+          // Verify the note exists, belongs to caller's user, is live, not
+          // finalized. Cross-user subscribe attempts get the same "not found"
+          // as truly missing — avoids leaking whether a uuid exists.
           const row = cloudDb()
-            .query<{ live: number; is_final: number }, [string]>(
-              "SELECT live, is_final FROM notes WHERE uuid = ?"
+            .query<{ live: number; is_final: number; user_id: string }, [string]>(
+              "SELECT live, is_final, user_id FROM notes WHERE uuid = ?"
             )
             .get(noteUuid);
-          if (!row) return notFound("note not found");
+          if (!row || row.user_id !== device!.userId) return notFound("note not found");
           if (row.live !== 1) return badRequest("note is not a live note");
           if (row.is_final === 1) return badRequest("note is finalized");
 
@@ -608,7 +665,7 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
         if (path === "/v1/sync/pull" && method === "GET") {
           const since = Number(url.searchParams.get("since") ?? 0);
           if (!Number.isFinite(since) || since < 0) return badRequest("invalid since cursor");
-          return json(handlePull(since));
+          return json(handlePull(since, device!));
         }
 
         // ---- Shares (capability URL admin) ----
@@ -646,6 +703,7 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
           }
           try {
             const share = createShare({
+              user_id: device!.userId,
               scope_type: body.scope_type,
               scope_id: body.scope_id,
               created_by_device: device!.id,
@@ -710,14 +768,24 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
         {
           const m = path.match(/^\/v1\/share\/([A-Za-z0-9_\-]+)$/);
           if (m && method === "DELETE") {
-            const ok = revokeShare(m[1]!);
-            return json({ revoked: ok ? m[1] : null });
+            // Only the owning user may revoke. Cross-user revoke attempts
+            // return the same "not found" path as truly missing tokens.
+            const target = m[1]!;
+            const owned = cloudDb()
+              .query<{ user_id: string }, [string]>("SELECT user_id FROM shares WHERE token = ?")
+              .get(target);
+            if (!owned || owned.user_id !== device!.userId) {
+              return json({ revoked: null });
+            }
+            const ok = revokeShare(target);
+            return json({ revoked: ok ? target : null });
           }
         }
 
         if (path === "/v1/shares" && method === "GET") {
           const scope_id = url.searchParams.get("scope_id") ?? undefined;
           const shares = listShares({
+            user_id: device!.userId,
             scope_id: scope_id ?? undefined,
             created_by_device: device!.id,
           });
@@ -740,14 +808,12 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
           // Supports two optional filters:
           //   ?q=<query>     — case-insensitive LIKE across title + plain_text
           //   ?thread=<id>   — exact thread_id match
-          // LIKE-search is sufficient at the one-user-many-notes scale we're
-          // sized for; bumping to FTS5 here is straightforward later (new
-          // virtual table populated on push) if the n-of-notes outgrows it.
+          // Always scoped to caller's user_id. Cross-user notes invisible.
           const limit = Math.min(Number(url.searchParams.get("limit") ?? 100), 500);
           const q = (url.searchParams.get("q") ?? "").trim();
           const thread = (url.searchParams.get("thread") ?? "").trim();
-          const where: string[] = [];
-          const params: any[] = [];
+          const where: string[] = ["user_id = ?"];
+          const params: any[] = [device!.userId];
           if (q) {
             // Tokenize on whitespace; require every token match in title OR plain_text.
             // ESCAPE \\ for LIKE so a literal % or _ from the user doesn't wildcard.
@@ -763,7 +829,7 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
             where.push("thread_id = ?");
             params.push(thread);
           }
-          const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+          const whereClause = `WHERE ${where.join(" AND ")}`;
           const sql =
             `SELECT uuid, slug, title, type, theme, thread_id, created_at, updated_at, is_final, live` +
             ` FROM notes ${whereClause} ORDER BY created_at DESC LIMIT ?`;
@@ -785,11 +851,11 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
             >(sql)
             .all(...params, limit);
           const threads = cloudDb()
-            .query<{ thread_id: string; count: number; latest: string }, []>(
+            .query<{ thread_id: string; count: number; latest: string }, [string]>(
               `SELECT thread_id, COUNT(*) AS count, MAX(created_at) AS latest
-                 FROM notes GROUP BY thread_id ORDER BY latest DESC LIMIT 50`
+                 FROM notes WHERE user_id = ? GROUP BY thread_id ORDER BY latest DESC LIMIT 50`
             )
-            .all();
+            .all(device!.userId);
           return json({
             notes: notes.map((n) => ({
               uuid: n.uuid,
@@ -821,7 +887,7 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
               if (!threadId) return badRequest("x-folio-thread-id header required");
               const bytes = new Uint8Array(await req.arrayBuffer());
               try {
-                const result = storeAsset(hash, filename, threadId, bytes);
+                const result = storeAsset(hash, filename, threadId, bytes, device!.userId);
                 return json(result);
               } catch (e: any) {
                 return badRequest(e?.message ?? "asset upload failed");
@@ -855,14 +921,16 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
         {
           const m = path.match(/^\/raw\/([0-9A-Za-z-]+)$/);
           if (m && method === "GET") {
+            // Scoped to caller's user — cross-user /raw/<uuid> requests get
+            // the same "not found" as a truly missing uuid.
             const row = cloudDb()
               .query<
                 { title: string; theme: string; body_html: string; live: number; is_final: number },
-                [string]
+                [string, string]
               >(
-                "SELECT title, theme, body_html, live, is_final FROM notes WHERE uuid = ?"
+                "SELECT title, theme, body_html, live, is_final FROM notes WHERE uuid = ? AND user_id = ?"
               )
-              .get(m[1]!);
+              .get(m[1]!, device!.userId);
             if (!row) return notFound("note not found");
             // Expose live/is_final via response headers so the /n/:uuid
             // shell can decide whether to open the SSE stream without an
@@ -874,20 +942,29 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
               "X-Folio-Final": row.is_final === 1 ? "1" : "0",
             };
             return new Response(
-              renderStandaloneNote({ title: row.title, theme: row.theme, bodyHtml: row.body_html }),
+              renderStandaloneNote({
+                title: row.title,
+                theme: row.theme,
+                bodyHtml: row.body_html,
+                userId: device!.userId,
+              }),
               { status: 200, headers }
             );
           }
         }
 
         {
+          // Authed JSON thread listing — scoped to caller's user. The
+          // earlier public /t/:thread_id route (above the auth gate) returns
+          // the HTML shell for any caller; this JSON variant runs only when
+          // a bearer token reached the authed block.
           const m = path.match(/^\/t\/([^/]+)$/);
           if (m && method === "GET") {
             const notes = cloudDb()
-              .query<{ uuid: string; title: string; created_at: string }, [string]>(
-                "SELECT uuid, title, created_at FROM notes WHERE thread_id = ? ORDER BY created_at DESC"
+              .query<{ uuid: string; title: string; created_at: string }, [string, string]>(
+                "SELECT uuid, title, created_at FROM notes WHERE thread_id = ? AND user_id = ? ORDER BY created_at DESC"
               )
-              .all(m[1]!);
+              .all(m[1]!, device!.userId);
             return json({ thread_id: m[1], notes });
           }
         }

@@ -182,6 +182,14 @@ test("cross-device tombstone: foreign device's delete propagates to this device 
   // Local note from another (foreign) device, simulated by direct cloud push.
   const foreignDeviceId = "01HXOTHER0000000000000000XX";
   const foreignUuid = "01HXTOMB000000000000000A";
+  // Both devices share user 'default' in this test (single-tenant case).
+  const foreignDevice = {
+    id: foreignDeviceId,
+    name: "foreign",
+    userId: "default",
+    pairedAt: "2026-05-13T09:00:00Z",
+    lastSeenAt: null,
+  } as const;
   handlePush(
     {
       notes: [{
@@ -194,7 +202,7 @@ test("cross-device tombstone: foreign device's delete propagates to this device 
         created_at: "2026-05-13T10:00:00Z",
       }],
     },
-    foreignDeviceId,
+    foreignDevice,
   );
 
   // Pull on this device — note appears locally.
@@ -208,7 +216,7 @@ test("cross-device tombstone: foreign device's delete propagates to this device 
   // INSERT tombstone). syncOnce on this device should apply.
   handlePush(
     { deletes: [foreignUuid] },
-    foreignDeviceId,
+    foreignDevice,
   );
 
   const r = await syncOnce(state);

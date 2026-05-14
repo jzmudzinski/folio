@@ -670,7 +670,12 @@ function escapeHtml(s: string): string {
 //             without touching the cloud server
 //   v5 → v6: install banner — beforeinstallprompt capture for Chrome/Edge,
 //             inline Share → Add-to-Home-Screen instructions for iOS Safari
-export const SW_VERSION = "folio-pwa-6";
+//   v6 → v7: asset URLs in /raw/ body_html rewritten to /u/<user>/t/.../asset/
+//             so multi-user cloud serves the right bytes per user namespace.
+//             Old cached /t/<thread>/asset/ URLs would 404 in multi-user
+//             setups; bump SW invalidates the cache so the new rewrite path
+//             takes over cleanly.
+export const SW_VERSION = "folio-pwa-7";
 
 export function serviceWorkerJs(): string {
   return `// Folio PWA service worker — auth injection + offline cache.

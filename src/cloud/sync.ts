@@ -18,6 +18,7 @@ import { join, dirname } from "node:path";
 import { createHash } from "node:crypto";
 import { cloudDb, cloudAssetsDir, nextSeq } from "./db";
 import { publish as publishLiveEntry } from "./sse-hub";
+import type { Device } from "./auth";
 
 export interface PushNote {
   uuid: string;
@@ -131,18 +132,27 @@ export interface PullAsset {
   size_bytes: number;
 }
 
-function resolveSlug(db: Database, threadId: string, desiredSlug: string, uuid: string): string {
-  // Same uuid → keep slug (idempotent re-push)
+function resolveSlug(db: Database, userId: string, threadId: string, desiredSlug: string, uuid: string): string {
+  // Same uuid → keep slug (idempotent re-push). Same-uuid checked WITHOUT
+  // user_id scope first so an attempt to "steal" another user's uuid via
+  // a duplicate push lands as a unique constraint failure on the upsert
+  // path below rather than silently rebinding.
   const existing = db
-    .query<{ slug: string }, [string]>("SELECT slug FROM notes WHERE uuid = ?")
+    .query<{ slug: string; user_id: string }, [string]>("SELECT slug, user_id FROM notes WHERE uuid = ?")
     .get(uuid);
-  if (existing) return existing.slug;
-  // Different uuid, same (thread, slug) collision → append uuid6 suffix
+  if (existing) {
+    if (existing.user_id !== userId) {
+      throw new Error(`note ${uuid} belongs to a different user`);
+    }
+    return existing.slug;
+  }
+  // Different uuid, same (user_id, thread, slug) collision → append uuid6 suffix.
+  // Two users can both have (thread="morning", slug="alpha") side-by-side now.
   const clash = db
-    .query<{ count: number }, [string, string]>(
-      "SELECT COUNT(*) AS count FROM notes WHERE thread_id = ? AND slug = ?"
+    .query<{ count: number }, [string, string, string]>(
+      "SELECT COUNT(*) AS count FROM notes WHERE user_id = ? AND thread_id = ? AND slug = ?"
     )
-    .get(threadId, desiredSlug);
+    .get(userId, threadId, desiredSlug);
   if (clash && clash.count > 0) {
     const suffix = uuid.replace(/-/g, "").slice(0, 6);
     return `${desiredSlug}-${suffix}`;
@@ -150,19 +160,21 @@ function resolveSlug(db: Database, threadId: string, desiredSlug: string, uuid: 
   return desiredSlug;
 }
 
-export function handlePush(payload: PushPayload, originDeviceId: string, db: Database = cloudDb()): PushAccepted {
+export function handlePush(payload: PushPayload, device: Device, db: Database = cloudDb()): PushAccepted {
   const accepted: PushAccepted = { notes: [], live_entries: [], deletes: [], assets_deleted: 0, cursor: 0 };
+  const originDeviceId = device.id;
+  const userId = device.userId;
   const tx = db.transaction(() => {
     for (const n of payload.notes ?? []) {
-      const canonicalSlug = resolveSlug(db, n.thread_id, n.slug, n.uuid);
+      const canonicalSlug = resolveSlug(db, userId, n.thread_id, n.slug, n.uuid);
       const seq = nextSeq(db);
       db.run(
         `INSERT INTO notes (
-          uuid, slug, thread_id, title, type, theme, theme_profile,
+          uuid, user_id, slug, thread_id, title, type, theme, theme_profile,
           body_html, plain_text, created_at, updated_at, expires_at,
           is_final, live, owner_device_id, origin_device_id,
           word_count, summary, server_seq
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(uuid) DO UPDATE SET
           slug = excluded.slug,
           thread_id = excluded.thread_id,
@@ -182,6 +194,7 @@ export function handlePush(payload: PushPayload, originDeviceId: string, db: Dat
           server_seq = excluded.server_seq`,
         [
           n.uuid,
+          userId,
           canonicalSlug,
           n.thread_id,
           n.title,
@@ -211,6 +224,16 @@ export function handlePush(payload: PushPayload, originDeviceId: string, db: Dat
       accepted.cursor = Math.max(accepted.cursor, seq);
     }
     for (const e of payload.live_entries ?? []) {
+      // Owner check: live entries can only be appended to a note owned by
+      // the same user. Without this, anyone authed could spam entries into
+      // any user's live notes. Skip silently if the parent note doesn't
+      // exist OR belongs to a different user — keep idempotency semantics
+      // (a re-push of historical entries after the parent was deleted is
+      // a no-op, not an error).
+      const parent = db
+        .query<{ user_id: string }, [string]>("SELECT user_id FROM notes WHERE uuid = ?")
+        .get(e.note_uuid);
+      if (!parent || parent.user_id !== userId) continue;
       const seq = nextSeq(db);
       db.run(
         `INSERT INTO live_entries (
@@ -257,45 +280,54 @@ export function handlePush(payload: PushPayload, originDeviceId: string, db: Dat
     // (validateShareAccess looks up the note); we don't bother revoking
     // them, expiry + TTL handle that.
     for (const uuid of payload.deletes ?? []) {
-      // Look up thread_id + origin + body BEFORE deleting:
+      // Look up user_id + thread_id + origin + body BEFORE deleting:
+      //   - user_id: ownership check — only the owning user may delete
       //   - thread_id + origin: needed for the tombstone metadata
       //   - body_html: needed to extract asset refs so we can GC any
       //     orphan blobs (assets that were only referenced by this note)
       const meta = db
-        .query<{ thread_id: string; origin_device_id: string | null; body_html: string }, [string]>(
-          "SELECT thread_id, origin_device_id, body_html FROM notes WHERE uuid = ?"
+        .query<{ user_id: string; thread_id: string; origin_device_id: string | null; body_html: string }, [string]>(
+          "SELECT user_id, thread_id, origin_device_id, body_html FROM notes WHERE uuid = ?"
         )
         .get(uuid);
-      const res = db.run("DELETE FROM notes WHERE uuid = ?", [uuid]);
+      if (!meta) continue; // unknown uuid → idempotent no-op (matches v0.12)
+      if (meta.user_id !== userId) {
+        // Cross-user delete attempt. Skip silently rather than error out
+        // — one bad uuid in a batch shouldn't fail the whole push.
+        continue;
+      }
+      const res = db.run("DELETE FROM notes WHERE uuid = ? AND user_id = ?", [uuid, userId]);
       if ((res.changes ?? 0) > 0) {
         accepted.deletes.push(uuid);
         const seq = nextSeq(db);
         db.run(
-          `INSERT INTO tombstones (uuid, thread_id, origin_device_id, deleted_at, server_seq)
-           VALUES (?, ?, ?, ?, ?)
+          `INSERT INTO tombstones (uuid, user_id, thread_id, origin_device_id, deleted_at, server_seq)
+           VALUES (?, ?, ?, ?, ?, ?)
            ON CONFLICT(uuid) DO UPDATE SET
+             user_id = excluded.user_id,
              thread_id = excluded.thread_id,
              origin_device_id = excluded.origin_device_id,
              deleted_at = excluded.deleted_at,
              server_seq = excluded.server_seq`,
           [
             uuid,
-            meta?.thread_id ?? "",
-            meta?.origin_device_id ?? originDeviceId,
+            userId,
+            meta.thread_id,
+            meta.origin_device_id ?? originDeviceId,
             new Date().toISOString(),
             seq,
           ]
         );
         accepted.cursor = Math.max(accepted.cursor, seq);
 
-        // Asset orphan cleanup. For each (thread, filename) referenced by
-        // the doomed note, check if any remaining active note still cites
-        // it (LIKE scan on body_html). If zero references → unlink blob +
-        // delete the assets row. Cheap at this scale; if note count grows
-        // into the tens of thousands, swap to a refcount table maintained
-        // on push.
-        if (meta?.body_html) {
-          accepted.assets_deleted += sweepOrphanAssetsFor(meta.body_html, db);
+        // Asset orphan cleanup, scoped to this user. For each (thread,
+        // filename) referenced by the doomed note, check if any of this
+        // user's remaining active notes still cite it (LIKE scan on body_html
+        // filtered by user_id). Zero same-user references → unlink blob +
+        // delete the assets row. Cross-user assets that happen to share a
+        // (thread, filename) name aren't touched.
+        if (meta.body_html) {
+          accepted.assets_deleted += sweepOrphanAssetsFor(meta.body_html, userId, db);
         }
       }
     }
@@ -304,7 +336,8 @@ export function handlePush(payload: PushPayload, originDeviceId: string, db: Dat
   return accepted;
 }
 
-export function handlePull(since: number, db: Database = cloudDb()): PullPayload {
+export function handlePull(since: number, device: Device, db: Database = cloudDb()): PullPayload {
+  const userId = device.userId;
   const notes = db
     .query<
       {
@@ -328,16 +361,19 @@ export function handlePull(since: number, db: Database = cloudDb()): PullPayload
         summary: string | null;
         server_seq: number;
       },
-      [number]
+      [string, number]
     >(
       `SELECT uuid, slug, thread_id, title, type, theme, theme_profile,
               body_html, plain_text, created_at, updated_at, expires_at,
               is_final, live, owner_device_id, origin_device_id,
               word_count, summary, server_seq
-         FROM notes WHERE server_seq > ? ORDER BY server_seq ASC`
+         FROM notes WHERE user_id = ? AND server_seq > ? ORDER BY server_seq ASC`
     )
-    .all(since);
+    .all(userId, since);
 
+  // Live entries: scope via parent-note's user_id (entries don't carry their
+  // own user_id, only inherited from notes). Sub-select keeps the cursor
+  // semantics intact across the union.
   const entries = db
     .query<
       {
@@ -352,16 +388,19 @@ export function handlePull(since: number, db: Database = cloudDb()): PullPayload
         source_ref: string | null;
         server_seq: number;
       },
-      [number]
+      [number, string]
     >(
-      `SELECT id, note_uuid, ts, content_html, tags_json, occurred_at,
-              refs_json, importance, source_ref, server_seq
-         FROM live_entries WHERE server_seq > ? ORDER BY server_seq ASC`
+      `SELECT le.id, le.note_uuid, le.ts, le.content_html, le.tags_json, le.occurred_at,
+              le.refs_json, le.importance, le.source_ref, le.server_seq
+         FROM live_entries le
+         INNER JOIN notes n ON n.uuid = le.note_uuid
+        WHERE le.server_seq > ? AND n.user_id = ?
+        ORDER BY le.server_seq ASC`
     )
-    .all(since);
+    .all(since, userId);
 
   // Assets referenced by the notes in this delta — let the client decide
-  // whether to fetch bytes (HEAD/GET /v1/sync/assets/:hash).
+  // whether to fetch bytes (HEAD/GET /v1/sync/assets/:hash). Scoped to user.
   const threadIds = Array.from(new Set(notes.map((n) => n.thread_id)));
   const assets: PullAsset[] = [];
   if (threadIds.length > 0) {
@@ -369,12 +408,12 @@ export function handlePull(since: number, db: Database = cloudDb()): PullPayload
     const rows = db
       .query<
         { hash: string; filename: string; thread_id: string; content_type: string; size_bytes: number },
-        string[]
+        any[]
       >(
         `SELECT hash, filename, thread_id, content_type, size_bytes
-           FROM assets WHERE thread_id IN (${placeholders})`
+           FROM assets WHERE user_id = ? AND thread_id IN (${placeholders})`
       )
-      .all(...threadIds);
+      .all(userId, ...threadIds);
     for (const r of rows) assets.push(r);
   }
 
@@ -390,7 +429,7 @@ export function handlePull(since: number, db: Database = cloudDb()): PullPayload
     for (const r of rows) tagsByNote.get(r.note_uuid)?.push(r.tag);
   }
 
-  // Tombstones since cursor — cross-device delete propagation.
+  // Tombstones since cursor — cross-device delete propagation, user-scoped.
   const tombstones: PullTombstone[] = db
     .query<
       {
@@ -400,12 +439,12 @@ export function handlePull(since: number, db: Database = cloudDb()): PullPayload
         deleted_at: string;
         server_seq: number;
       },
-      [number]
+      [string, number]
     >(
       `SELECT uuid, thread_id, origin_device_id, deleted_at, server_seq
-         FROM tombstones WHERE server_seq > ? ORDER BY server_seq ASC`
+         FROM tombstones WHERE user_id = ? AND server_seq > ? ORDER BY server_seq ASC`
     )
-    .all(since);
+    .all(userId, since);
 
   const maxSeq = Math.max(
     since,
@@ -504,13 +543,18 @@ export function storeAsset(
   filename: string,
   threadId: string,
   bytes: Uint8Array,
+  userId: string = "default",
   db: Database = cloudDb()
 ): AssetUploadResult {
   const actual = createHash("sha256").update(bytes).digest("hex");
   if (actual !== hash) throw new Error("hash mismatch");
+  // assets are content-addressed; same bytes from a different user dedupe to
+  // the existing row. The owning user_id is whoever uploaded first — which
+  // is fine for the 3-user case (no cross-user collisions in practice). If
+  // dedup-with-refcount becomes a real need, swap to (hash, user_id) PK.
   const existing = db
-    .query<{ hash: string; size_bytes: number }, [string]>(
-      "SELECT hash, size_bytes FROM assets WHERE hash = ?"
+    .query<{ hash: string; size_bytes: number; user_id: string }, [string]>(
+      "SELECT hash, size_bytes, user_id FROM assets WHERE hash = ?"
     )
     .get(hash);
   if (existing) return { hash, size_bytes: existing.size_bytes, stored: false };
@@ -521,9 +565,9 @@ export function storeAsset(
   if (!existsSync(dirname(abs))) mkdirSync(dirname(abs), { recursive: true });
   writeFileSync(abs, bytes);
   db.run(
-    `INSERT INTO assets (hash, filename, thread_id, content_type, size_bytes, blob_path, uploaded_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [hash, filename, threadId, contentType, bytes.byteLength, rel, new Date().toISOString()]
+    `INSERT INTO assets (hash, filename, thread_id, user_id, content_type, size_bytes, blob_path, uploaded_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [hash, filename, threadId, userId, contentType, bytes.byteLength, rel, new Date().toISOString()]
   );
   return { hash, size_bytes: bytes.byteLength, stored: true };
 }
@@ -540,7 +584,7 @@ export function storeAsset(
  * deck ever grows past ~10k of either, replace with a per-asset refcount
  * column maintained on push.
  */
-function sweepOrphanAssetsFor(bodyHtml: string, db: Database): number {
+function sweepOrphanAssetsFor(bodyHtml: string, userId: string, db: Database): number {
   // Same regex as core/sync.ts extractAssetRefs — duplicated locally to
   // avoid pulling in core's full module graph. If the pattern changes,
   // update both call sites.
@@ -568,19 +612,24 @@ function sweepOrphanAssetsFor(bodyHtml: string, db: Database): number {
     // ESCAPE '\' — SQLite requires a single-character escape; JS double-
     // backslash unescapes to one in the SQL string. Matches the convention
     // already used in cloud/server.ts /v1/feed query escaping.
+    // Scope to this user — another user's note referencing the same
+    // (thread, filename) string shouldn't keep our blob alive (their copy
+    // has its own row + blob_path even when bytes happen to match).
     const stillRef = db
-      .query<{ n: number }, [string]>(
-        "SELECT COUNT(*) AS n FROM notes WHERE body_html LIKE ? ESCAPE '\\'"
+      .query<{ n: number }, [string, string]>(
+        "SELECT COUNT(*) AS n FROM notes WHERE user_id = ? AND body_html LIKE ? ESCAPE '\\'"
       )
-      .get(needle);
-    if (stillRef && stillRef.n > 0) continue; // someone else still uses it
+      .get(userId, needle);
+    if (stillRef && stillRef.n > 0) continue; // someone else (same user) still uses it
 
     // Orphan. Pull the row to get the blob_path, unlink, then delete.
+    // Scope to user_id — never touch another user's asset row, even if it
+    // matches the same (thread, filename) tuple by coincidence.
     const asset = db
-      .query<{ hash: string; blob_path: string }, [string, string]>(
-        "SELECT hash, blob_path FROM assets WHERE thread_id = ? AND filename = ?"
+      .query<{ hash: string; blob_path: string }, [string, string, string]>(
+        "SELECT hash, blob_path FROM assets WHERE user_id = ? AND thread_id = ? AND filename = ?"
       )
-      .get(r.thread_id, r.filename);
+      .get(userId, r.thread_id, r.filename);
     if (!asset) continue;
     const abs = join(cloudAssetsDir(), asset.blob_path);
     try {

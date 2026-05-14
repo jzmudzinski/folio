@@ -1,6 +1,20 @@
 import { expect, test } from "bun:test";
 import { sanitize } from "../src/core/sanitize";
 
+test("preserves <style> at body level (v0.15+ — for plain theme + custom looks)", () => {
+  const r = sanitize(`<style>.hero{font-size:64px;color:#ff5a1f}</style><div class="hero">Hi</div>`);
+  expect(r.html).toContain("<style");
+  expect(r.html).toContain(".hero{font-size:64px;color:#ff5a1f}");
+  expect(r.html).toContain('class="hero"');
+});
+
+test("preserves <style> with media query + dark-mode rules", () => {
+  const css = "body{background:#fff;color:#000}@media (prefers-color-scheme: dark){body{background:#000;color:#fff}}";
+  const r = sanitize(`<style>${css}</style><p>hello</p>`);
+  expect(r.html).toContain("@media (prefers-color-scheme: dark)");
+  expect(r.html).toContain("background:#000");
+});
+
 test("preserves inline <script> (v0.3+ allows scripts — note is null-origin sandboxed)", () => {
   const r = sanitize(`<p>ok</p><script>const x = 1; document.body.dataset.x = x;</script>`);
   expect(r.html).toContain("<script");

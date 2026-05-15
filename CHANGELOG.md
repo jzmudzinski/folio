@@ -2,6 +2,19 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.19.0 — 2026-05-15
+
+Capability URL sharing now has a viewer UI. Previously: CLI (`folio publish`) and MCP tool (`publish`) only — viewer notes had no Share button at all, so anyone using only the local viewer didn't know the feature existed. Designed in two rounds via the v0.18 iteration primitive (B · topbar-popover → B3 · minimal+manage-link). Three placement concepts compared, three popover variations refined, picked one direction, shipped.
+
+### Added
+- **Topbar `↗ Share` button on note pages.** Opens a popover with the same form fields as the CLI (`expires_in_days`, `max_views`, optional `recipient`). On submit, calls a new viewer-side proxy endpoint that forwards to the cloud's `/v1/share`. Result URL renders inline with copy + revoke buttons. Outside-click / Esc dismiss the popover.
+- **Active-shares indicator.** Orange dot beside the Share label lights up when the note has live capability URLs — at-a-glance signal that the note is already published somewhere. Count comes from a GET fired on page load (silent failure when cloud is unreachable).
+- **`/n/:id/shares` manage page.** Full list view linked from the popover's `manage →` bar. Each share rendered as a card with URL (with copy), created/expires dates, view counter (`N / max` or `N / ∞`), recipient hash (truncated), and a revoke button. Empty + not-paired states inline. Reached from the popover, not navigation — discovered after first publish.
+- **Three new viewer API endpoints** — `POST /api/notes/:id/shares`, `GET /api/notes/:id/shares`, `DELETE /api/notes/:id/shares/:token`. Auth comes from `~/Folio/.sync-state.json` (same source the CLI uses); recipient email is hashed locally before the cloud sees it. Not-paired returns 412 with structured `{code: "NOT_PAIRED"}` so the UI can guide the user to `/cloud`.
+
+### Tests
+- `tests/viewer-shares.test.ts` (new, 11 tests) — covers unpaired states for all three verbs, full paired round-trip against an in-process mock cloud, recipient hashing, note page topbar markup, manage page empty / populated / unpaired renders.
+
 ## v0.18.2 — 2026-05-15
 
 ### Fixed

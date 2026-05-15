@@ -2,6 +2,24 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.20.1 — 2026-05-15
+
+**Sidebar navigation on list pages + context-aware notes.** Caught a real SKILL.md overpromise: I'd claimed earlier "the viewer aggregates tags in the sidebar" but `/tag/:slug` had no sidebar — only a flat list of notes. Users with multi-thread projects had no way to navigate between notes within a tag/project context. The fix is a left sidebar on list pages (mirroring `.note-shell`'s 2-column shape) plus `?from=…` context propagation so individual note pages know which list they came from.
+
+### Added
+- **`.list-shell` 2-column layout** for `/tag/:slug` and `/p/:slug`. Sticky scrollable left sidebar (300px) listing items; main content on the right. Mobile collapses to single column with sidebar pinned at top.
+- **Sidebar nav on `/tag/:slug`** — every note tagged appears as a list item with title + type pill + age. Click navigates to `/n/<id>?from=tag:<slug>`.
+- **Sidebar nav on `/p/:slug`** — notes grouped under thread-name section headers (`research · 3`, `onboarding · 1`); within each section, individual notes link with `?from=project:<slug>`.
+- **Context-aware `/n/:id?from=tag:X` and `?from=project:Y`** — when the agent or user arrives via a tagged context, pageNote overrides:
+  - "Back to list" → goes to `/tag/:slug` or `/p/:slug` instead of `/`
+  - prev/next buttons → walk the list (not thread siblings)
+  - sidebar's "Version" line → `In tag` / `In project` with position label "X of N"
+
+Without `?from=`, behavior is unchanged — thread-based prev/next + "Back to list" → homepage.
+
+### Tests
+- `tests/project-grouping.test.ts` (5 new tests, 12 total) — sidebar markup on `/tag/`, `/p/`, context-aware nav on `/n/?from=tag:`, `/n/?from=project:`, no-regression for `/n/` without `?from=`.
+
 ## v0.20.0 — 2026-05-15
 
 **Project grouping.** Until v0.20 Folio had no first-class abstraction for "a project spanning many threads". Users coming from Obsidian-style folders (one folder = one project, multiple files inside) had to think in flat threads where every `thread_id` is one doc + its iterations. The fix is a **convention + viewer surface** combo — no schema change, no thread-hierarchy refactor, just a tag pattern and a page that groups by it.

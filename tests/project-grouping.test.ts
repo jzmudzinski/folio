@@ -161,3 +161,97 @@ test("GET /api/p/ (empty slug) returns 400", async () => {
   const r = await fetch(`${viewerUrl}/api/p/`);
   expect(r.status).toBe(400);
 });
+
+// ───── v0.20.1: sidebar nav + context-aware /n/:id ─────────────────────
+
+test("v0.20.1: /tag/:slug renders left sidebar with note items linked back via ?from=tag:X", async () => {
+  await bootViewer();
+  await seedNote({ title: "First note", thread: "t1", tags: ["topic:misc"] });
+  await seedNote({ title: "Second note", thread: "t2", tags: ["topic:misc"] });
+
+  const r = await fetch(`${viewerUrl}/tag/topic:misc`);
+  expect(r.status).toBe(200);
+  const html = await r.text();
+  // list-side aside present (the new 2-col layout).
+  expect(html).toContain('<aside class="list-side">');
+  // Both notes appear as list items.
+  expect(html).toContain("First note");
+  expect(html).toContain("Second note");
+  // Sidebar links carry ?from=tag:topic%3Amisc so pageNote can resolve context.
+  expect(html).toMatch(/href="\/n\/[^"]+\?from=tag%3Atopic%3Amisc"/);
+});
+
+test("v0.20.1: /p/:slug renders sidebar grouped by thread", async () => {
+  await bootViewer();
+  await seedNote({ title: "Research v1", thread: "research", tags: ["project:foo"] });
+  await seedNote({ title: "Research v2", thread: "research", tags: ["project:foo"] });
+  await seedNote({ title: "Onboarding plan", thread: "onboarding", tags: ["project:foo"] });
+
+  const r = await fetch(`${viewerUrl}/p/foo`);
+  expect(r.status).toBe(200);
+  const html = await r.text();
+  expect(html).toContain('<aside class="list-side">');
+  // Thread-section headers in the sidebar show counts.
+  expect(html).toMatch(/list-section[^>]*>research · 2/);
+  expect(html).toMatch(/list-section[^>]*>onboarding · 1/);
+  // All three notes link back via ?from=project:foo
+  expect(html).toMatch(/href="\/n\/[^"]+\?from=project%3Afoo"/);
+});
+
+test("v0.20.1: /n/:id?from=tag:X renders context-aware back link + prev/next", async () => {
+  await bootViewer();
+  const a = await seedNote({ title: "Alpha", thread: "ta", tags: ["topic:demo"] });
+  await new Promise((r) => setTimeout(r, 20));
+  const b = await seedNote({ title: "Beta", thread: "tb", tags: ["topic:demo"] });
+  await new Promise((r) => setTimeout(r, 20));
+  const c = await seedNote({ title: "Gamma", thread: "tc", tags: ["topic:demo"] });
+
+  // Notes ordered desc by created → [c, b, a]. Visit middle one (b).
+  const r = await fetch(`${viewerUrl}/n/${b}?from=tag:topic:demo`);
+  expect(r.status).toBe(200);
+  const html = await r.text();
+
+  // Back link points to /tag/topic:demo, not /
+  expect(html).toContain('href="/tag/topic%3Ademo"');
+  expect(html).toContain("Back to tag: topic:demo");
+
+  // Prev → newer (c), next → older (a). Both carry the ?from= param.
+  expect(html).toMatch(new RegExp(`href="/n/${c}\\?from=tag%3Atopic%3Ademo"`));
+  expect(html).toMatch(new RegExp(`href="/n/${a}\\?from=tag%3Atopic%3Ademo"`));
+  // Position label "2 of 3".
+  expect(html).toContain("2 of 3");
+});
+
+test("v0.20.1: /n/:id without ?from= keeps thread-based prev/next (no regression)", async () => {
+  await bootViewer();
+  const a = await seedNote({ title: "v1", thread: "single", tags: [] });
+  const b = await seedNote({ title: "v2", thread: "single", tags: [] });
+
+  const r = await fetch(`${viewerUrl}/n/${b}`);
+  const html = await r.text();
+  expect(html).toContain("Back to list"); // legacy label
+  expect(html).toContain('href="/"');     // legacy target
+  expect(html).toContain(`href="/n/${a}"`);  // thread prev link (no ?from=)
+});
+
+test("v0.20.1: ?from=project:Y walks the flattened group order across threads", async () => {
+  await bootViewer();
+  // Two threads, two notes each, all in project:multi.
+  const r1 = await seedNote({ title: "Research 1", thread: "research", tags: ["project:multi"] });
+  await new Promise((r) => setTimeout(r, 15));
+  const r2 = await seedNote({ title: "Research 2", thread: "research", tags: ["project:multi"] });
+  await new Promise((r) => setTimeout(r, 15));
+  const o1 = await seedNote({ title: "Onboarding 1", thread: "onboarding", tags: ["project:multi"] });
+  await new Promise((r) => setTimeout(r, 15));
+  const o2 = await seedNote({ title: "Onboarding 2", thread: "onboarding", tags: ["project:multi"] });
+
+  // Sidebar order: groups by thread (sorted by latest desc), then notes
+  // within each thread in created-desc. So flat order = [o2, o1, r2, r1].
+  // Visiting r2 (index 2) — prev should be o1, next should be r1.
+  const r = await fetch(`${viewerUrl}/n/${r2}?from=project:multi`);
+  expect(r.status).toBe(200);
+  const html = await r.text();
+  expect(html).toMatch(new RegExp(`href="/n/${o1}\\?from=project%3Amulti"`));
+  expect(html).toMatch(new RegExp(`href="/n/${r1}\\?from=project%3Amulti"`));
+  expect(html).toContain("3 of 4");
+});

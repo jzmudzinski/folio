@@ -269,6 +269,39 @@ a { color: inherit; text-decoration: none; }
    approximate) can't push the page into a few-px overflow. Side panel +
    iframe wrap each scroll internally so nothing legitimate is hidden. */
 body.note-page { overflow: hidden; }
+body.list-page { overflow: hidden; }
+
+/* List shell — used by /tag/:slug and /p/:slug (v0.20.1+). Same grid
+   shape as .note-shell so the chrome feels consistent across surfaces.
+   Left: sticky scrollable nav of items in the list. Right: existing
+   page body (header + meta + rows or cards).
+   On mobile the sidebar collapses into a top strip. */
+.list-shell { display: grid; grid-template-columns: 300px 1fr; min-height: calc(100vh - 60px); }
+@media (max-width: 720px) { .list-shell { grid-template-columns: 1fr; } }
+.list-side { border-right: 1px solid var(--vline); padding: 22px 18px 22px; display: flex; flex-direction: column; gap: 0; background: var(--vbg); position: sticky; top: 60px; align-self: start; max-height: calc(100vh - 60px); overflow-y: auto; overflow-x: hidden; min-width: 0; }
+@media (max-width: 720px) { .list-side { position: static; max-height: 40vh; border-right: 0; border-bottom: 1px solid var(--vline); } }
+.list-side .back { font-family: var(--vmono); font-size: 11px; color: var(--vmuted); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 14px; }
+.list-side .back:hover { color: var(--vorange); }
+.list-side h2 { font-family: var(--vhead); font-weight: 500; font-size: 18px; letter-spacing: -0.015em; margin: 0 0 4px; line-height: 1.2; }
+.list-side h2 .ns { color: var(--vorange); }
+.list-side .list-meta { font-family: var(--vmono); font-size: 10.5px; color: var(--vmuted); margin-bottom: 16px; }
+.list-side .list-items { display: flex; flex-direction: column; gap: 0; }
+.list-side .list-item { padding: 10px 12px; border-radius: 7px; border: 1px solid transparent; text-decoration: none; color: inherit; display: flex; flex-direction: column; gap: 3px; margin-bottom: 2px; cursor: pointer; transition: background .12s, border-color .12s; }
+.list-side .list-item:hover { background: var(--vbg-2); }
+.list-side .list-item.active { background: var(--vbg-2); border-color: var(--vline-2); }
+.list-side .list-item__title { font-family: var(--vhead); font-size: 13.5px; font-weight: 500; line-height: 1.3; color: var(--vink-2); letter-spacing: -0.005em; }
+.list-side .list-item__title.final::before { content: "★ "; color: var(--vorange); }
+.list-side .list-item__meta { font-family: var(--vmono); font-size: 10px; color: var(--vmuted); display: flex; gap: 8px; align-items: center; }
+.list-side .list-item__type { display: inline-block; background: var(--vorange-soft); color: var(--vorange); font-size: 8.5px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 600; padding: 1px 6px; border-radius: 7px; }
+.list-side .list-item__type.technical { background: rgba(44,74,217,0.10); color: var(--vblue); }
+.list-side .list-item__type.comparison { background: rgba(139,101,53,0.12); color: var(--vbronze); }
+.list-side .list-item__type.journal { background: rgba(47,144,80,0.10); color: var(--vgood); }
+.list-side .list-item__type.snippet { background: var(--vbg-2); color: var(--vmuted); }
+.list-side .list-item__type.iteration { background: rgba(255,90,31,0.12); color: var(--vorange); }
+.list-side .list-section { font-family: var(--vmono); font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vmuted-2); padding: 18px 12px 6px 12px; font-weight: 600; }
+.list-side .list-section:first-of-type { padding-top: 0; }
+.list-main { padding: 0; min-width: 0; max-height: calc(100vh - 60px); overflow-y: auto; }
+
 .note-shell { display: grid; grid-template-columns: 360px 1fr; min-height: calc(100vh - 60px); }
 .note-shell.has-live { grid-template-columns: 360px minmax(0, 1fr) minmax(340px, 26vw); }
 @media (max-width: 1180px) { .note-shell.has-live { grid-template-columns: 360px 1fr; } .note-shell.has-live .live-panel { grid-column: 1 / -1; max-height: 60vh; } }
@@ -872,7 +905,6 @@ export function pageTag(tag: string, notes: NoteMeta[], popularTags: { tag: stri
     : "";
 
   const { ns, value, nsClass } = parseTagNs(tag);
-  // Description: <prefix>: <value-with-spaces> — fact-only, no prose
   const description = ns !== null
     ? `${esc(ns)}: ${esc(value.replace(/-/g, " "))}`
     : "";
@@ -882,23 +914,52 @@ export function pageTag(tag: string, notes: NoteMeta[], popularTags: { tag: stri
   const headerClasses = ["tag-header"];
   if (nsClass) headerClasses.push(nsClass);
 
-  const body = `
-<main class="v-page">
-  <div class="group">
-    <div class="group-lbl"><a href="/" style="color:var(--vmuted)">← Notes</a> <span class="spacer"></span><span class="accent">tag</span></div>
-    <div style="padding: 12px 4px 24px;">
-      <div class="${headerClasses.join(" ")}">${headerInner}<span class="count">${notes.length} ${notes.length === 1 ? "note" : "notes"}</span></div>
-      <div style="font-family: var(--vserif); font-style: italic; font-size: 17px; color: var(--vmuted); margin-top: 12px; line-height: 1.4;">${description ? esc("Notes tagged: ") + description : "Notes carrying this tag."}</div>
-      <div style="font-family: var(--vmono); font-size: 12px; color: var(--vmuted-2); margin-top: 6px;">
-        latest ${ago(latest)}${finalCount > 0 ? ` · <span style="color:var(--vorange)">★ ${finalCount} final</span>` : ""}
-        · <a href="/?tag=${encodeURIComponent(tag)}" style="color:var(--vmuted); border-bottom: 1px solid var(--vline);">open in main feed</a>
+  const sideItems = sorted.map((n) => listSidebarItem(n, undefined, `tag:${tag}`)).join("");
+  const sidebar = `
+<aside class="list-side">
+  <a href="/" class="back">← Back to list</a>
+  <h2>${ns ? `<span class="ns">${esc(ns)}:</span>` : ""}${esc(value)}</h2>
+  <div class="list-meta">${notes.length} ${notes.length === 1 ? "note" : "notes"}${finalCount > 0 ? ` · ★ ${finalCount} final` : ""}</div>
+  <div class="list-items">${sideItems}</div>
+</aside>`;
+
+  const main = `
+<main class="list-main">
+  <div class="v-page">
+    <div class="group">
+      <div class="group-lbl"><a href="/" style="color:var(--vmuted)">← Notes</a> <span class="spacer"></span><span class="accent">tag</span></div>
+      <div style="padding: 12px 4px 24px;">
+        <div class="${headerClasses.join(" ")}">${headerInner}<span class="count">${notes.length} ${notes.length === 1 ? "note" : "notes"}</span></div>
+        <div style="font-family: var(--vserif); font-style: italic; font-size: 17px; color: var(--vmuted); margin-top: 12px; line-height: 1.4;">${description ? esc("Notes tagged: ") + description : "Notes carrying this tag."}</div>
+        <div style="font-family: var(--vmono); font-size: 12px; color: var(--vmuted-2); margin-top: 6px;">
+          latest ${ago(latest)}${finalCount > 0 ? ` · <span style="color:var(--vorange)">★ ${finalCount} final</span>` : ""}
+          · <a href="/?tag=${encodeURIComponent(tag)}" style="color:var(--vmuted); border-bottom: 1px solid var(--vline);">open in main feed</a>
+        </div>
       </div>
+      <div class="rows">${rows}</div>
     </div>
-    <div class="rows">${rows}</div>
+    ${otherCloud}
   </div>
-  ${otherCloud}
 </main>`;
-  return shell(`Tag: ${tag}`, `${topbar("", "notes")}${body}`);
+
+  return shell(`Tag: ${tag}`, `${topbar("", "notes")}<div class="list-shell">${sidebar}${main}</div>`, { bodyClass: "list-page" });
+}
+
+/** Sidebar item renderer for /tag/ + /p/ + /n/ pages (v0.20.1+).
+ *  Pass `currentId` to highlight the active note; pass `from` so the
+ *  link carries `?from=tag:X` / `?from=project:Y` and pageNote knows
+ *  to override prev/next + back link with that list's ordering. */
+function listSidebarItem(n: NoteMeta, currentId: string | undefined, from: string): string {
+  const active = n.id === currentId ? " active" : "";
+  const finalCls = n.is_final ? " final" : "";
+  const href = `/n/${encodeURIComponent(n.id)}?from=${encodeURIComponent(from)}`;
+  return `<a class="list-item${active}" href="${href}">
+    <div class="list-item__title${finalCls}">${esc(n.title)}</div>
+    <div class="list-item__meta">
+      <span class="list-item__type ${esc(n.type)}">${esc(n.type)}</span>
+      <span>${ago(n.created)}</span>
+    </div>
+  </a>`;
 }
 
 // ───────────────────────────────────────────────────────────────────────
@@ -973,18 +1034,36 @@ export function pageProject(slug: string, groups: ProjectThreadGroup[], totalNot
     inner = `<div class="proj-threads">${cards}</div>`;
   }
 
-  const body = `${cardCss}
-<main class="proj-page">
-  <div class="proj-head">
-    <div class="proj-eyebrow"><a href="/">← Notes</a> · <a href="/tag/${esc(`project:${slug}`)}">flat tag view</a></div>
-    <h1 class="proj-title">${headerInner}</h1>
-    <p class="proj-sub">Project workspace — one card per thread, tagged with <code>project:${esc(slug)}</code>.</p>
-    ${meta ? `<div class="proj-meta">${meta}</div>` : ""}
+  // Sidebar: group notes by thread, list under thread-name section heading.
+  const sideHtml = groups.length === 0
+    ? ""
+    : groups.map((g) => {
+        const items = g.notes.map((n) => listSidebarItem(n, undefined, `project:${slug}`)).join("");
+        return `<div class="list-section">${esc(g.thread_id)} · ${g.noteCount}</div>${items}`;
+      }).join("");
+
+  const sidebar = `
+<aside class="list-side">
+  <a href="/" class="back">← Back to list</a>
+  <h2><span class="ns">project:</span>${esc(slug)}</h2>
+  <div class="list-meta">${groups.length} ${groups.length === 1 ? "thread" : "threads"} · ${totalNotes} ${totalNotes === 1 ? "note" : "notes"}${totalFinal > 0 ? ` · ★ ${totalFinal} final` : ""}</div>
+  <div class="list-items">${sideHtml}</div>
+</aside>`;
+
+  const main = `
+<main class="list-main">
+  <div class="proj-page">
+    <div class="proj-head">
+      <div class="proj-eyebrow"><a href="/">← Notes</a> · <a href="/tag/${esc(`project:${slug}`)}">flat tag view</a></div>
+      <h1 class="proj-title">${headerInner}</h1>
+      <p class="proj-sub">Project workspace — one card per thread, tagged with <code>project:${esc(slug)}</code>.</p>
+      ${meta ? `<div class="proj-meta">${meta}</div>` : ""}
+    </div>
+    ${inner}
   </div>
-  ${inner}
 </main>`;
 
-  return shell(`Project: ${slug}`, `${topbar("", "notes")}${body}`);
+  return shell(`Project: ${slug}`, `${topbar("", "notes")}${cardCss}<div class="list-shell">${sidebar}${main}</div>`, { bodyClass: "list-page" });
 }
 
 export function pageSearch(
@@ -1291,7 +1370,20 @@ function sharePopoverJs(noteId: string): string {
 })();`;
 }
 
-export function pageNote(note: NoteMeta, _themeName: string): string {
+/** Context passed when navigating to a note from a list page (/tag/:slug
+ *  or /p/:slug). When present, pageNote overrides:
+ *   - the "← Back to list" link → points to the source list, not the homepage
+ *   - prev/next buttons → walk the list (not thread siblings)
+ *   - version label → "<i> of <n> in <list>"
+ *  Without context, behavior is unchanged from pre-v0.20.1. */
+export interface NoteListContext {
+  kind: "tag" | "project";
+  slug: string;
+  items: { id: string; title: string }[];  // ordered same as the list
+  currentIndex: number;
+}
+
+export function pageNote(note: NoteMeta, _themeName: string, context?: NoteListContext): string {
   const expiring = note.is_final ? null : daysUntil(note.expires_at);
   // Banner shows only when expiry is genuinely close (≤7 days) — matches
   // the `Expiring 7d` filter chip + `list_expiring` MCP tool's window.
@@ -1322,7 +1414,30 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
   // Reading time @ ~220 wpm
   const readingMin = Math.max(1, Math.ceil(note.word_count / 220));
 
-  const prevNextHtml = totalInThread > 1
+  // Context-aware nav (v0.20.1+): when we arrived from /tag/:slug or /p/:slug
+  // (via ?from=…), the back link points there and prev/next walk that list.
+  // Without context we keep the original thread-based nav.
+  const fromHref = context
+    ? (context.kind === "project" ? `/p/${encodeURIComponent(context.slug)}` : `/tag/${encodeURIComponent(context.slug)}`)
+    : "/";
+  const fromLabel = context
+    ? (context.kind === "project" ? `← Back to project: ${context.slug}` : `← Back to tag: ${context.slug}`)
+    : "← Back to list";
+
+  const ctxPrev = context && context.currentIndex > 0 ? context.items[context.currentIndex - 1] : null;
+  const ctxNext = context && context.currentIndex < context.items.length - 1 ? context.items[context.currentIndex + 1] : null;
+  const ctxFromQ = context ? `?from=${encodeURIComponent(context.kind === "project" ? `project:${context.slug}` : `tag:${context.slug}`)}` : "";
+
+  const prevNextHtml = context
+    ? `<div class="prev-next">
+         ${ctxPrev
+           ? `<a class="pn-btn" href="/n/${ctxPrev.id}${ctxFromQ}"><span class="pn-label">← prev</span>${context.currentIndex} of ${context.items.length}</a>`
+           : `<span class="pn-btn disabled"><span class="pn-label">prev</span>—</span>`}
+         ${ctxNext
+           ? `<a class="pn-btn" href="/n/${ctxNext.id}${ctxFromQ}"><span class="pn-label">next →</span>${context.currentIndex + 2} of ${context.items.length}</a>`
+           : `<span class="pn-btn disabled"><span class="pn-label">next</span>—</span>`}
+       </div>`
+    : totalInThread > 1
     ? `<div class="prev-next">
          ${prevSibling
            ? `<a class="pn-btn" href="/n/${prevSibling.id}"><span class="pn-label">← prev</span>v${myIdx}</a>`
@@ -1625,7 +1740,7 @@ ${SHARE_POPOVER_CSS}
 <div class="reading-progress"><div class="reading-progress-fill"></div></div>
 <div class="${shellClass}">
   <aside class="note-side">
-    <a href="/" class="back">← Back to list</a>
+    <a href="${fromHref}" class="back">${fromLabel}</a>
     <span class="type-pill ${note.type}">${note.type}</span>
     <h1>${esc(note.title)}</h1>
     ${actionCard}
@@ -1635,7 +1750,7 @@ ${SHARE_POPOVER_CSS}
       <dt>Thread</dt><dd class="thread"><a href="/t/${esc(note.thread_id)}">${esc(note.thread_id)}</a></dd>
       <dt>Status</dt><dd class="${note.is_final ? "final" : "warn"}">${note.is_final ? "★ final" : (expiring ? `⏱ expires in ${expiring}` : "active")}</dd>
       <dt>Created</dt><dd>${ago(note.created)}</dd>
-      <dt>Version</dt><dd>v${version} of ${totalInThread}</dd>
+      <dt>${context ? `In ${context.kind}` : "Version"}</dt><dd>${context ? `${context.currentIndex + 1} of ${context.items.length}` : `v${version} of ${totalInThread}`}</dd>
       <dt>Words</dt><dd>${note.word_count} · ~${readingMin} min</dd>
       <dt>Theme</dt>${themeDd}
       <dt>Profile</dt><dd>${esc(note.theme_profile)}</dd>

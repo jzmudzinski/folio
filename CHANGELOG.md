@@ -2,6 +2,26 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.19.4 — 2026-05-15
+
+Docs-only release to push the SKILL.md changes into the release tarball — the SKILL ships bundled in `dist/skills/folio/SKILL.md` and is what agents load via `folio install --target {claude-code,openclaw}`. The binary itself is unchanged from v0.19.3.
+
+### Changed — `skills/folio/SKILL.md`
+
+**Iteration discoverability fix (PR #48).** Real-world bug: a paired-chat agent received a textbook iteration prompt ("przygotuj 6 wariantów logotypu, ja wybiorę któryś, na podstawie którego rozwiniesz") and answered with 6 logo proposals inline in chat, then (when nudged) made a regular note instead of an iteration note. Audit found five structural holes that made iteration invisible to agents reading the SKILL top-down:
+
+- `Choosing type` decision table now lists `iteration` as the first row with a decision-order preface ("1: N candidates for picking? 2: append-only feed? 3: static").
+- YES triggers at top include iteration-shaped phrases ("N wariantów", "show me N versions", "I'll pick one", "design candidates").
+- Iteration section's `When to use` expanded into a bilingual PL/EN phrase-mapping table (logo / hero / email / onboarding / palette / poster / app icon).
+- Full inline-SVG variant `content_html` skeleton added — agents now have a copy-paste template for logo / icon iteration.
+- Mandatory loop step 4 grew a "BEFORE writing body_html, decide the SHAPE" branch listing single / live / iteration with an explicit warning against inlining N variants.
+
+**New "Generating images from scratch" section (PR #48).** Triggered by a separate report: agent embedded image URLs that didn't render (the agent's local `viewer_public_url` host wasn't reachable from the recipient's Tailscale Funnel endpoint). Three valid paths documented — (1) inline SVG preferred for vector, (2) `attach_asset` for raster bytes, (3) verified external HTTPS URL only when proven to exist. Four anti-patterns called out, including hallucinating image URLs and inlining base64.
+
+**"Relative URLs are usually right" subsection in Attaching assets (PR #48).** Use `/t/<thread>/asset/<filename>` inside body_html, not the absolute `url` from `attach_asset` response. Absolute URLs break when the recipient browses through a different host than `viewer_public_url` (reverse proxy, Tailscale Funnel, capability URL on another cloud). The relative form renders against current origin and survives every host the rewriter knows about.
+
+**SKILL trim (PR #49).** Net cut 617 → 525 lines (−15%). Removed pre-iteration content that was self-duplicating ("Editing → new note" section that duplicated Mandatory loop step 7), internal QA leftovers (`Pre-merge test`), and bloat that pointed to better sources (long Stylebook HTML examples → reference `STYLEBOOK.md`; theme-table `Why` column → reference `list_themes` prompt_addendum).
+
 ## v0.19.3 — 2026-05-15
 
 Inline SVG diagrams were getting silently destroyed by the sanitizer. Agent-authored architecture diagrams, flowcharts, mini-charts — all stripped of typography, geometry, and arrowheads, then rendered as a pile of unpositioned `<text>` and `<line>` tags. Caught in dogfood of the showcase note's "How it gets to you" diagram: user reported it was illegible; the v2 redesign was equally broken because the bug was in the sanitizer, not the SVG markup.

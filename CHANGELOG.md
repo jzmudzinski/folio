@@ -2,6 +2,14 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.18.2 — 2026-05-15
+
+### Fixed
+- **Arbitrary `data-*` attributes survived only on Folio's own elements.** The sanitizer's global allow-list listed specific `data-folio-*` + `data-entry-id` entries but no wildcard, despite a comment in the code claiming "arbitrary data-* for agent-built interactive widgets". Agents wiring static markup to inline JS via `data-tab` / `data-panel` / `data-foo` hooks had those attrs silently stripped at create time — JS handlers then read `null` from `getAttribute('data-tab')` and broke. First-hand observation: tabs in the public-sharing interactive guide didn't switch. Sanitizer config switched to a `data-*` wildcard (via sanitize-html's native syntax); existing Folio-internal hooks (`data-folio-content`, `data-folio-live-feed`, `data-entry-id`, etc.) continue to work as before. Two regression tests added: arbitrary `data-tab` / `data-panel` / `data-foo` survive; Folio-internal `data-folio-*` still survives.
+
+### Known limitations (documented, not changed)
+- **Boolean attributes without values** (`<section hidden>`, `<button disabled>` when used purely as a flag) are stripped by sanitize-html upstream. Agents needing initial-hidden state should use a CSS class (`.is-hidden { display: none }`) or write the attribute with an explicit value (`hidden="hidden"`). Test added so the behavior is locked in.
+
 ## v0.18.1 — 2026-05-14
 
 ### Fixed

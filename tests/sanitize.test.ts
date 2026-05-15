@@ -184,3 +184,55 @@ test("preserves <time datetime> for live note entries (v0.9.0)", () => {
   expect(r.html).toContain('datetime="2026-05-12T08:00:00Z"');
   expect(r.html).toContain("12 May 08:00");
 });
+
+test("v0.18.2: arbitrary data-* attributes survive on any element (agent-built widgets)", () => {
+  // Repro of the bug that broke tab-switching in the public-sharing guide:
+  // generic data-tab / data-panel on <button> + <div> got stripped, so the
+  // JS handler (which read via getAttribute('data-tab')) saw nulls. Folio's
+  // own data-folio-* hooks are tested elsewhere; this one covers agent
+  // freeform usage.
+  const r = sanitize(
+    `<div data-tab-root="x" data-foo="bar">
+       <button data-tab="cli">CLI</button>
+       <button data-tab="mcp">MCP</button>
+       <section data-panel="cli">cli content</section>
+       <section data-panel="mcp" hidden>mcp content</section>
+     </div>`
+  );
+  expect(r.html).toContain('data-tab-root="x"');
+  expect(r.html).toContain('data-foo="bar"');
+  expect(r.html).toContain('data-tab="cli"');
+  expect(r.html).toContain('data-tab="mcp"');
+  expect(r.html).toContain('data-panel="cli"');
+  expect(r.html).toContain('data-panel="mcp"');
+  // Note: boolean `hidden` (no value) is stripped by sanitize-html upstream;
+  // covered separately below — out of scope for this data-* test.
+});
+
+test("known limitation: boolean attributes without values are stripped by sanitize-html", () => {
+  // sanitize-html drops attributes that have no value. `<section hidden>`
+  // becomes `<section>`. Agents needing initial-hidden state should use a
+  // CSS class (`is-hidden { display:none }`) rather than a raw `hidden`
+  // attribute in static HTML, OR write `hidden="hidden"` explicitly which
+  // does survive.
+  const stripped = sanitize(`<section hidden>x</section>`);
+  expect(stripped.html).toBe("<section>x</section>");
+
+  const explicit = sanitize(`<section hidden="hidden">x</section>`);
+  expect(explicit.html).toContain('hidden="hidden"');
+});
+
+test("v0.18.2: existing data-folio-* hooks still survive the wildcard switch", () => {
+  // The wildcard replaced specific data-folio-* entries — make sure none
+  // of Folio's own hook points regressed.
+  const r = sanitize(
+    `<article data-folio-content data-folio-id="01HX">
+       <section data-folio-live-feed></section>
+       <div data-entry-id="abc123">entry</div>
+     </article>`
+  );
+  expect(r.html).toContain("data-folio-content");
+  expect(r.html).toContain('data-folio-id="01HX"');
+  expect(r.html).toContain("data-folio-live-feed");
+  expect(r.html).toContain('data-entry-id="abc123"');
+});

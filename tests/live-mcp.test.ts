@@ -171,8 +171,10 @@ test("ListTools returns the full folio tool set (live primitives + publish)", as
   expect(names).toContain("set_pinned");
   expect(names).toContain("publish");
   // v0.18: +propose_round, +pick_variant, +iteration_state → 16 + 3 = 19
+  // v0.19.1: +wait_for_pick → 20
   expect(names).toContain("propose_round");
   expect(names).toContain("pick_variant");
   expect(names).toContain("iteration_state");
-  expect(res.tools.length).toBe(19);
+  expect(names).toContain("wait_for_pick");
+  expect(res.tools.length).toBe(20);
 });

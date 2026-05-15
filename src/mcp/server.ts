@@ -239,6 +239,19 @@ const tools: Tool[] = [
     },
   },
   {
+    name: "wait_for_pick",
+    description: "Long-poll for a pick on an iteration note (v0.19.1+). LOAD-BEARING USAGE: call this RIGHT AFTER propose_round with for_round = the round you just proposed. The tool subscribes to Folio's SSE hub for that note and resolves the instant the user clicks a variant in the gallery — no need to ask the user to confirm in chat. Race-window safe: if the round is already picked at call-time, returns immediately with the winning variant_id (covers the case where the user clicked between propose_round returning and wait_for_pick getting called). Returns {picked:true, variant_id, round} on success, or {picked:false, timeout:true, current_round} when timeout_s elapses with no pick. Default timeout 60s; clamped to [1s, 300s]. Errors: NOT_FOUND, WRONG_TYPE.",
+    inputSchema: {
+      type: "object",
+      required: ["note_id"],
+      properties: {
+        note_id: { type: "string" },
+        for_round: { type: "number", description: "Round number to wait the pick of. Strongly recommended: pass the round you just got back from propose_round. Omitting it waits for ANY pick (catch-up mode after restart), which is less safe against race windows." },
+        timeout_s: { type: "number", description: "Seconds to wait before returning {picked:false, timeout:true}. Default 60. Clamped to [1, 300]." },
+      },
+    },
+  },
+  {
     name: "version",
     description: "Return Folio version + system info: storage root, viewer URL, default theme. Useful when the agent wants to confirm which Folio installation it's talking to (e.g. before bulk operations, or when the user asks 'what version are we on?').",
     inputSchema: { type: "object", properties: {} },
@@ -711,6 +724,20 @@ export async function buildServer(): Promise<Server> {
           const state = iter.getIterationState(note_id);
           if (!state) return errContent(`Note ${note_id} not found, or not an iteration note.`);
           return jsonContent(state);
+        }
+
+        case "wait_for_pick": {
+          const note_id = String(args.note_id ?? "");
+          if (!note_id) return errContent("Missing note_id");
+          const for_round = typeof args.for_round === "number" ? args.for_round : undefined;
+          const timeout_s = typeof args.timeout_s === "number" ? args.timeout_s : undefined;
+          try {
+            const iter = await import("../core/iteration");
+            const result = await iter.waitForPick({ note_id, for_round, timeout_s });
+            return jsonContent(result);
+          } catch (e: any) {
+            return errContent(e?.message ?? String(e));
+          }
         }
 
         case "version": {

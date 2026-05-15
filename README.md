@@ -3,17 +3,28 @@
   <img src="assets/wordmark-light.svg" alt="folio. — visual comm for agents" width="420">
 </picture>
 
+<p>
+  <a href="https://github.com/jzmudzinski/folio/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/jzmudzinski/folio?label=release&color=ff5a1f"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-2f9050"></a>
+  <img alt="tests" src="https://img.shields.io/badge/tests-458%20%2F%200-2f9050">
+  <img alt="runtime" src="https://img.shields.io/badge/runtime-Bun%201.3%2B-f3b71f">
+  <img alt="platforms" src="https://img.shields.io/badge/binaries-darwin--arm64%20%C2%B7%20linux--x64%20%C2%B7%20linux--arm64-555">
+</p>
+
 > Visual communication layer between AI agents and humans.
 
-When your agent has something to show — research, comparison, technical doc, scorecards, color-coded findings, sortable tables, embedded interactive demos — Folio renders it as a **single standalone HTML file** on your disk, served by a local viewer, addressable from any MCP client.
+When your agent has something to show — research, comparison, technical doc, design candidates the user picks between, scorecards, color-coded findings, sortable tables, embedded interactive demos — Folio renders it as a **single standalone HTML file** on your disk, served by a local viewer, addressable from any MCP client.
 
 **What you get:**
 
 - 🎨 **18 themes** with structural CSS the agent uses (`.eyebrow`, `.lead`, `.pill`, `.card`, `.verdict`, …) — drop your own folder under `~/Folio/themes/` and it shows up live
 - 📂 **Notes as plain HTML files** in `~/Folio/threads/<topic>/` — append-only, no database lock-in, `tar` and walk away
 - 🔎 **SQLite FTS5 full-text search** with Polish-aware tokenizer + suffix stemmer
-- 🧩 **MCP server** (`folio-mcp`) — 11 tools, works with OpenClaw, Claude Code, Claude Desktop, Cursor, Continue
-- 🖼️ **Local viewer** at `127.0.0.1:4810` — iframe-isolated themes, lightbox, TOC with scroll spy, prev/next-in-thread
+- 🧩 **MCP server** (`folio-mcp`) — **20 tools** (v0.19.1), works with OpenClaw, Claude Code, Claude Desktop, Cursor, Continue
+- 🖼️ **Local viewer** at `127.0.0.1:4810` — iframe-isolated themes, lightbox, TOC with scroll spy, prev/next-in-thread, **topbar Share popover** (v0.19+) for mint-and-revoke capability URLs
+- 📰 **Live notes** (v0.9+) — append-only feeds (journal, todo, ops log) that grow over time, inline-rendered (v0.17+) or in a side panel, `finalize` compiles them into a static body
+- 🎛 **Iteration primitive** (v0.18+) — agent proposes N design candidates → user clicks one in a gallery → agent proposes N variants of the pick → repeat. `wait_for_pick` (v0.19.1) lets the agent block on the SSE hub so no "I clicked!" chat round-trip
+- 🔗 **Capability URL shares** — `folio publish` (CLI/MCP/viewer-UI) mints a tokenized URL; share via Slack/email/Telegram with expiry, max-views, optional email binding
 - 📎 **Attach assets** (images / PDFs / videos) to threads with hardened filename + extension validation
 - ⚡ **Pre-compiled binaries** for darwin-arm64 / linux-x64 / linux-arm64 — no runtime dependency
 
@@ -23,27 +34,43 @@ When your agent has something to show — research, comparison, technical doc, s
 
 ## Status
 
-**v0.14.0 — multi-user cloud + operator dashboard, shippable.** Public release: 2026-05-14.
+**v0.19.1 — shippable.** Stable MCP contract, 458 tests across 44 files, pre-compiled binaries for darwin-arm64 / linux-x64 / linux-arm64. Cloud + PWA + publish + iteration + viewer share UI all ride on the same machinery — opt in to one without losing the others.
 
 - ✅ Core flow: agent → MCP `create` → note on disk → `/n/<id>` renders
 - ✅ Sync daemon (`folio sync`) mirrors `~/Folio/` to an optional cloud relay — bidirectional notes + assets + tombstones
 - ✅ Read-only PWA on phone with install banner (`beforeinstallprompt` on Chrome/Edge, inline Share→Add-to-Home-Screen hint on iOS Safari)
-- ✅ Live note SSE forwarding through cloud — phone watches new entries in real time
-- ✅ `folio publish` mints capability URLs to share a note (or whole thread) with someone who has no Folio install; with `--recipient` the cloud emails the link via Resend
-- ✅ Cloud observability snapshot (`GET /v1/admin/stats` + viewer Cloud stats panel) — counts, bytes, per-device last-seen
+- ✅ Live note SSE forwarding through cloud — phone watches new entries in real time; **inline-rendered live mode** (v0.17) puts entries straight in the body
+- ✅ **Iteration primitive** (v0.18) — `propose_round` / `pick_variant` / `iteration_state` MCP tools + viewer gallery render with click-to-pick; cloud renders read-only
+- ✅ **Viewer share UI** (v0.19) — topbar `↗ Share` popover + `/n/:id/shares` manage page; previously CLI/MCP only
+- ✅ **`wait_for_pick` MCP tool** (v0.19.1) — agent long-polls Folio's SSE hub instead of waiting for the user to confirm a pick in chat
+- ✅ `folio publish` mints capability URLs (or use the new viewer UI); with `--recipient` the cloud emails the link via Resend, hash-bound
+- ✅ Cloud observability snapshot (`GET /v1/admin/stats` + viewer Cloud stats panel)
 - ✅ Soft-delete (`folio delete`, `.trash/` with 7-day grace) plus sidebar button in the viewer
 - ✅ Append-only (ADR-014) preserved end-to-end: agents iterate via new sibling notes, never edits
-- ✅ Pre-compiled tarballs for darwin-arm64 / linux-x64 / linux-arm64; `folio update` self-updates from GitHub Releases
+- ✅ `folio update` self-updates from GitHub Releases
 
-The MCP contract is stable for v0.x. Cloud + PWA + publish ride on the same machinery — opting in to one doesn't lock you out of the others.
+<details>
+<summary><b>Recent releases</b> — last 6 versions</summary>
+
+| Version | Date | Highlight |
+|---|---|---|
+| **v0.19.1** | 2026-05-15 | `wait_for_pick` MCP tool — long-poll for iteration picks via SSE hub; closes the "tell agent you clicked" round-trip |
+| **v0.19.0** | 2026-05-15 | Viewer share UI — topbar `↗ Share` popover, `/n/:id/shares` manage page, active-shares indicator |
+| **v0.18.2** | 2026-05-15 | Sanitizer fix — `data-*` wildcard for agent-built interactive widgets (tabs, datasets, dataset-driven handlers) |
+| **v0.18.1** | 2026-05-14 | Cloud migrator hotfix — `inline_render` ALTER was unreachable on clouds created at v0.13/v0.14 (early-return bug) |
+| **v0.18.0** | 2026-05-14 | Iteration note primitive — N design candidates → user picks → N variants of the pick → repeat. Gallery render, lineage breadcrumb, finalize compiles into static body |
+| **v0.17.x** | 2026-05-14 | Inline-rendered live notes; sanitizer relaxations (`<button>` + form controls + `data-*`); banner threshold + scrollbar fixes |
+
+Full notes: [CHANGELOG.md](CHANGELOG.md).
+</details>
 
 ---
 
 ## Why Folio vs …
 
-- **vs Claude Artifacts / OpenAI Canvas** — local-first, your filesystem, no vendor lock-in. Threads of notes (not single isolated artifacts), addressable from any MCP-capable client, not coupled to one chat product.
-- **vs Obsidian / SilverBullet / Notion** — HTML not Markdown, designed for agents to write and humans to read. Sandboxed iframes for embedded demos. Append-only by design — the agent can never overwrite your prior take, only add another angle in the same thread.
-- **vs a folder of `.html` files** — indexed (FTS5), themed (18 bundled), addressable (`/n/<id>`), served, MCP-wired, lifecycle-managed (30-day auto-cleanup unless `finalize`d).
+- **vs Claude Artifacts / OpenAI Canvas** — local-first, your filesystem, no vendor lock-in. Threads of notes (not single isolated artifacts), addressable from any MCP-capable client, not coupled to one chat product. Iteration primitive lets the agent run a multi-round design loop where you actually pick the direction — Artifacts gives you one shot.
+- **vs Obsidian / SilverBullet / Notion** — HTML not Markdown, designed for agents to write and humans to read. Sandboxed iframes for embedded demos with `<script>` allowed (CSP-isolated). Append-only by design — the agent can never overwrite your prior take, only add another angle in the same thread.
+- **vs a folder of `.html` files** — indexed (FTS5), themed (18 bundled), addressable (`/n/<id>`), served, MCP-wired, lifecycle-managed (30-day auto-cleanup unless `finalize`d), shareable as capability URLs (token in path, no login on the recipient side).
 
 The product is the **filesystem + viewer + MCP contract**, not a hosted app. Every note is a valid standalone HTML file that opens in any browser, with or without Folio running.
 
@@ -87,6 +114,30 @@ Requires Bun 1.3+ for source install. Release tarballs ship pre-compiled single-
 4. You open the link in a browser. The local viewer renders the note in the chosen theme, attaches a sidebar with metadata + actions, and stays out of the way.
 5. Want another angle? Tell the agent. It writes a new note in the same thread folder. The previous one stays intact (Folio is append-only). Mark the best one as "final" — it skips the 30-day auto-cleanup.
 
+<details>
+<summary><b>Two more shapes the agent can take</b></summary>
+
+**Live notes (v0.9+).** Some notes grow over time — daily journal, todo list, ops feed. Create with `live: true`; entries land in a sidecar `.entries.jsonl` via `append_entry`. Two render modes:
+
+- **Panel mode** (default): entries stream into a side panel beside the body iframe. The body stays static. Best when the body is the document and the feed is meta-commentary.
+- **Inline mode** (v0.17, `inline: true`): entries render inside `body_html` on every viewer hit + arrive in real time via SSE → postMessage. No side panel. Best when the document IS the feed.
+
+`finalize` compiles the feed into a static body and shuts off the live behavior.
+
+**Iteration notes (v0.18+).** Agent generates N design candidates, user clicks one in a gallery, agent generates N variants of the pick, repeat. Tree-shaped (every variant has a `parent_variant_id`). Tool surface:
+
+```
+propose_round({ note_id, variants[], parent_variant_id? })  → { round, variant_ids[] }
+wait_for_pick({ note_id, for_round, timeout_s = 60 })       ← v0.19.1
+   → blocks on the SSE hub until the user clicks; resolves with { variant_id, round }
+pick_variant({ note_id, variant_id })                       ← usually the viewer fires this
+iteration_state({ note_id })                                → snapshot
+```
+
+`finalize` walks the picked lineage and compiles it into a "Final design" + "Iteration history" block, archiving discarded variants to `~/Folio/.trash/`.
+
+</details>
+
 ---
 
 ## Commands
@@ -123,7 +174,22 @@ Environment: `FOLIO_HOME=/path` overrides storage root. `FOLIO_DEBUG=1` for stac
 
 ## Agent integration
 
-Folio is built around the MCP protocol. The server (`folio-mcp`) exposes **11 tools** (`create`, `get`, `list`, `search`, `finalize`, `unfinalize`, `suggest_thread`, `list_expiring`, `list_themes`, `export`, `version`) and **6 resources** for context-loading. The server name is `folio`, so mcporter-style clients invoke them as `folio.create`, `folio.search`, etc.
+Folio is built around the MCP protocol. The server (`folio-mcp`) exposes **20 tools** (as of v0.19.1) and **6 resources** for context-loading. The server name is `folio`, so mcporter-style clients invoke them as `folio.create`, `folio.search`, etc.
+
+<details>
+<summary><b>Full tool surface</b></summary>
+
+| Family | Tools |
+|---|---|
+| Core CRUD | `create`, `get`, `list`, `search`, `finalize`, `unfinalize`, `export`, `version` |
+| Discovery & UX | `suggest_thread`, `list_expiring`, `list_themes` |
+| Assets | `attach_asset` |
+| Live notes (v0.9+) | `append_entry`, `list_entries`, `set_pinned` |
+| Iteration (v0.18+) | `propose_round`, `pick_variant`, `iteration_state`, `wait_for_pick` *(v0.19.1)* |
+| Capability shares | `publish` |
+
+See [`skills/folio/SKILL.md`](skills/folio/SKILL.md) for the agent-facing usage guide.
+</details>
 
 ### OpenClaw + mcporter
 
@@ -318,12 +384,14 @@ Full theme list and contract: [`themes/README.md`](themes/README.md).
 
 - **Bun** runtime + TypeScript (no build step in dev; `bun build --compile` for release binaries)
 - **`bun:sqlite`** with FTS5 for local storage + search (Polish-aware tokenizer + suffix stemmer). Two-phase schema bootstrap with migrations between (`src/core/migrations.ts`); BASE_SCHEMA never references a column added in the same release.
-- **`sanitize-html`** for agent body sanitization — forces safe sandboxes on `<iframe>` (no `allow-same-origin` ever passes through, `https:` only, `on*` handlers stripped). Note: `<script>` IS allowed at body level since v0.3 because notes render inside a null-origin sandboxed iframe with `connect-src: 'none'` — isolation comes from the outer iframe + CSP, not the sanitizer.
+- **`sanitize-html`** for agent body sanitization — forces safe sandboxes on `<iframe>` (no `allow-same-origin` ever passes through, `https:` only, `on*` handlers stripped), allows arbitrary `data-*` attributes (v0.18.2) so agent-built widgets can pair static markup with inline JS. `<script>` IS allowed at body level since v0.3 because notes render inside a null-origin sandboxed iframe with `connect-src: 'none'` + `form-action: 'none'` — isolation comes from the outer iframe + CSP, not the sanitizer.
 - **Eta** templates wrap agent-supplied HTML in a theme-linked document.
-- **Vanilla viewer** — server-rendered HTML + ~300 LOC of vanilla JS for the helpers (lightbox, copy-code, heading anchors, TOC with scroll spy, reading progress, theme preview switcher, prev/next in thread, print via postMessage so chrome doesn't leak into the PDF).
+- **Vanilla viewer** — server-rendered HTML + vanilla JS for the helpers (lightbox, copy-code, heading anchors, TOC with scroll spy, reading progress, theme preview switcher, prev/next in thread, print via postMessage so chrome doesn't leak into the PDF, **topbar Share popover** with outside-click/Esc dismiss).
+- **SSE hub** (`src/core/sse-hub.ts`) — in-process pub/sub on every note's `.entries.jsonl`. Direct `publish` calls from MCP/CLI writers fan out instantly; `fs.watch` is the fallback for out-of-process appends. Powers live note streaming AND `wait_for_pick` (v0.19.1) — the same channel that feeds the viewer iframe also feeds the agent's long-poll.
+- **Iteration primitive** (v0.18+) — `kind:variant` + `kind:pick` tagged entries on the live-notes JSONL substrate. Tree-shaped (`parent:<variant_id>` tag), pure-function state compute, finalize compiles picked lineage into a static "Final design + Iteration history" body.
 - **One Folio binary, three modes:** `folio serve` (local viewer, default), `folio sync` (push/pull daemon against a cloud relay), `folio cloud serve` (the relay itself — reuses the same viewer + theme stack with bearer auth on top).
 - **PWA** = stateless JS shells served by the cloud relay. Token lives in IndexedDB only; service worker SWR-caches notes for offline reads.
-- **Capability URLs** are 32-byte b64url tokens server-side; scope is enforced per-request (note vs thread). Body asset URLs rewrite through `/p/<token>/` so shared notes render with images and the iframe sandbox stays null-origin.
+- **Capability URLs** are 32-byte b64url tokens server-side; scope is enforced per-request (note vs thread). Body asset URLs rewrite through `/p/<token>/` so shared notes render with images and the iframe sandbox stays null-origin. Optional recipient-binding hashes the email locally with SHA-256 — cloud stores only the hash.
 - **MCP SDK** for the stdio server (`folio-mcp` over stdio for OpenClaw / Claude Desktop / Claude Code).
 
 No React, no frontend framework, no build step at runtime. Notes are pure HTML files; the viewer renders them through an iframe so theme.css is isolated from viewer chrome.
@@ -335,7 +403,7 @@ No React, no frontend framework, no build step at runtime. Notes are pure HTML f
 [`AGENTS.md`](AGENTS.md) is the canonical "how to work on this codebase" guide — file layout, conventions, hard rules, common pitfalls. Read it before adding tools, themes, or viewer helpers.
 
 Tests:
-- `bun test` runs the unit suite (270+ tests, ~3s). Covers storage, MCP tools, viewer routes, cloud auth + sync, share validation, doctor diagnostics.
+- `bun test` runs the unit suite (**458 tests across 44 files**, ~8s). Covers storage, MCP tools (incl. iteration + wait_for_pick), viewer routes (incl. share UI proxies), cloud auth + sync, schema migrators, share validation, doctor diagnostics, sanitizer.
 - `bun run test:pwa` runs the Playwright headless-browser suite (~2s after first browser install via `bun run test:pwa:install`). Covers pair flow, IDB token, blob-URL iframe handshake, sandbox attribute integrity.
 
 Branch protection on `main` means changes flow through PRs. Release flow: PR merge → `git tag v0.X.Y` on the merge commit → `git push origin v0.X.Y` triggers `.github/workflows/release.yml` which builds the three target triples and publishes a GitHub Release.

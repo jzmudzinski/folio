@@ -2,6 +2,18 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.19.3 — 2026-05-15
+
+Inline SVG diagrams were getting silently destroyed by the sanitizer. Agent-authored architecture diagrams, flowcharts, mini-charts — all stripped of typography, geometry, and arrowheads, then rendered as a pile of unpositioned `<text>` and `<line>` tags. Caught in dogfood of the showcase note's "How it gets to you" diagram: user reported it was illegible; the v2 redesign was equally broken because the bug was in the sanitizer, not the SVG markup.
+
+### Fixed
+- **sanitize-html → htmlparser2 was lowercasing both tag names and attribute names by default.** SVG is case-sensitive: `viewBox`, `markerWidth`, `refX`, `gradientUnits` (attrs) and `<linearGradient>`, `<radialGradient>` (tags) are ignored by browsers when lowercased. Set `parser: { lowerCaseAttributeNames: false, lowerCaseTags: false }`. HTML5 tag/attribute names are case-insensitive (browsers normalize at parse time) so this is a no-op for non-SVG content.
+- **`ALLOWED_TAGS` was missing `<defs>`, `<marker>`, `<ellipse>`, `<use>`, `<symbol>`, `<linearGradient>`, `<radialGradient>`, `<stop>`.** Arrow markers (every flow diagram needs them) were stripped entirely. Now allowed; `<foreignObject>` stays out (defense in depth — it can host arbitrary HTML/JS).
+- **`ALLOWED_ATTRIBUTES` had no entries for `<g>`, `<text>`, `<tspan>`** and incomplete entries for `<svg>` / `<path>` / `<rect>` / `<line>` / `<circle>`. So `font-size`, `font-family`, `text-anchor`, `stroke-width`, `stroke-dasharray`, `opacity`, `marker-end`, `transform`, and all the SVG paint + typography attrs got dropped. Now per-element comprehensive allow-lists covering geometry + paint + typography + markers + clipping.
+
+### Tests
+- `tests/sanitize-svg.test.ts` (new, 10 tests) — `viewBox` case-preservation, `<defs>`/`<marker>` survival, text positioning + typography, group-level styles, line/rect with strokes and dasharray, gradients (linearGradient + stop), `<foreignObject>` still stripped, full agent-authored architecture-diagram round-trip.
+
 ## v0.19.2 — 2026-05-15
 
 Two real bugs surfaced when shipping the v0.19.1 showcase note + testing `wait_for_pick` on a multi-process setup.

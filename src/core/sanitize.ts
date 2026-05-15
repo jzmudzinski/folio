@@ -34,7 +34,14 @@ const ALLOWED_TAGS = [
   "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption", "colgroup", "col",
   "hr", "br", "div", "span",
   "details", "summary", "mark", "kbd", "var", "samp", "time",
-  "svg", "g", "path", "circle", "rect", "line", "polyline", "polygon", "text", "tspan",
+  // SVG (v0.19.3 expanded): inline SVG diagrams need defs/marker for arrows,
+  // use/symbol for icon sprites, ellipse for non-circular shapes, and
+  // linearGradient/radialGradient/stop for fills. <foreignObject> stays out —
+  // it's the one SVG element that can host arbitrary HTML/JS and dodge the
+  // outer sandbox; the iframe + CSP still cover it but no agent needs it.
+  "svg", "g", "path", "circle", "ellipse", "rect", "line", "polyline", "polygon",
+  "text", "tspan", "defs", "marker", "use", "symbol",
+  "linearGradient", "radialGradient", "stop",
   "iframe",
   "script",
   // Form controls (v0.17.1+). Threat surface in our setup is genuinely zero:
@@ -86,11 +93,94 @@ const ALLOWED_ATTRIBUTES: Record<string, string[]> = {
   source: ["src", "srcset", "type", "media"],
   th: ["colspan", "rowspan", "scope"],
   td: ["colspan", "rowspan"],
-  svg: ["viewBox", "width", "height", "xmlns", "fill", "stroke"],
-  path: ["d", "fill", "stroke", "stroke-width"],
-  circle: ["cx", "cy", "r", "fill", "stroke"],
-  rect: ["x", "y", "width", "height", "fill", "stroke", "rx", "ry"],
-  line: ["x1", "y1", "x2", "y2", "stroke"],
+  // ─── SVG (v0.19.3) ─────────────────────────────────────────────────────
+  // SVG paint + typography attrs are presentation-only (no script surface
+  // unless <foreignObject> or <script> appears — both excluded). We allow
+  // them broadly across SVG elements so agent-authored diagrams actually
+  // render with the styling they declared.
+  //
+  // History: pre-v0.19.3 entries listed only a handful of geometry attrs
+  // and zero text/style attrs, which turned every inline SVG diagram into
+  // a pile of unpositioned <text> and <line> tags with no fonts, colors,
+  // arrowheads, or viewBox. Combined with sanitize-html lowercasing
+  // attribute names by default (killing case-sensitive `viewBox`), inline
+  // diagrams were effectively unusable. See parser.lowerCaseAttributeNames
+  // below + the regression tests in tests/sanitize-svg.test.ts.
+  svg: [
+    "viewBox", "preserveAspectRatio", "width", "height", "xmlns", "xmlns:xlink",
+    "fill", "stroke", "stroke-width", "stroke-dasharray", "stroke-linecap",
+    "stroke-linejoin", "stroke-opacity", "fill-opacity", "fill-rule", "opacity",
+    "transform", "font-family", "font-size", "font-weight", "font-style",
+    "text-anchor", "letter-spacing",
+  ],
+  g: [
+    "transform", "fill", "stroke", "stroke-width", "stroke-dasharray", "stroke-linecap",
+    "stroke-linejoin", "stroke-opacity", "fill-opacity", "fill-rule", "opacity",
+    "font-family", "font-size", "font-weight", "font-style", "text-anchor",
+    "letter-spacing", "clip-path", "mask",
+  ],
+  defs: [],
+  marker: [
+    "id", "markerWidth", "markerHeight", "refX", "refY", "orient", "markerUnits",
+    "viewBox", "preserveAspectRatio",
+  ],
+  symbol: ["id", "viewBox", "preserveAspectRatio", "width", "height"],
+  use: ["href", "xlink:href", "x", "y", "width", "height", "transform"],
+  linearGradient: [
+    "id", "x1", "y1", "x2", "y2", "gradientUnits", "gradientTransform", "spreadMethod",
+  ],
+  radialGradient: [
+    "id", "cx", "cy", "r", "fx", "fy", "gradientUnits", "gradientTransform", "spreadMethod",
+  ],
+  stop: ["offset", "stop-color", "stop-opacity"],
+  path: [
+    "d", "fill", "fill-rule", "fill-opacity", "stroke", "stroke-width", "stroke-dasharray",
+    "stroke-linecap", "stroke-linejoin", "stroke-opacity", "opacity", "transform",
+    "marker-start", "marker-mid", "marker-end", "clip-path", "mask",
+  ],
+  circle: [
+    "cx", "cy", "r", "fill", "fill-opacity", "stroke", "stroke-width", "stroke-dasharray",
+    "stroke-opacity", "opacity", "transform", "clip-path", "mask",
+  ],
+  ellipse: [
+    "cx", "cy", "rx", "ry", "fill", "fill-opacity", "stroke", "stroke-width",
+    "stroke-dasharray", "stroke-opacity", "opacity", "transform", "clip-path", "mask",
+  ],
+  rect: [
+    "x", "y", "width", "height", "rx", "ry", "fill", "fill-opacity", "stroke",
+    "stroke-width", "stroke-dasharray", "stroke-opacity", "opacity", "transform",
+    "clip-path", "mask",
+  ],
+  line: [
+    "x1", "y1", "x2", "y2", "stroke", "stroke-width", "stroke-dasharray",
+    "stroke-linecap", "stroke-opacity", "opacity", "transform",
+    "marker-start", "marker-mid", "marker-end",
+  ],
+  polyline: [
+    "points", "fill", "fill-opacity", "stroke", "stroke-width", "stroke-dasharray",
+    "stroke-linecap", "stroke-linejoin", "stroke-opacity", "opacity", "transform",
+    "marker-start", "marker-mid", "marker-end",
+  ],
+  polygon: [
+    "points", "fill", "fill-rule", "fill-opacity", "stroke", "stroke-width",
+    "stroke-dasharray", "stroke-linecap", "stroke-linejoin", "stroke-opacity",
+    "opacity", "transform",
+  ],
+  text: [
+    "x", "y", "dx", "dy", "rotate", "textLength", "lengthAdjust",
+    "text-anchor", "dominant-baseline", "alignment-baseline",
+    "font-family", "font-size", "font-weight", "font-style", "font-variant",
+    "letter-spacing", "word-spacing", "writing-mode",
+    "fill", "fill-opacity", "stroke", "stroke-width", "stroke-opacity", "opacity",
+    "transform",
+  ],
+  tspan: [
+    "x", "y", "dx", "dy", "rotate", "textLength", "lengthAdjust",
+    "text-anchor", "dominant-baseline", "alignment-baseline",
+    "font-family", "font-size", "font-weight", "font-style", "font-variant",
+    "letter-spacing", "word-spacing",
+    "fill", "fill-opacity", "stroke", "stroke-width", "stroke-opacity", "opacity",
+  ],
   iframe: ["src", "srcdoc", "sandbox", "width", "height", "title", "allow", "loading", "name", "referrerpolicy", "allowfullscreen"],
   time: ["datetime"],
   script: ["src", "type", "async", "defer", "crossorigin", "integrity", "nomodule", "referrerpolicy"],
@@ -152,6 +242,15 @@ export function sanitize(html: string): SanitizeResult {
     // CSP, not the sanitizer. Silence sanitize-html's XSS-warning banner.
     allowVulnerableTags: true,
     allowedAttributes: ALLOWED_ATTRIBUTES,
+    // sanitize-html → htmlparser2 lowercases both tag names AND attribute
+    // names by default. Both behaviors silently destroy SVG: tag names like
+    // `<linearGradient>` / `<radialGradient>` and attribute names like
+    // `viewBox` / `markerWidth` / `refX` / `gradientUnits` are case-
+    // sensitive in SVG and ignored when lowercased. Disable both so SVG
+    // passes through intact. HTML5 tag and attribute names are case-
+    // insensitive (browsers normalize at parse time), so this is a no-op
+    // for non-SVG content. Fix shipped in v0.19.3.
+    parser: { lowerCaseAttributeNames: false, lowerCaseTags: false } as any,
     allowedSchemes: ["http", "https", "mailto", "tel", "data"],
     allowedSchemesByTag: {
       img: ["http", "https", "data"],

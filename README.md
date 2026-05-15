@@ -34,7 +34,7 @@ When your agent has something to show — research, comparison, technical doc, d
 
 ## See it live
 
-**[↗ Folio rendering itself — live capability URL](https://folio.notibox.ai/p/uT6ysTQlyN1CTFnGIqWRHOpIqmxgxTgRj1nJtXlKclE/n/01KRNCPQT5GDQE8FCEPF9AY38Z)**
+**[↗ Folio rendering itself — live capability URL](https://folio.notibox.ai/p/9x6eKA6HJYohSWtp_4VXVi8rU5BIgwnCvJAkyYd7_Zs/n/01KRNDW06SNZB2WBBXNNJZF4K2)**
 
 A self-demo note (research type, linen theme) published via `folio publish --expires-days 0`. Opens in any browser, no login. What you'll see that this README can't show — GitHub's markdown sanitizer strips `<script>`, `<style>`, `<iframe>`, custom classes:
 

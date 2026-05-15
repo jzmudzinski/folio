@@ -26,7 +26,7 @@ jobs:
             target: linux-arm64
             bun_target: 'bun-linux-arm64'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -91,7 +91,7 @@ jobs:
           ls -lh folio-${{ matrix.target }}.tar.gz
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: folio-${{ matrix.target }}
           path: folio-${{ matrix.target }}.tar.gz
@@ -102,11 +102,11 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           path: artifacts
           merge-multiple: true

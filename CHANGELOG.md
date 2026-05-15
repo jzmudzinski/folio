@@ -2,6 +2,18 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.19.2 — 2026-05-15
+
+Two real bugs surfaced when shipping the v0.19.1 showcase note + testing `wait_for_pick` on a multi-process setup.
+
+### Fixed
+- **Sync push truncated notes with nested `<article>` elements.** `extractBodyHtml` in `src/core/sync.ts` used a non-greedy regex (`<article...>([\s\S]*?)</article>`) that stopped at the FIRST nested `</article>` instead of the wrapper's. Notes with agent-authored `<article>` elements (iteration cards, blog-style sections) got truncated at the first inner close on push; cloud-served renders were ~half the size of local. Fix: use `lastIndexOf('</article>')` to find the wrapper's true close — the template emits exactly one wrapper article after the agent body, so `lastIndexOf` is unambiguous. Other sites with the same regex pattern (`finalizeLive`, `finalizeIteration`, viewer + cloud iteration splices) still use non-greedy — they're inside `.replace()` callbacks where the truncation would be visible differently; sweep deferred to a follow-up.
+- **`wait_for_pick` never resolved on cross-process picks (the "wait_for_pick zawisł" report).** The SSE hub's only change-detection path was `fs.watch`. Within a single process the in-process `publish()` fast path covers writes, but across processes (MCP server's agent runs `wait_for_pick`; viewer process appends the pick on user click) the only bridge is `fs.watch` — which on macOS is flaky enough to swallow rapid events. Fix: every channel with active subscribers now also runs a 500ms polling `drainAndEmit`. `fs.watch` + direct `publish()` stay as fast paths; the poll guarantees delivery within ~500ms even when both miss. Offset check inside `drainAndEmit` prevents duplicates when more than one path observes the same append. Timer is `unref()`'d so it never keeps the process alive past explicit unsubscribe.
+
+### Tests
+- `tests/extract-body-html.test.ts` (new, 6 tests) — covers simple bodies, nested articles (single + deeply nested), missing wrapper fallback, the exact showcase-note shape that broke.
+- `tests/sse-hub-polling.test.ts` (new, 4 tests) — simulates cross-process appends via direct `fs.appendFileSync` (skipping `publish()`); verifies single + multiple sequential pickups within the poll interval, no-duplicate guarantee, and that unsubscribe stops both the watcher and the poll timer.
+
 ## v0.19.1 — 2026-05-15
 
 New MCP tool `wait_for_pick` — closes the manual seam in the iteration workflow. Before: agent calls `propose_round`, waits for the user to type "kliknąłem" in chat, then calls `iteration_state`. After: agent calls `propose_round` then `wait_for_pick({note_id, for_round: N, timeout_s: 60})`, which blocks on Folio's SSE hub until the user clicks a variant and resolves with the winning `variant_id` directly. Tool count: 19 → 20.

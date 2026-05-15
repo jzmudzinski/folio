@@ -32,6 +32,21 @@ When your agent has something to show — research, comparison, technical doc, d
 
 ---
 
+## See it live
+
+**[↗ Folio rendering itself — live capability URL](https://folio.notibox.ai/p/uT6ysTQlyN1CTFnGIqWRHOpIqmxgxTgRj1nJtXlKclE/n/01KRNCPQT5GDQE8FCEPF9AY38Z)**
+
+A self-demo note (research type, linen theme) published via `folio publish --expires-days 0`. Opens in any browser, no login. What you'll see that this README can't show — GitHub's markdown sanitizer strips `<script>`, `<style>`, `<iframe>`, custom classes:
+
+- the actual `linen` theme typography (Familjen Grotesk + Instrument Serif italic) and CSS variables
+- the viewer chrome around the sandboxed iframe — TOC, scroll spy, reading progress, copy buttons, theme switcher, the v0.19 `↗ Share` popover
+- a working **mock iteration gallery** (inline JS in the note body) — click a card, watch the "you picked X" resolution land in real time. That's the exact UX shape an agent's `wait_for_pick` long-poll sees when you click in the real gallery.
+- inline SVG diagram + per-section visual chrome that Markdown can't carry
+
+The page runs entirely inside Folio's null-origin sandboxed iframe with CSP `connect-src 'none'` + `form-action 'none'` — same security model as every other Folio note.
+
+---
+
 ## Status
 
 **v0.19.1 — shippable.** Stable MCP contract, 458 tests across 44 files, pre-compiled binaries for darwin-arm64 / linux-x64 / linux-arm64. Cloud + PWA + publish + iteration + viewer share UI all ride on the same machinery — opt in to one without losing the others.

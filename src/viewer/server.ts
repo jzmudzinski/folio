@@ -319,7 +319,44 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
           const note = getNoteMeta(id);
           if (!note) return htmlResp(pageError(404, `Note "${id}" not found.`), 404);
           logEvent("note_viewed", { source: "viewer" }, note.id, note.thread_id);
-          return htmlResp(pageNote(note, note.theme));
+
+          // ?from=tag:<X> or ?from=project:<Y> threads list context through
+          // to pageNote — overrides the "Back to list" link, prev/next, and
+          // version label to walk the list instead of the thread (v0.20.1+).
+          const fromRaw = url.searchParams.get("from") ?? "";
+          let context: import("./render").NoteListContext | undefined;
+          if (fromRaw.startsWith("tag:")) {
+            const tag = fromRaw.slice(4);
+            const items = listNotesByTag(tag, 500)
+              .sort((a, b) => b.created.localeCompare(a.created));
+            const idx = items.findIndex((n) => n.id === id);
+            if (idx >= 0) {
+              context = {
+                kind: "tag",
+                slug: tag,
+                items: items.map((n) => ({ id: n.id, title: n.title })),
+                currentIndex: idx,
+              };
+            }
+          } else if (fromRaw.startsWith("project:")) {
+            const slug = fromRaw.slice("project:".length);
+            const { groups } = listProjectThreads(slug);
+            // Flatten in display order: threads sorted by latest desc; notes
+            // inside each thread in created-desc (same as the sidebar shows).
+            const flat: import("../core/storage").NoteMeta[] = [];
+            for (const g of groups) flat.push(...g.notes);
+            const idx = flat.findIndex((n) => n.id === id);
+            if (idx >= 0) {
+              context = {
+                kind: "project",
+                slug,
+                items: flat.map((n) => ({ id: n.id, title: n.title })),
+                currentIndex: idx,
+              };
+            }
+          }
+
+          return htmlResp(pageNote(note, note.theme, context));
         }
 
         // GET /raw/:id  (the actual HTML file, served raw for the iframe)

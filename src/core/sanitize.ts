@@ -61,13 +61,19 @@ const ALLOWED_TAGS = [
 
 const ALLOWED_ATTRIBUTES: Record<string, string[]> = {
   // aria-* + role are universally needed for accessibility once form
-  // controls are in play; allow them globally. data-* attributes are also
-  // common for runtime hook points (data-folio-live-feed, data-entry-id,
-  // and now arbitrary data-* for agent-built interactive widgets).
+  // controls are in play; allow them globally. data-* attributes survive
+  // via the sanitize-html `data-*` wildcard — needed both for Folio's own
+  // hook points (data-folio-live-feed, data-entry-id, etc.) and for
+  // agent-built interactive widgets that pair static markup with inline
+  // JS (tab indices, dataset-driven event delegation, etc.).
+  //
+  // History (v0.18.2 fix): the wildcard was promised by the comment but
+  // not implemented — only specific data-folio-* entries were listed, so
+  // generic `data-tab` / `data-panel` got stripped, breaking any agent
+  // widget that read them at runtime.
   "*": [
     "class", "id", "style", "lang", "role", "title", "tabindex", "hidden",
-    "data-folio-id", "data-folio-type", "data-folio-thread", "data-folio-content",
-    "data-folio-selectable", "data-folio-live-feed", "data-entry-id",
+    "data-*",
     "aria-label", "aria-labelledby", "aria-describedby", "aria-hidden",
     "aria-live", "aria-atomic", "aria-busy", "aria-controls", "aria-current",
     "aria-disabled", "aria-expanded", "aria-haspopup", "aria-invalid",

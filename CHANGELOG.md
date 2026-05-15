@@ -2,6 +2,21 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.19.1 — 2026-05-15
+
+New MCP tool `wait_for_pick` — closes the manual seam in the iteration workflow. Before: agent calls `propose_round`, waits for the user to type "kliknąłem" in chat, then calls `iteration_state`. After: agent calls `propose_round` then `wait_for_pick({note_id, for_round: N, timeout_s: 60})`, which blocks on Folio's SSE hub until the user clicks a variant and resolves with the winning `variant_id` directly. Tool count: 19 → 20.
+
+### Added
+- **`wait_for_pick` MCP tool.** Long-polls Folio's `src/core/sse-hub.ts` for `kind:pick` entries on the given note. Race-window safe: pre-subscribe state check returns immediately if the round is already picked (covers the case where the user clicks between `propose_round` returning and `wait_for_pick` getting called). Returns `{picked: true, variant_id, round}` on success or `{picked: false, timeout: true, current_round}` on timeout. Default timeout 60s; clamped to [1s, 300s].
+- **SKILL section "Iteration notes (v0.18.0+)"** restored + updated with the new `wait_for_pick` workflow as the load-bearing usage pattern.
+
+### Architecture
+- Single new function in `src/core/iteration.ts`; thin dispatch case in `src/mcp/server.ts`. No schema migration. Builds on the SSE hub Folio already maintains for live notes (`subscribe` + `publish`); the iteration `pickVariant` writer was already calling `publish`, so no producer-side changes needed.
+- Finalized notes return `{picked: false}` (not the lineage) — finalize archives the JSONL to `.trash/`, so the lineage isn't reachable through this API; agent should switch to reading the compiled body_html. Locked-in via test.
+
+### Tests
+- `tests/iteration-wait.test.ts` (new, 10 tests) — covers SSE pickup of matching round, filtering on `for_round`, ignoring non-pick entries, fast-path immediate returns (already picked, finalized), timeout shape, error paths, and an end-to-end MCP integration via `buildServer()`.
+
 ## v0.19.0 — 2026-05-15
 
 Capability URL sharing now has a viewer UI. Previously: CLI (`folio publish`) and MCP tool (`publish`) only — viewer notes had no Share button at all, so anyone using only the local viewer didn't know the feature existed. Designed in two rounds via the v0.18 iteration primitive (B · topbar-popover → B3 · minimal+manage-link). Three placement concepts compared, three popover variations refined, picked one direction, shipped.

@@ -37,6 +37,7 @@ import { db } from "./db";
 import { folioRoot } from "./config";
 import { getNoteMeta, updateLastEntryAt } from "./storage";
 import { appendEntry, entriesPath, readEntries } from "./live";
+import { subscribe } from "./sse-hub";
 import type { LiveEntry } from "./types";
 
 // ---- Logical model ----
@@ -345,4 +346,107 @@ export function pickVariant(input: PickVariantInput): PickVariantResult {
     .filter((v) => v.id !== input.variant_id)
     .map((v) => v.id);
   return { round: state.current_round.round, variant_id: input.variant_id, rejected_variant_ids: rejected };
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// wait_for_pick (v0.19.1+) — MCP long-poll for iteration picks.
+//
+// Replaces the manual "agent waits for user to type 'kliknąłem' in chat"
+// seam with a synchronous tool call. Agent calls waitForPick after
+// propose_round; this subscribes to the SSE hub for the note's JSONL
+// substrate, races against a timeout, and resolves with the variant_id
+// when a kind:pick entry lands (or {picked: false, timeout: true} if
+// nothing happens before the deadline).
+//
+// Race-window safeguard: before subscribing, we check current state. If
+// the round agent's asking about (for_round) was ALREADY picked between
+// propose_round returning and waitForPick getting called, we return
+// immediately. Without this, fast users could leave the agent stuck.
+// ───────────────────────────────────────────────────────────────────────
+
+export interface WaitForPickResult {
+  picked: boolean;
+  variant_id?: string;
+  round?: number;
+  /** True if the timeout fired before any pick arrived. */
+  timeout?: boolean;
+  /** Open round number when the timeout fired (null if no round was open). */
+  current_round?: number | null;
+}
+
+const WAIT_TIMEOUT_MIN_MS = 1000;
+const WAIT_TIMEOUT_MAX_MS = 300_000;
+const WAIT_TIMEOUT_DEFAULT_MS = 60_000;
+
+function clampTimeoutMs(seconds: number | undefined): number {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds)) return WAIT_TIMEOUT_DEFAULT_MS;
+  const ms = seconds * 1000;
+  if (ms < WAIT_TIMEOUT_MIN_MS) return WAIT_TIMEOUT_MIN_MS;
+  if (ms > WAIT_TIMEOUT_MAX_MS) return WAIT_TIMEOUT_MAX_MS;
+  return ms;
+}
+
+export async function waitForPick(input: {
+  note_id: string;
+  for_round?: number;
+  timeout_s?: number;
+}): Promise<WaitForPickResult> {
+  const meta = getNoteMeta(input.note_id);
+  if (!meta) throw new IterationError("NOT_FOUND", `note not found: ${input.note_id}`);
+  if (meta.type !== "iteration") {
+    throw new IterationError("WRONG_TYPE", `note ${input.note_id} is not an iteration note (type=${meta.type})`);
+  }
+
+  // Fast paths — return without subscribing when there's nothing to wait
+  // for. Finalize archives the JSONL to .trash, so lineage isn't reachable
+  // through this API after finalize. Agent should switch to reading the
+  // compiled body_html (or call iteration_state — also returns empty
+  // lineage but is_finalized=true). We return picked:false here as a
+  // signal "stop waiting, the note is done".
+  const initial = getIterationState(input.note_id);
+  if (initial?.is_finalized) {
+    return { picked: false, current_round: null };
+  }
+  if (input.for_round !== undefined && initial) {
+    const round = initial.rounds.find((r) => r.round === input.for_round);
+    if (round?.picked_variant_id) {
+      return { picked: true, variant_id: round.picked_variant_id, round: round.round };
+    }
+  }
+
+  const jsonl = entriesPath(join(folioRoot(), meta.path));
+  const timeoutMs = clampTimeoutMs(input.timeout_s);
+
+  return new Promise<WaitForPickResult>((resolve) => {
+    let unsubscribe: (() => void) | null = null;
+    let settled = false;
+
+    const finish = (result: WaitForPickResult) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (unsubscribe) unsubscribe();
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => {
+      const snap = getIterationState(input.note_id);
+      finish({
+        picked: false,
+        timeout: true,
+        current_round: snap?.current_round?.round ?? null,
+      });
+    }, timeoutMs);
+
+    unsubscribe = subscribe(input.note_id, jsonl, (entry: LiveEntry) => {
+      // Only kind:pick entries trigger; variants and other tag-mutations ignored.
+      if (!entry.tags || !entry.tags.includes(TAG_KIND + "pick")) return;
+      const roundTag = entry.tags.find((t) => t.startsWith(TAG_ROUND));
+      const round = roundTag ? Number(roundTag.slice(TAG_ROUND.length)) : null;
+      if (input.for_round !== undefined && round !== input.for_round) return;
+      const variantId = entry.refs && entry.refs.length > 0 ? entry.refs[0] : null;
+      if (!variantId) return;
+      finish({ picked: true, variant_id: variantId, round: round ?? undefined });
+    });
+  });
 }

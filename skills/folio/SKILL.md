@@ -13,7 +13,7 @@ description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp)
 - **Storage:** `$FOLIO_HOME` (default `~/Folio/`)
 - **MCP:** `folio-mcp` (see `docs/mcp-setup.md`)
 - **Viewer:** `folio serve` → http://127.0.0.1:4810
-- **Tools:** `create`, `get`, `list`, `search`, `finalize`, `unfinalize`, `suggest_thread`, `list_expiring`, `list_themes`, `export`, `attach_asset`, `append_entry`, `list_entries`, `set_pinned`, `version` (MCP server name `folio` → mcporter syntax: `folio.create`, `folio.search`, …)
+- **Tools:** `create`, `get`, `list`, `search`, `finalize`, `unfinalize`, `suggest_thread`, `list_expiring`, `list_themes`, `export`, `attach_asset`, `append_entry`, `list_entries`, `set_pinned`, `publish`, `propose_round`, `pick_variant`, `iteration_state`, `wait_for_pick`, `version` (MCP server name `folio` → mcporter syntax: `folio.create`, `folio.search`, …)
 - **Stylebook:** `skills/folio/STYLEBOOK.md` (class contract with theme.css)
 - **Examples:** `skills/folio/examples/<type>/`
 
@@ -171,6 +171,65 @@ Everything else is convention space. Recommended namespaces:
 These render as generic pills + show up as auto-facets in the panel sidebar. Pick a namespace pack at the start of a thread and stick with it.
 
 **`view:pinned` → use `set_pinned` instead of raw appends.** The `set_pinned` tool takes the COMPLETE target list of pinned entry ids (≤ 5), diffs against current pinned state, and appends the minimal pin/unpin entries to reach the target. Don't manually append `view:pinned` and `view:unpinned` chains unless you know exactly what you're doing.
+
+---
+
+## Iteration notes (v0.18.0+)
+
+A different shape from live notes: agent generates N design candidates, user clicks one in a gallery, agent generates N variants of the pick, repeat. Tree-shaped (every variant has a `parent_variant_id` pointing at the round-winner that spawned it), append-only on the live-entries JSONL substrate.
+
+**When to use `type: "iteration"`:**
+- ✅ "Show me 3 versions of the landing hero, I'll pick one"
+- ✅ "Iterate on the email template — pick after each round"
+- ✅ Anything where you'd otherwise paste 3 mockups back-to-back and ask "which one?"
+- ❌ Single deliverable, no comparison ("write the email") → `snippet`
+- ❌ Side-by-side comparison of OPTIONS the user already has → `comparison`
+
+**Tool surface (v0.19.1):**
+
+```
+create({ type: "iteration", title, body_html, thread_id, theme })
+  → body_html is chrome only (h1 + intro); variants live in entries.
+
+propose_round({ note_id, variants[], parent_variant_id? })
+  → variants: [{ content_html, label? }, ...]  — usually 2-4 per round
+  → parent_variant_id: REQUIRED from round 2+; equals the winner of the previous round
+  → returns { round, variant_ids[] }
+
+wait_for_pick({ note_id, for_round, timeout_s = 60 })   ← v0.19.1+
+  → blocks until the user picks a variant in the viewer's gallery
+  → race-safe: returns immediately if for_round is already picked
+  → returns { picked: true, variant_id, round } | { picked: false, timeout: true, current_round }
+
+pick_variant({ note_id, variant_id })
+  → usually the viewer fires this when the user clicks
+  → agents only call directly for headless / auto-advance flows
+
+iteration_state({ note_id })
+  → snapshot: rounds[], lineage[], current_round, is_finalized
+```
+
+**Workflow (the load-bearing pattern):**
+
+```
+1. create({ type: "iteration", title, body_html, thread_id })
+2. propose_round({ note_id, variants })  → { round: 1, variant_ids: [...] }
+3. wait_for_pick({ note_id, for_round: 1, timeout_s: 60 })
+   ↳ blocks until user clicks; resolves with { variant_id, round }
+4. propose_round({ note_id, parent_variant_id: <winner>, variants: [...refined...] })
+5. wait_for_pick({ note_id, for_round: 2 })
+6. Repeat until satisfied; finalize({ id }) compiles the picked lineage into body_html.
+```
+
+**Variant content_html — make it standalone.** Each variant renders in its own sandboxed sub-iframe with a minimal system-font scaffold. CSS doesn't leak between cards. For a strong identity per variant include `<style>` blocks inline at the top of the variant.
+
+**Labels matter.** Set a short kebab-case `label` on each variant — the viewer shows it in the gallery card and the lineage breadcrumb after picking. Without it, the viewer falls back to first 4 chars of the variant id.
+
+**On `wait_for_pick` timeout:** the agent should call `iteration_state` to check whether the round was picked between the call and the timeout (rare race window), then either continue with the picked variant or stop the iteration.
+
+**Cloud rendering.** Shared / capability-URL iteration notes render the same gallery but READ-ONLY — picks happen on the device that owns the note. The agent's `wait_for_pick` won't fire on cloud-side clicks since they don't exist; only the owner clicks.
+
+---
 
 ## Choosing `type`
 

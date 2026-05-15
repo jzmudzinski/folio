@@ -1731,6 +1731,38 @@ export function pageNote(note: NoteMeta, _themeName: string, context?: NoteListC
         queued.length = 0;
       });
     })();</script>`;
+  } else if (note.type === "iteration" && !note.is_final) {
+    // Iteration notes auto-refresh the gallery when the agent appends a new
+    // round (v0.20.2+). SSE delivers every entry on the JSONL substrate; we
+    // reload the body iframe only on `kind:variant` entries — those mean a
+    // new round just landed. `kind:pick` entries already trigger reload via
+    // the existing postMessage path (variant card click → POST iter/pick →
+    // iframe reload), so skipping pick here avoids a redundant second reload.
+    //
+    // Backlog entries (initial backfill on the SSE connect) are skipped
+    // too: we tag the first batch, ignore until the connection has been
+    // open for one tick. Otherwise opening the page would always reload
+    // it once on first paint.
+    liveScript = `<script>(function(){
+      var noteId = ${JSON.stringify(note.id)};
+      var bodyFrame = document.querySelector(".note-iframe");
+      if (!bodyFrame) return;
+      var skipBacklog = true;
+      // Mark the backlog window as closed once the event loop has a chance
+      // to drain the initial flood from the SSE connection open.
+      setTimeout(function(){ skipBacklog = false; }, 250);
+      var ev = new EventSource("/n/" + encodeURIComponent(noteId) + "/stream");
+      ev.addEventListener("entry", function(e){
+        if (skipBacklog) return;
+        try {
+          var entry = JSON.parse(e.data);
+          var tags = entry && entry.tags;
+          if (!tags || !tags.includes("kind:variant")) return;
+          // New round landed — refresh the gallery via cache-buster.
+          bodyFrame.src = "/raw/" + encodeURIComponent(noteId) + "?t=" + Date.now();
+        } catch (_err) {}
+      });
+    })();</script>`;
   }
   const shellClass = isLive && !isInlineLive ? "note-shell has-live" : "note-shell";
   const sharePop = sharePopoverHtml(note.id);

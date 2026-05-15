@@ -274,3 +274,84 @@ test("GET /api/notes/:id/iter/state on non-iteration note returns 404", async ()
   const r = await fetch(`${viewerUrl}/api/notes/${note.id}/iter/state`);
   expect(r.status).toBe(404);
 });
+
+// ───── v0.20.2: SSE auto-refresh for iteration gallery ─────────────────
+
+test("v0.20.2: GET /n/:id/stream accepts iteration notes (previously 404'd)", async () => {
+  await bootViewer();
+  const { createNote } = await import("../src/core/storage");
+  const note = await createNote({
+    type: "iteration",
+    title: "Stream test",
+    body_html: "<h1>x</h1>",
+    thread_id: "stream-iter",
+    theme: "linen",
+  });
+
+  // EventSource isn't trivial to test directly in bun:test; just verify the
+  // endpoint returns a streamable response with text/event-stream MIME and
+  // doesn't 404 (which it would pre-v0.20.2 because note.live === false).
+  const ctrl = new AbortController();
+  setTimeout(() => ctrl.abort(), 200);
+  let res: Response | null = null;
+  try {
+    res = await fetch(`${viewerUrl}/n/${note.id}/stream`, { signal: ctrl.signal });
+  } catch {
+    // AbortError after the timeout is expected — we only care that the
+    // initial response came back 200 with the SSE content-type.
+  }
+  if (res) {
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type") ?? "").toContain("text/event-stream");
+    try { await res.body?.cancel(); } catch {}
+  }
+});
+
+test("v0.20.2: GET /n/:id/stream still 404s on plain (non-live, non-iteration) note", async () => {
+  await bootViewer();
+  const { createNote } = await import("../src/core/storage");
+  const note = await createNote({
+    type: "snippet",
+    title: "regular",
+    body_html: "<p>x</p>",
+    thread_id: "plain-thread",
+    theme: "linen",
+  });
+  const r = await fetch(`${viewerUrl}/n/${note.id}/stream`);
+  expect(r.status).toBe(404);
+});
+
+test("v0.20.2: iteration note page embeds EventSource subscriber that reloads on kind:variant entries", async () => {
+  await bootViewer();
+  const { createNote } = await import("../src/core/storage");
+  const note = await createNote({
+    type: "iteration",
+    title: "Reload test",
+    body_html: "<h1>x</h1>",
+    thread_id: "reload-iter",
+    theme: "linen",
+  });
+  const r = await fetch(`${viewerUrl}/n/${note.id}`);
+  const html = await r.text();
+  // The chrome JS opens SSE on /n/:id/stream
+  expect(html).toContain('new EventSource("/n/" + encodeURIComponent(noteId) + "/stream")');
+  // Only kind:variant entries trigger reload — kind:pick is skipped to avoid double-reload
+  expect(html).toContain('"kind:variant"');
+  expect(html).toContain('bodyFrame.src = "/raw/"');
+});
+
+test("v0.20.2: regular (non-iteration, non-live) note has NO SSE subscriber injected", async () => {
+  await bootViewer();
+  const { createNote } = await import("../src/core/storage");
+  const note = await createNote({
+    type: "snippet",
+    title: "Plain note",
+    body_html: "<p>x</p>",
+    thread_id: "no-sse",
+    theme: "linen",
+  });
+  const r = await fetch(`${viewerUrl}/n/${note.id}`);
+  const html = await r.text();
+  // Plain notes shouldn't get the iteration's EventSource block
+  expect(html).not.toContain('new EventSource("/n/" + encodeURIComponent(noteId) + "/stream")');
+});

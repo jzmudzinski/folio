@@ -1,6 +1,6 @@
 {
   "name": "folio",
-  "version": "0.20.1",
+  "version": "0.20.2",
   "description": "Visual communication layer between AI agents and humans",
   "type": "module",
   "private": true,

@@ -69,12 +69,14 @@ test("/n/:id/stream 404 when note doesn't exist", async () => {
   expect(res.status).toBe(404);
 });
 
-test("/n/:id/stream 404 when note isn't live", async () => {
+test("/n/:id/stream 404 when note isn't streamable (snippet — not live, not iteration)", async () => {
   const r = await callTool("create", { type: "snippet", title: "X", body_html: "<p>x</p>" });
   const id = JSON.parse(r.content[0].text).id;
   const res = await fetch(`http://${server!.hostname}:${server!.port}/n/${id}/stream`);
   expect(res.status).toBe(404);
-  expect(await res.text()).toContain("not a live note");
+  // Pre-v0.20.2 message was "not a live note". v0.20.2 widened the gate to
+  // also accept iteration notes, so the message reflects both rejected cases.
+  expect(await res.text()).toContain("not streamable");
 });
 
 test("/n/:id/stream 404 when note is finalized", async () => {

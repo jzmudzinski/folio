@@ -194,20 +194,25 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
           return jsonResp(listProjectThreads(slug));
         }
 
-        // GET /n/:id/stream  (SSE — live notes only)
+        // GET /n/:id/stream  (SSE — live notes + iteration notes)
         //
         // Sends the existing entries as backlog, then streams new entries
-        // as they're appended via append_entry (MCP) or folio append (CLI).
-        // 404 if note doesn't exist, isn't live, or is already finalized.
-        // The body iframe (/raw/:id) is unrelated and unchanged — this
-        // endpoint feeds the chrome-side panel only.
+        // as they're appended via append_entry (MCP) or folio append (CLI),
+        // OR via propose_round / pick_variant for iteration notes (which
+        // share the same live-entries JSONL substrate).
+        //
+        // 404 if note doesn't exist, isn't streamable (neither live nor
+        // iteration), or is already finalized. The body iframe (/raw/:id)
+        // is unrelated and unchanged — this endpoint feeds the chrome-side
+        // panel + iteration gallery auto-refresh.
         {
           const m = path.match(/^\/n\/([^/]+)\/stream$/);
           if (req.method === "GET" && m) {
             const id = m[1]!;
             const note = getNoteMeta(id);
             if (!note) return new Response("not found", { status: 404 });
-            if (!note.live) return new Response("not a live note", { status: 404 });
+            const streamable = note.live || note.type === "iteration";
+            if (!streamable) return new Response("note is not streamable (not live, not iteration)", { status: 404 });
             if (note.is_final) return new Response("note is final", { status: 404 });
 
             const { entriesPath, readEntries } = await import("../core/live");

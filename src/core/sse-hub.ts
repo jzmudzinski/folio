@@ -12,6 +12,16 @@
 // fs.watch coalesces or drops events under load. The dual path is safe:
 // if both fire for the same append, the offset check prevents duplicate
 // emission (the file content past the recorded offset is identical).
+//
+// Polling fallback (v0.19.2): fs.watch is in-process only. When two
+// processes share a note's JSONL — e.g. MCP server hosts an agent
+// running `wait_for_pick` while the viewer process appends the pick on
+// user click — the writer's publish() doesn't reach the other process's
+// channels Map. The only bridge is fs.watch, and on macOS it can lag /
+// coalesce / silently drop. So every active channel runs a 500ms poll
+// that calls drainAndEmit. It's cheap (one statSync per active channel),
+// guarantees cross-process delivery within ~500ms, and is a no-op when
+// fs.watch already drained the bytes (offset check prevents duplicates).
 
 import { existsSync, statSync, readFileSync, watch, type FSWatcher } from "node:fs";
 import type { LiveEntry } from "./types";
@@ -21,6 +31,7 @@ export type EntryListener = (entry: LiveEntry) => void;
 interface Channel {
   jsonlPath: string;
   watcher: FSWatcher | null;
+  pollTimer: ReturnType<typeof setInterval> | null;
   /** Byte offset already consumed from the file. */
   offset: number;
   listeners: Set<EntryListener>;
@@ -28,11 +39,13 @@ interface Channel {
 
 const channels = new Map<string, Channel>();
 
+const POLL_INTERVAL_MS = 500;
+
 function openChannel(noteId: string, jsonlPath: string): Channel {
   const existing = channels.get(noteId);
   if (existing) return existing;
 
-  const ch: Channel = { jsonlPath, watcher: null, offset: 0, listeners: new Set() };
+  const ch: Channel = { jsonlPath, watcher: null, pollTimer: null, offset: 0, listeners: new Set() };
   // Seed offset at the current file size so we don't replay the entire
   // backlog when the first subscriber arrives — the caller does its own
   // backlog read separately (so it sees a deterministic point-in-time
@@ -101,6 +114,17 @@ function ensureWatcher(ch: Channel): void {
   }
 }
 
+function ensurePollTimer(ch: Channel): void {
+  if (ch.pollTimer) return;
+  // setInterval.unref() so a long-poll subscription never keeps the
+  // process alive after all subscribers explicitly unsubscribed. With
+  // listeners present the channel is healthy; without them, this is
+  // already cleaned up via channels.delete() in the unsubscribe path.
+  const t = setInterval(() => drainAndEmit(ch), POLL_INTERVAL_MS);
+  if (typeof t.unref === "function") t.unref();
+  ch.pollTimer = t;
+}
+
 /** Subscribe to new entries on a note. Returns unsubscribe function. */
 export function subscribe(
   noteId: string,
@@ -110,14 +134,16 @@ export function subscribe(
   const ch = openChannel(noteId, jsonlPath);
   ch.listeners.add(onEntry);
   ensureWatcher(ch);
+  ensurePollTimer(ch);
 
   return () => {
     ch.listeners.delete(onEntry);
     if (ch.listeners.size === 0) {
-      // Last subscriber gone — tear down the watcher and forget the channel
-      // so a future subscribe starts with a fresh offset (re-seeded at
-      // current file size, no backlog replay).
+      // Last subscriber gone — tear down the watcher + poll timer and
+      // forget the channel so a future subscribe starts with a fresh
+      // offset (re-seeded at current file size, no backlog replay).
       try { ch.watcher?.close(); } catch { /* ignore */ }
+      if (ch.pollTimer) clearInterval(ch.pollTimer);
       channels.delete(noteId);
     }
   };
@@ -140,6 +166,7 @@ export function publish(noteId: string, jsonlPath: string): void {
 export function _resetHubForTests(): void {
   for (const ch of channels.values()) {
     try { ch.watcher?.close(); } catch { /* ignore */ }
+    if (ch.pollTimer) clearInterval(ch.pollTimer);
   }
   channels.clear();
 }

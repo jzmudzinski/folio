@@ -279,12 +279,26 @@ export async function ensureAssetsOnCloud(
  * in `<article data-folio-content>…</article>`. Push payload sends only
  * the inner body so cloud can re-wrap with its own theme.css inline.
  *
- * Falls back to the whole file if the wrapper marker is missing (shouldn't
- * happen for current notes, but rare-pre-template notes might exist).
+ * Nested-article-safe: agent bodies frequently contain `<article>` elements
+ * (iteration cards, blog-style sections, etc.). A non-greedy regex would
+ * stop at the FIRST inner `</article>` and silently truncate. We instead
+ * locate the wrapper opener via regex, then take everything up to the LAST
+ * `</article>` in the file — the template always emits the wrapper close
+ * after every nested one, so lastIndexOf is unambiguous.
+ *
+ * History (v0.19.2 fix): the non-greedy `*?` regex was truncating the
+ * showcase note at the first iter-card on cloud push (delivered ~16KB of
+ * a ~30KB rendered note).
+ *
+ * Falls back to the whole file if the wrapper marker is missing.
  */
 export function extractBodyHtml(fullHtml: string): string {
-  const m = fullHtml.match(/<article[^>]*data-folio-content[^>]*>([\s\S]*?)<\/article>/);
-  return m && m[1] ? m[1].trim() : fullHtml;
+  const openMatch = fullHtml.match(/<article[^>]*data-folio-content[^>]*>/);
+  if (!openMatch || openMatch.index === undefined) return fullHtml;
+  const start = openMatch.index + openMatch[0].length;
+  const end = fullHtml.lastIndexOf("</article>");
+  if (end <= start) return fullHtml;
+  return fullHtml.slice(start, end).trim();
 }
 
 // ----- Push payload builder -----

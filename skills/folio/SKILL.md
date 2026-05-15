@@ -107,8 +107,6 @@ Some notes grow over time — a journal that gets a new entry every morning, a t
 
 The viewer chrome streams entries via SSE; for inline notes the chrome forwards each entry into the body iframe's `<section data-folio-live-feed>` placeholder. When the user (or you, when explicitly asked) calls `finalize`, Folio compiles the feed into body_html permanently and the live behavior shuts off — note becomes indistinguishable from any other final note.
 
-> **Talking to the user about live notes — be precise about WHERE updates appear.** For panel-mode notes: "entries appear in the side panel on the right." For inline-mode notes: "entries appear inline in the note body." Don't say "feed refreshes via SSE" without specifying the location — that's where humans get confused and think the document body should be updating when it's actually the panel.
-
 **When to use `live: true`:**
 - ✅ Long-running observation (daily journal, weekly retro, project ops log) — usually `inline: true`
 - ✅ Todo list / inbox / capture target — items appear, mutate, get resolved → `inline: true`
@@ -307,112 +305,56 @@ If unclear → ask one question. If a user prompt mentions "wariantów / version
 
 Default user-wide: usually **linen** (Apple-grade minimal). Override when:
 
-| Context | Theme | Why |
-|---|---|---|
-| Public-facing report / customer-facing | `linen` | Polished, neutral, readable by non-devs |
-| System design, ADR, code-heavy | `folio` | Dev-targeted, dark, mono, gradient h1 |
-| Long-form journalism, formal report | `newsroom` | Serif gravitas, quieter bullets |
-| Personal brainstorm, journal, exploratory | `notebook` | Handwritten headers, casual, hedging OK |
-| Strong opinion, manifesto, polemic | `brutalist` | ALL CAPS, no ornament, statement piece |
-| Log analysis, debugging, system internals | `terminal` | Mono, green-on-black, code-like |
-| Personal soft communication, gentle | `pastel` | Warm rounded, soft accents |
-| Investigation, OSINT, deep dossier | `dossier` | Typewriter, manila, "classified" stamp |
-| Scientific paper, structured research | `atlas` | Crimson Pro + small caps + dropcap, academic |
-| Design crit, case study, brand audit | `studio` | Fraunces display + huge numerals, gallery feel |
-| Decision doc, business memo | `memo` | IBM Plex Sans + § markers, executive |
-| Treatise, philosophy, long essay | `codex` | UnifrakturCook + EB Garamond rubric, manuscript |
-| Financial report, KPI review | `ledger` | IBM Plex Mono + tabular nums, accounting |
-| Slow read, wabi-sabi observation | `sumi` | Cormorant + Klee One + vermillion seal |
-| Retro tech, demoscene, launch | `arcade` | Major Mono + magenta/cyan glow |
-| Nature writing, gentle research | `garden` | Cormorant italic + sage + ❀ |
-| DIY zine, indie hot take | `kraft` | Bricolage + risograph duotone |
-| Editorial feature, opinion essay | `prism` | Space Grotesk + Newsreader italic |
-| Custom layout, poster, demo, ASCII art, experimental viz | `plain` | Almost-bare canvas (reset + container + dark-mode); **no utility classes** — agent writes its own `<style>` block at the top of body_html and owns the visual identity |
+| Context | Theme |
+|---|---|
+| Public-facing report / customer-facing | `linen` |
+| System design / ADR / code-heavy | `folio` |
+| Long-form journalism, formal report | `newsroom` |
+| Personal brainstorm, journal | `notebook` |
+| Manifesto, polemic | `brutalist` |
+| Log / debugging / system internals | `terminal` |
+| Personal soft communication | `pastel` |
+| OSINT, investigation, dossier | `dossier` |
+| Scientific paper, academic | `atlas` |
+| Design crit, case study | `studio` |
+| Decision doc, business memo | `memo` |
+| Treatise, philosophy, long essay | `codex` |
+| Financial report, KPI review | `ledger` |
+| Wabi-sabi observation | `sumi` |
+| Retro tech, demoscene | `arcade` |
+| Nature writing | `garden` |
+| DIY zine, indie hot take | `kraft` |
+| Editorial feature, opinion essay | `prism` |
+| Custom layout / poster / ASCII art / experimental | `plain` — bare canvas, agent owns the `<style>` block |
 
-**Rule:** if the user didn't say, use the default. Suggest an override ONLY when the context strongly fits (e.g. user says "make me an ADR" → suggest `folio` or `terminal`; "build me a poster" or "draw an ASCII map" → suggest `plain`).
+**Rule:** default if user didn't say. Suggest override only when context strongly fits ("make me an ADR" → `folio`; "build me a poster" → `plain`).
 
-**After picking:** `list_themes` returns a `prompt_addendum` for each — read the relevant one before generating body. The theme's stylebook dictates markup structure (newsroom prose-forward, brutalist short sentences, etc.).
+**After picking:** `list_themes` returns a `prompt_addendum` per theme — read the relevant one before generating body. The theme dictates markup style (newsroom prose-forward, brutalist short sentences, etc.).
 
 ---
 
-## Stylebook — contract with theme.css
+## Stylebook (contract with theme.css)
 
-Full spec in `STYLEBOOK.md` in this folder. In short, use **utility classes from theme.css**:
+Full spec in **`STYLEBOOK.md`**. Quick rules:
 
-```html
-<span class="eyebrow">Research · AI / ML</span>
-<h1>Title</h1>
-<p class="lead">Lead 1-2 sentences.</p>
-
-<h3>Section</h3>
-<p>Content.</p>
-<ul><li>Bullet</li></ul>
-
-<div class="cards">
-  <div class="card">
-    <h3>Card</h3>
-    <p>Description</p>
-  </div>
-</div>
-
-<table>...</table>
-
-<div class="verdict">
-  <h3>Verdict</h3>
-  <p>Recommendation.</p>
-</div>
-
-<span class="pill good">final</span>
-<span class="pill bad">deprecated</span>
-<span class="pill mid">wip</span>
-<span class="pill acc">accent</span>
-```
-
-**Allowed classes:** `.eyebrow`, `.lead`, `.card`, `.cards`, `.verdict`, `.pill` (variants: `.good`, `.bad`, `.mid`, `.acc`, `.info`).
+**Allowed utility classes:** `.eyebrow`, `.lead`, `.card`, `.cards`, `.verdict`, `.pill` (variants: `.good`, `.bad`, `.mid`, `.acc`, `.info`).
 
 **DO NOT:**
-- ❌ `style="..."` inline (beyond exceptional cases — bar width, custom accent — or in the `plain` theme where it's the expected pattern)
-- ❌ `<html>`, `<head>`, `<body>`, `<title>`, `<meta>` — the template wraps your fragment
-- ⚠️ `<style>` at body level — allowed since v0.15 but **default to theme.css classes**. Reach for a body-level `<style>` block only when (a) `theme: "plain"` is in play, or (b) the standard utilities genuinely don't fit the layout. Don't redefine `.eyebrow` / `.card` / `.pill` inside body_html — confusing for the user previewing across themes.
+- ❌ `style="..."` inline (except bar widths, custom accents, or theme `plain`)
+- ❌ `<html>` / `<head>` / `<body>` / `<title>` / `<meta>` — template wraps your fragment
+- ⚠️ `<style>` at body level — allowed since v0.15 but **default to theme classes**. Reach for it only when using `plain` or utilities genuinely don't fit. Never redefine `.eyebrow` / `.card` / `.pill`.
 - ❌ `<font>`, `<center>`, deprecated HTML4 tags
-- ❌ Raw hex colors in attributes — use the classes
+- ❌ Raw hex colors in attributes — use classes
 
-**`<script>` at body level IS allowed** (since v0.3). Notes are served from `/raw/:id` into a null-origin sandboxed iframe with CSP `connect-src 'none'` + `form-action 'none'`, so your script can build DOM and run handlers but cannot reach the parent window, cookies, localStorage, or any network endpoint. Default pattern for interactivity — inline `<script>` in body, not iframe srcdoc:
+**`<script>` at body level IS allowed** (v0.3+). Notes run in a null-origin sandboxed iframe with CSP `connect-src 'none'` + `form-action 'none'`. Script can build DOM and run handlers; cannot reach parent, cookies, localStorage, or any network endpoint.
 
-```html
-<button type="button" id="filter-btn" class="primary">Filter</button>
-<input type="text" id="filter-input" placeholder="filter…">
-<div id="results"></div>
-<script>
-(function () {
-  // v0.17.1+: <button>, <input>, <select>, <option>, <textarea>, <label>,
-  // <form>, <fieldset>, <legend>, <output>, <progress>, <meter> all pass
-  // the sanitizer in static HTML. So do role="…", tabindex, aria-*, title.
-  // No createElement workaround needed for form controls.
-  var btn = document.getElementById("filter-btn");
-  var input = document.getElementById("filter-input");
-  var results = document.getElementById("results");
-  btn.addEventListener("click", function () {
-    results.textContent = "filtered: " + input.value;
-  });
-  // theme.css classes (.card / .pill / .verdict) apply natively whether
-  // you write the element statically or build it via createElement.
-})();
-</script>
-```
+**Form controls** (`<button>`, `<input>`, `<select>`, `<textarea>`, `<label>`, `<form>`, etc.) + `role` / `tabindex` / `aria-*` + `data-*` all pass the sanitizer (v0.17.1 / v0.18.2). Use natively — no createElement workaround.
 
-**Native HTML when sufficient:** for expand/collapse use `<details><summary>...</summary>...</details>` — no JS needed.
+**SVG:** full support since v0.19.3 — `viewBox`, `<defs>`/`<marker>`, gradients, paint + typography attrs. Use inline `<svg>` for logos / icons / diagrams.
 
-**When `<iframe>`:** third-party embeds only — YouTube, CodeSandbox, Observable, Loom. Use `src="https://..."`. Iframe `srcdoc=` for your own HTML/JS was the pre-v0.3 workaround; today it's overhead and the inner content loses theme inheritance.
+**Native HTML when sufficient:** `<details><summary>...</summary>...</details>` for expand/collapse — no JS.
 
-```html
-<iframe src="https://codesandbox.io/embed/abc"
-        sandbox="allow-scripts"
-        width="100%" height="400"
-        title="Live demo"></iframe>
-```
-
-Sanitizer enforces (when you do iframe): `src` only `https://`, `sandbox` always present with `allow-same-origin` stripped, default sandbox `allow-scripts allow-popups allow-forms`, `on*` handlers dropped, `referrerpolicy="no-referrer"`.
+**Third-party `<iframe>` embeds** (YouTube, CodeSandbox, Loom, Observable): `src` must be `https://`, `sandbox` always present without `allow-same-origin`, `referrerpolicy="no-referrer"` — sanitizer enforces.
 
 ---
 
@@ -578,40 +520,6 @@ list_expiring({ within_days: 7, limit: 5 })
 
 ---
 
-## Editing → create a new note in the same thread
+## Few-shot examples
 
-When the user says "fix this / different version / expand with X":
-
-```
-1. Identify the current `thread_id` (or look it up with search).
-2. create({ ..., thread_id: <same> })
-3. Respond with:
-   MEDIA:<new_public_url>
-   <TL;DR of the new version + what changed vs the previous>
-4. The user sees both versions in the thread view. They pick the final one.
-```
-
-**DO NOT** call `finalize` on the previous version — the user decides which one is "the right one".
-
----
-
-## Examples (few-shot)
-
-In the `examples/` folder:
-
-- `research/` — research on RAG vs Fine-Tuning
-- `comparison/` — Postgres vs MySQL vs SQLite for SaaS
-- `technical/` — ADR-style decision
-- `snippet/` — short note
-
-Each has `prompt.md` (the user prompt) and `output.html` (the expected body_html).
-
----
-
-## Pre-merge test (manual)
-
-1. "Compare Postgres vs SQLite for a small SaaS" → `comparison`, new thread.
-2. "Another version, shorter" → `comparison`, same thread, new note.
-3. "What do I know about RAG?" → `search "RAG"`, show results, do NOT create a new one.
-4. "What's FTS5?" (short) → no Folio, plain answer (anti-trigger).
-5. "Save this" after a long answer → `research` or `snippet`.
+Worked agent prompts + expected `body_html` for each type in `skills/folio/examples/<type>/` (research / comparison / technical / snippet). Read before generating an unfamiliar type.

@@ -531,8 +531,16 @@ document.addEventListener('keydown', (e) => {
 })();
 </script>`;
 
-function topbar(query = "", active?: "notes" | "threads" | "stats" | "cloud"): string {
+function topbar(query = "", active?: "notes" | "threads" | "stats" | "cloud", shareForId?: string): string {
   const on = (k: string) => (active === k ? ' class="on"' : "");
+  // The Share trigger appears only on note pages (when shareForId is set).
+  // active-dot beside the label lights up via JS when the note has live
+  // capability-URL shares — at-a-glance signal that "this note is already
+  // published somewhere". Per B3 mockup: minimal popover with form + a
+  // single bar linking to /n/:id/shares for full management.
+  const shareBtn = shareForId
+    ? `<a href="#" id="share-trigger" class="v-share-trigger" data-note-id="${esc(shareForId)}" title="Share publicly via capability URL">↗ Share<span class="active-dot" id="share-active-dot" hidden></span></a>`
+    : "";
   return `
 <header class="v-top">
   <div class="v-top-inner">
@@ -551,6 +559,7 @@ function topbar(query = "", active?: "notes" | "threads" | "stats" | "cloud"): s
       <a href="/threads"${on("threads")}>Threads</a>
       <a href="/stats"${on("stats")}>Stats</a>
       <a href="/cloud"${on("cloud")} title="Sync &amp; cloud pairing">☁ Cloud</a>
+      ${shareBtn}
     </nav>
   </div>
 </header>`;
@@ -981,6 +990,221 @@ export function pageThread(threadId: string, notes: NoteMeta[]): string {
   return shell(`Thread: ${threadId}`, `${topbar("", "threads")}${body}`);
 }
 
+// ───────────────────────────────────────────────────────────────────────
+// Share popover (v0.19+) — topbar trigger + form + manage-bar (B3 layout).
+// ───────────────────────────────────────────────────────────────────────
+
+const SHARE_POPOVER_CSS = `<style>
+.v-share-trigger { position: relative; }
+.v-share-trigger .active-dot { display: inline-block; width: 6px; height: 6px; background: var(--vorange); border-radius: 50%; margin-left: 6px; vertical-align: middle; }
+.v-share-trigger .active-dot[hidden] { display: none; }
+
+.share-pop { position: fixed; top: 54px; right: 18px; width: 280px; background: var(--vpanel); border: 1px solid var(--vline); border-radius: 10px; box-shadow: 0 12px 36px rgba(0,0,0,0.16); z-index: 100; overflow: hidden; opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity .14s, transform .14s, visibility .14s; }
+.share-pop.is-open { opacity: 1; visibility: visible; transform: translateY(0); }
+.share-pop::before { content: ''; position: absolute; top: -6px; right: 64px; width: 10px; height: 10px; background: var(--vpanel); border-left: 1px solid var(--vline); border-top: 1px solid var(--vline); transform: rotate(45deg); }
+.share-pop__head { padding: 14px 18px 8px; }
+.share-pop__title { font-family: var(--vmono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vmuted); font-weight: 600; }
+.share-pop__form { padding: 0 18px 14px; display: flex; flex-direction: column; gap: 9px; }
+.share-pop__row { display: flex; flex-direction: column; gap: 3px; }
+.share-pop__row label { font-family: var(--vmono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--vmuted); }
+.share-pop__row input { padding: 7px 10px; border: 1px solid var(--vline); border-radius: 5px; background: var(--vbg); color: inherit; font-family: var(--vmono); font-size: 12.5px; }
+.share-pop__row input:focus { outline: none; border-color: var(--vorange); }
+.share-pop__go { background: var(--vorange); color: #fff; border: 0; padding: 9px; border-radius: 6px; font-family: 'Familjen Grotesk', sans-serif; font-weight: 600; font-size: 12.5px; cursor: pointer; letter-spacing: 0.05em; text-transform: uppercase; margin-top: 4px; }
+.share-pop__go:hover { background: #e64a0e; }
+.share-pop__go:disabled { opacity: 0.55; cursor: wait; }
+.share-pop__result { padding: 14px 18px; border-top: 1px solid var(--vline); background: rgba(47,144,80,0.05); display: none; }
+.share-pop__result.is-shown { display: block; }
+.share-pop__result-label { font-family: var(--vmono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: #2f9050; font-weight: 600; margin-bottom: 6px; }
+.share-pop__result-url { font-family: var(--vmono); font-size: 10.5px; word-break: break-all; color: var(--vorange); margin-bottom: 10px; line-height: 1.45; }
+.share-pop__result-actions { display: flex; gap: 6px; }
+.share-pop__result-actions button { flex: 1; padding: 6px 8px; border: 1px solid var(--vline); background: var(--vpanel); color: inherit; border-radius: 4px; font-family: var(--vmono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
+.share-pop__result-actions button:hover { background: var(--vbg-2); }
+.share-pop__result-actions button.copied { color: #2f9050; border-color: #2f9050; }
+.share-pop__error { padding: 10px 18px; border-top: 1px solid var(--vline); color: #c8412a; font-size: 12px; line-height: 1.5; display: none; }
+.share-pop__error.is-shown { display: block; }
+.share-pop__error a { color: var(--vorange); }
+.share-pop__manage { background: rgba(255,90,31,0.05); border-top: 1px solid var(--vline); padding: 10px 18px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; font-family: var(--vmono); font-size: 10.5px; text-decoration: none; color: inherit; }
+.share-pop__manage:hover { background: rgba(255,90,31,0.09); }
+.share-pop__manage .lbl { color: var(--vmuted); letter-spacing: 0.1em; text-transform: uppercase; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.share-pop__manage .cnt { background: var(--vorange); color: #fff; font-size: 9px; padding: 1px 7px; border-radius: 9px; font-weight: 600; }
+.share-pop__manage .arrow { color: var(--vorange); font-weight: 600; }
+.share-pop__manage[hidden] { display: none; }
+</style>`;
+
+function sharePopoverHtml(noteId: string): string {
+  return `<aside class="share-pop" id="share-pop" role="dialog" aria-label="Publish capability URL" data-note-id="${esc(noteId)}">
+  <div class="share-pop__head">
+    <div class="share-pop__title">Publish capability URL</div>
+  </div>
+  <form class="share-pop__form" id="share-form">
+    <div class="share-pop__row">
+      <label for="share-expires">Expires (days · 0 = never)</label>
+      <input id="share-expires" name="expires_in_days" type="number" value="7" min="0" max="365">
+    </div>
+    <div class="share-pop__row">
+      <label for="share-maxviews">Max views (blank = ∞)</label>
+      <input id="share-maxviews" name="max_views" type="number" placeholder="e.g. 5" min="1">
+    </div>
+    <div class="share-pop__row">
+      <label for="share-recipient">Recipient email (optional)</label>
+      <input id="share-recipient" name="recipient" type="email" placeholder="alice@example.com">
+    </div>
+    <button class="share-pop__go" type="submit" id="share-submit">Publish →</button>
+  </form>
+  <div class="share-pop__result" id="share-result">
+    <div class="share-pop__result-label">✓ Published</div>
+    <div class="share-pop__result-url" id="share-result-url"></div>
+    <div class="share-pop__result-actions">
+      <button type="button" id="share-result-copy">Copy URL</button>
+      <button type="button" id="share-result-revoke">Revoke</button>
+    </div>
+  </div>
+  <div class="share-pop__error" id="share-error"></div>
+  <a href="/n/${esc(noteId)}/shares" class="share-pop__manage" id="share-manage" hidden>
+    <span class="lbl">Active <span class="cnt" id="share-active-count">0</span></span>
+    <span class="arrow">manage →</span>
+  </a>
+</aside>`;
+}
+
+function sharePopoverJs(noteId: string): string {
+  // Wires the trigger/popover/form. Outside-click + Esc dismiss. POSTs the
+  // form to the viewer's /api/notes/:id/shares proxy and shows the URL
+  // inline on success. Refreshes the active-count after publish/revoke so
+  // the manage bar + topbar dot stay accurate.
+  return `(function () {
+  var noteId = ${JSON.stringify(noteId)};
+  var trigger = document.getElementById('share-trigger');
+  var pop = document.getElementById('share-pop');
+  if (!trigger || !pop) return;
+  var form = document.getElementById('share-form');
+  var submitBtn = document.getElementById('share-submit');
+  var result = document.getElementById('share-result');
+  var resultUrl = document.getElementById('share-result-url');
+  var resultCopy = document.getElementById('share-result-copy');
+  var resultRevoke = document.getElementById('share-result-revoke');
+  var errorBox = document.getElementById('share-error');
+  var manageBar = document.getElementById('share-manage');
+  var activeCount = document.getElementById('share-active-count');
+  var activeDot = document.getElementById('share-active-dot');
+  var lastToken = null;
+
+  function open() {
+    pop.classList.add('is-open');
+    setTimeout(function () {
+      var first = document.getElementById('share-expires');
+      if (first) first.focus();
+    }, 60);
+  }
+  function close() {
+    pop.classList.remove('is-open');
+    result.classList.remove('is-shown');
+    errorBox.classList.remove('is-shown');
+  }
+  function showError(msg, html) {
+    if (html) errorBox.innerHTML = html;
+    else errorBox.textContent = msg;
+    errorBox.classList.add('is-shown');
+  }
+  function updateActive(count) {
+    if (count > 0) {
+      manageBar.hidden = false;
+      activeCount.textContent = String(count);
+      if (activeDot) activeDot.hidden = false;
+    } else {
+      manageBar.hidden = true;
+      if (activeDot) activeDot.hidden = true;
+    }
+  }
+  function refreshActive() {
+    fetch('/api/notes/' + encodeURIComponent(noteId) + '/shares')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data && Array.isArray(data.shares)) updateActive(data.shares.length);
+      })
+      .catch(function () {});
+  }
+
+  trigger.addEventListener('click', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (pop.classList.contains('is-open')) close(); else open();
+  });
+  document.addEventListener('click', function (e) {
+    if (!pop.classList.contains('is-open')) return;
+    if (pop.contains(e.target) || trigger.contains(e.target)) return;
+    close();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && pop.classList.contains('is-open')) close();
+  });
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    errorBox.classList.remove('is-shown');
+    submitBtn.disabled = true;
+    var prevLabel = submitBtn.textContent;
+    submitBtn.textContent = 'Publishing…';
+    var body = { expires_in_days: Number(document.getElementById('share-expires').value || 7) };
+    var maxv = document.getElementById('share-maxviews').value.trim();
+    if (maxv) body.max_views = Number(maxv);
+    var rec = document.getElementById('share-recipient').value.trim();
+    if (rec) body.recipient = rec;
+    fetch('/api/notes/' + encodeURIComponent(noteId) + '/shares', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (r) {
+      return r.json().then(function (d) { return { ok: r.ok, status: r.status, data: d }; });
+    }).then(function (resp) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = prevLabel;
+      if (!resp.ok) {
+        if (resp.status === 412) {
+          showError('', 'Cloud not paired. <a href="/cloud">Pair a device →</a>');
+        } else {
+          showError(resp.data.error || ('HTTP ' + resp.status));
+        }
+        return;
+      }
+      lastToken = resp.data.token;
+      resultUrl.textContent = resp.data.url;
+      result.classList.add('is-shown');
+      refreshActive();
+    }).catch(function (err) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = prevLabel;
+      showError(err && err.message ? err.message : String(err));
+    });
+  });
+
+  resultCopy.addEventListener('click', function () {
+    var url = resultUrl.textContent;
+    navigator.clipboard.writeText(url).then(function () {
+      resultCopy.textContent = '✓ Copied';
+      resultCopy.classList.add('copied');
+      setTimeout(function () { resultCopy.textContent = 'Copy URL'; resultCopy.classList.remove('copied'); }, 1400);
+    });
+  });
+
+  resultRevoke.addEventListener('click', function () {
+    if (!lastToken) return;
+    if (!window.confirm('Revoke this share? URL will stop working immediately.')) return;
+    fetch('/api/notes/' + encodeURIComponent(noteId) + '/shares/' + encodeURIComponent(lastToken), {
+      method: 'DELETE'
+    }).then(function (r) {
+      if (r.ok) {
+        result.classList.remove('is-shown');
+        lastToken = null;
+        refreshActive();
+      }
+    });
+  });
+
+  refreshActive();
+})();`;
+}
+
 export function pageNote(note: NoteMeta, _themeName: string): string {
   const expiring = note.is_final ? null : daysUntil(note.expires_at);
   // Banner shows only when expiry is genuinely close (≤7 days) — matches
@@ -1308,8 +1532,10 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
     })();</script>`;
   }
   const shellClass = isLive && !isInlineLive ? "note-shell has-live" : "note-shell";
+  const sharePop = sharePopoverHtml(note.id);
 
-  return shell(note.title, `${topbar()}
+  return shell(note.title, `${topbar("", undefined, note.id)}
+${SHARE_POPOVER_CSS}
 <div class="reading-progress"><div class="reading-progress-fill"></div></div>
 <div class="${shellClass}">
   <aside class="note-side">
@@ -1347,7 +1573,154 @@ export function pageNote(note: NoteMeta, _themeName: string): string {
       <iframe class="note-iframe" src="/raw/${note.id}" title="${esc(note.title)}" sandbox="allow-scripts allow-popups allow-forms allow-modals"></iframe>
     </div>
   </main>${livePanelHtml}
-</div>${noteScript}${liveScript}`, { bodyClass: "note-page" });
+</div>
+${sharePop}
+${noteScript}${liveScript}
+<script>${sharePopoverJs(note.id)}</script>`, { bodyClass: "note-page" });
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// Manage shares page (/n/:id/shares, v0.19+) — full list of capability URL
+// shares for a single note. Reached from the popover's "manage →" link.
+// ───────────────────────────────────────────────────────────────────────
+
+export interface ShareRow {
+  token: string;
+  url: string;
+  created_at: string;
+  expires_at: string | null;
+  max_views: number | null;
+  view_count: number;
+  recipient_email_hash?: string | null;
+}
+
+export function pageShares(note: NoteMeta, shares: ShareRow[], paired: boolean): string {
+  const css = `<style>
+.shares-page { max-width: 920px; margin: 30px auto; padding: 0 28px; }
+.shares-page__head { margin-bottom: 24px; }
+.shares-page__eyebrow { font-family: var(--vmono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vmuted); margin-bottom: 8px; }
+.shares-page__eyebrow a { color: var(--vorange); border-bottom: 1px solid currentColor; }
+.shares-page__title { font-family: var(--vhead); font-weight: 500; font-size: clamp(26px, 3vw, 34px); letter-spacing: -0.02em; margin: 0 0 8px; line-height: 1.1; }
+.shares-page__sub { font-family: var(--vserif); font-style: italic; font-size: 16px; color: var(--vmuted); margin: 0; }
+.shares-list { display: flex; flex-direction: column; gap: 14px; margin-top: 28px; }
+.share-card { background: var(--vpanel); border: 1px solid var(--vline); border-radius: 10px; padding: 18px 20px; }
+.share-card__url { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.share-card__url-text { flex: 1; font-family: var(--vmono); font-size: 12.5px; color: var(--vorange); word-break: break-all; line-height: 1.5; }
+.share-card__copy { padding: 5px 11px; border: 1px solid var(--vline); background: var(--vbg); color: inherit; border-radius: 5px; font-family: var(--vmono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; flex-shrink: 0; }
+.share-card__copy:hover { background: var(--vbg-2); }
+.share-card__copy.copied { color: #2f9050; border-color: #2f9050; }
+.share-card__meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px 22px; padding: 12px 0; border-top: 1px solid var(--vline-2); border-bottom: 1px solid var(--vline-2); margin-bottom: 14px; }
+.share-card__meta dt { font-family: var(--vmono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--vmuted); margin-bottom: 3px; }
+.share-card__meta dd { margin: 0; font-family: var(--vmono); font-size: 12px; color: var(--vink-2); }
+.share-card__meta dd.expired { color: #c8412a; }
+.share-card__actions { display: flex; justify-content: flex-end; }
+.share-card__revoke { padding: 6px 14px; border: 1px solid var(--vline); background: transparent; color: #c8412a; border-radius: 6px; font-family: var(--vmono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
+.share-card__revoke:hover { background: rgba(200,65,42,0.06); border-color: #c8412a; }
+.share-card__revoke:disabled { opacity: 0.5; cursor: wait; }
+.shares-empty { text-align: center; padding: 60px 20px; color: var(--vmuted); }
+.shares-empty p { font-family: var(--vserif); font-style: italic; font-size: 17px; line-height: 1.5; margin: 0 0 16px; }
+.shares-empty a { color: var(--vorange); font-family: var(--vhead); font-weight: 500; font-size: 14px; border-bottom: 1px solid currentColor; }
+.shares-not-paired { padding: 20px 24px; background: rgba(255,90,31,0.06); border: 1px solid rgba(255,90,31,0.18); border-radius: 10px; }
+.shares-not-paired h3 { font-family: var(--vhead); margin: 0 0 6px; font-size: 16px; font-weight: 500; }
+.shares-not-paired p { font-family: var(--vserif); font-style: italic; color: var(--vmuted); margin: 0 0 12px; }
+.shares-not-paired a { color: var(--vorange); font-family: var(--vmono); font-size: 12px; border-bottom: 1px solid currentColor; }
+</style>`;
+
+  const escAttr = (s: string) => esc(s);
+  const fmtDate = (iso: string | null): string => {
+    if (!iso) return "never";
+    return new Date(iso).toISOString().slice(0, 10);
+  };
+  const isExpired = (iso: string | null): boolean => {
+    if (!iso) return false;
+    return new Date(iso).getTime() < Date.now();
+  };
+
+  const cards = shares.map((s) => {
+    const exp = fmtDate(s.expires_at);
+    const expCls = isExpired(s.expires_at) ? " expired" : "";
+    const views = s.max_views !== null ? `${s.view_count} / ${s.max_views}` : `${s.view_count} / ∞`;
+    const recipient = s.recipient_email_hash ? `<dt>Recipient</dt><dd title="${escAttr(s.recipient_email_hash)}">${escAttr(s.recipient_email_hash.slice(0, 12))}…</dd>` : "";
+    return `<article class="share-card" data-token="${escAttr(s.token)}">
+  <div class="share-card__url">
+    <span class="share-card__url-text">${escAttr(s.url)}</span>
+    <button type="button" class="share-card__copy" data-url="${escAttr(s.url)}">Copy</button>
+  </div>
+  <dl class="share-card__meta">
+    <div><dt>Created</dt><dd>${escAttr(fmtDate(s.created_at))}</dd></div>
+    <div><dt>Expires</dt><dd class="${expCls.trim()}">${escAttr(exp)}</dd></div>
+    <div><dt>Views</dt><dd>${escAttr(views)}</dd></div>
+    ${recipient ? `<div>${recipient}</div>` : ""}
+  </dl>
+  <div class="share-card__actions">
+    <button type="button" class="share-card__revoke" data-token="${escAttr(s.token)}">Revoke</button>
+  </div>
+</article>`;
+  }).join("\n");
+
+  let listSection: string;
+  if (!paired) {
+    listSection = `<div class="shares-not-paired">
+  <h3>Cloud not paired</h3>
+  <p>Capability URLs are minted by the cloud relay. Pair this device to a Folio cloud first.</p>
+  <a href="/cloud">↗ Pair a cloud</a>
+</div>`;
+  } else if (shares.length === 0) {
+    listSection = `<div class="shares-empty">
+  <p>No active shares yet — go back to the note and click<br><strong>↗ Share</strong> in the topbar to create one.</p>
+  <a href="/n/${escAttr(note.id)}">← Back to note</a>
+</div>`;
+  } else {
+    listSection = `<div class="shares-list">${cards}</div>`;
+  }
+
+  const script = `<script>(function () {
+  var noteId = ${JSON.stringify(note.id)};
+  document.querySelectorAll('.share-card__copy').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      navigator.clipboard.writeText(btn.dataset.url).then(function () {
+        var prev = btn.textContent;
+        btn.textContent = '✓ Copied';
+        btn.classList.add('copied');
+        setTimeout(function () { btn.textContent = prev; btn.classList.remove('copied'); }, 1400);
+      });
+    });
+  });
+  document.querySelectorAll('.share-card__revoke').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      if (!window.confirm('Revoke this share? URL will stop working immediately.')) return;
+      var token = btn.dataset.token;
+      btn.disabled = true;
+      btn.textContent = 'Revoking…';
+      fetch('/api/notes/' + encodeURIComponent(noteId) + '/shares/' + encodeURIComponent(token), { method: 'DELETE' })
+        .then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          // Remove the card from DOM. If list becomes empty, reload to show empty state.
+          var card = btn.closest('.share-card');
+          if (card) card.remove();
+          if (document.querySelectorAll('.share-card').length === 0) window.location.reload();
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          btn.textContent = 'Revoke';
+          alert('Revoke failed: ' + (err && err.message ? err.message : err));
+        });
+    });
+  });
+})();</script>`;
+
+  const body = `${css}
+<main class="shares-page">
+  <div class="shares-page__head">
+    <div class="shares-page__eyebrow"><a href="/n/${escAttr(note.id)}">← Back to note</a></div>
+    <h1 class="shares-page__title">Shares · ${esc(note.title)}</h1>
+    <p class="shares-page__sub">Active capability URLs for this note.</p>
+  </div>
+  ${listSection}
+</main>
+${script}`;
+
+  return shell(`Shares · ${note.title}`, `${topbar()}${body}`);
 }
 
 export function pageStats(s: any): string {

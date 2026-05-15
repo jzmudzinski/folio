@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { loadConfig, folioRoot, bundledThemesDir, themesDir, viewerPublicBaseUrl, threadAssetsDir, isSafeAssetFilename } from "../core/config";
 import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, deleteNote, listThreads, listPopularTags, listNotesByTag } from "../core/storage";
 import { db, logEvent } from "../core/db";
-import { pageList, pageSearch, pageThread, pageThreads, pageNote, pageStats, pageError, pageTag, pageCloud } from "./render";
+import { pageList, pageSearch, pageThread, pageThreads, pageNote, pageStats, pageError, pageTag, pageCloud, pageShares } from "./render";
 import { injectBootstrap } from "./note-bootstrap";
 import { rawNoteHeaders } from "../core/csp";
 import pkg from "../../package.json" with { type: "json" };
@@ -259,6 +259,38 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
               "Cache-Control": "public, max-age=300",
             },
           });
+        }
+
+        // GET /n/:id/shares  (manage shares page, v0.19+)
+        // Must come BEFORE the generic /n/:id route below since startsWith
+        // would otherwise swallow it. Fetches active shares from the cloud
+        // for the current device's user partition; empty/unpaired states
+        // are rendered inline by pageShares.
+        if (req.method === "GET" && /^\/n\/[^/]+\/shares$/.test(path)) {
+          const id = path.split("/")[2]!;
+          const note = getNoteMeta(id);
+          if (!note) return htmlResp(pageError(404, `Note "${id}" not found.`), 404);
+          const { loadSyncState } = await import("../core/sync");
+          const state = loadSyncState();
+          let shares: any[] = [];
+          let paired = false;
+          if (state) {
+            paired = true;
+            try {
+              const res = await fetch(`${state.remote}/v1/shares?scope_id=${encodeURIComponent(id)}`, {
+                headers: { Authorization: `Bearer ${state.device_token}` },
+              });
+              if (res.ok) {
+                const data = (await res.json()) as { shares?: any[] };
+                shares = data.shares ?? [];
+              }
+            } catch {
+              // Network/cloud errors render as empty list. Browser console
+              // logs nothing; the page just shows "no shares" rather than
+              // a blocking error. Operator workflow: check /cloud.
+            }
+          }
+          return htmlResp(pageShares(note, shares, paired));
         }
 
         // GET /n/:id  (viewer chrome + iframe)
@@ -534,6 +566,99 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
           const state = getIterationState(id);
           if (!state) return jsonResp({ error: "not found or not an iteration note" }, 404);
           return jsonResp(state);
+        }
+
+        // ─── Share endpoints (v0.19+) ─────────────────────────────────────
+        // The viewer proxies the cloud's share API (/v1/share + /v1/shares)
+        // so the browser UI can publish, list, and revoke without the user
+        // touching a CLI. Auth comes from ~/Folio/.sync-state.json — the
+        // same source the `folio publish` CLI uses. Cloud-not-paired returns
+        // 412 with a structured error so the UI can guide the user.
+
+        // POST /api/notes/:id/shares — create a new capability URL.
+        // Body: { expires_in_days?, max_views?, recipient? } (recipient is
+        // hashed locally per ADR; cloud only sees the hash + optional
+        // plaintext for one-shot mailer delivery).
+        if (req.method === "POST" && /^\/api\/notes\/[^/]+\/shares$/.test(path)) {
+          const id = path.split("/")[3]!;
+          const note = getNoteMeta(id);
+          if (!note) return jsonResp({ error: "note not found" }, 404);
+          const { loadSyncState } = await import("../core/sync");
+          const state = loadSyncState();
+          if (!state) return jsonResp({ error: "cloud not paired", code: "NOT_PAIRED" }, 412);
+          const body = await req.json().catch(() => ({})) as {
+            expires_in_days?: number;
+            max_views?: number | null;
+            recipient?: string;
+          };
+          const payload: Record<string, unknown> = {
+            scope_type: "note",
+            scope_id: id,
+            expires_in_days: body.expires_in_days ?? 7,
+            max_views: body.max_views ?? null,
+          };
+          if (body.recipient && body.recipient.trim()) {
+            const { recipientEmailHash } = await import("../cli/commands/publish");
+            const plain = body.recipient.trim().toLowerCase();
+            payload.recipient_email_hash = recipientEmailHash(plain);
+            payload.recipient_email = plain;
+          }
+          const res = await fetch(`${state.remote}/v1/share`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${state.device_token}`,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) {
+            let detail = ""; try { detail = await res.text(); } catch {}
+            return jsonResp({ error: `cloud rejected: HTTP ${res.status} ${detail.slice(0, 200)}` }, 502);
+          }
+          return jsonResp(await res.json());
+        }
+
+        // GET /api/notes/:id/shares — list active shares for this note.
+        if (req.method === "GET" && /^\/api\/notes\/[^/]+\/shares$/.test(path)) {
+          const id = path.split("/")[3]!;
+          const note = getNoteMeta(id);
+          if (!note) return jsonResp({ error: "note not found" }, 404);
+          const { loadSyncState } = await import("../core/sync");
+          const state = loadSyncState();
+          // Not-paired: return empty list rather than 412 here — GET is
+          // called eagerly on page load by the active-dot indicator, and
+          // a 412 every page load would noise up the console for solo-use
+          // (non-paired) workflows.
+          if (!state) return jsonResp({ paired: false, shares: [] });
+          const res = await fetch(`${state.remote}/v1/shares?scope_id=${encodeURIComponent(id)}`, {
+            headers: { Authorization: `Bearer ${state.device_token}` },
+          });
+          if (!res.ok) {
+            return jsonResp({ paired: true, shares: [], error: `cloud HTTP ${res.status}` });
+          }
+          const data = (await res.json()) as { shares: unknown[] };
+          return jsonResp({ paired: true, shares: data.shares });
+        }
+
+        // DELETE /api/notes/:id/shares/:token — revoke a share.
+        if (req.method === "DELETE" && /^\/api\/notes\/[^/]+\/shares\/[A-Za-z0-9_\-]+$/.test(path)) {
+          const parts = path.split("/");
+          const id = parts[3]!;
+          const token = parts[5]!;
+          const note = getNoteMeta(id);
+          if (!note) return jsonResp({ error: "note not found" }, 404);
+          const { loadSyncState } = await import("../core/sync");
+          const state = loadSyncState();
+          if (!state) return jsonResp({ error: "cloud not paired", code: "NOT_PAIRED" }, 412);
+          const res = await fetch(`${state.remote}/v1/share/${encodeURIComponent(token)}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${state.device_token}` },
+          });
+          if (!res.ok) {
+            let detail = ""; try { detail = await res.text(); } catch {}
+            return jsonResp({ error: `cloud rejected: HTTP ${res.status} ${detail.slice(0, 200)}` }, 502);
+          }
+          return jsonResp(await res.json());
         }
 
         // POST /api/sync/run — one-shot sync (mirrors `folio sync --once`)

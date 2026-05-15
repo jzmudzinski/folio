@@ -1,9 +1,9 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig, folioRoot, bundledThemesDir, themesDir, viewerPublicBaseUrl, threadAssetsDir, isSafeAssetFilename } from "../core/config";
-import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, deleteNote, listThreads, listPopularTags, listNotesByTag } from "../core/storage";
+import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, deleteNote, listThreads, listPopularTags, listNotesByTag, listProjectThreads } from "../core/storage";
 import { db, logEvent } from "../core/db";
-import { pageList, pageSearch, pageThread, pageThreads, pageNote, pageStats, pageError, pageTag, pageCloud, pageShares } from "./render";
+import { pageList, pageSearch, pageThread, pageThreads, pageNote, pageStats, pageError, pageTag, pageCloud, pageShares, pageProject } from "./render";
 import { injectBootstrap } from "./note-bootstrap";
 import { rawNoteHeaders } from "../core/csp";
 import pkg from "../../package.json" with { type: "json" };
@@ -172,6 +172,26 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
           const notes = listNotesByTag(tag, 200);
           if (notes.length === 0) return htmlResp(pageError(404, `No notes tagged "${tag}".`), 404);
           return htmlResp(pageTag(tag, notes, listPopularTags(20)));
+        }
+
+        // GET /p/:slug — project workspace view (v0.20+)
+        //   Groups every note tagged `project:<slug>` by thread_id. One
+        //   card per thread, showing note count + latest activity + final
+        //   count. The maps-to-Obsidian-folder mental model for users
+        //   running multi-thread projects in Folio. Empty state when no
+        //   notes carry the tag — tells the user to ask the agent to add it.
+        if (req.method === "GET" && path.startsWith("/p/")) {
+          const slug = decodeURIComponent(path.slice(3));
+          if (!slug) return Response.redirect("/", 302);
+          const { groups, totalNotes } = listProjectThreads(slug);
+          return htmlResp(pageProject(slug, groups, totalNotes));
+        }
+
+        // GET /api/p/:slug — JSON variant for tooling
+        if (req.method === "GET" && path.startsWith("/api/p/")) {
+          const slug = decodeURIComponent(path.slice(7));
+          if (!slug) return jsonResp({ error: "slug required" }, 400);
+          return jsonResp(listProjectThreads(slug));
         }
 
         // GET /n/:id/stream  (SSE — live notes only)

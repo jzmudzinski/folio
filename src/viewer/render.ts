@@ -901,6 +901,92 @@ export function pageTag(tag: string, notes: NoteMeta[], popularTags: { tag: stri
   return shell(`Tag: ${tag}`, `${topbar("", "notes")}${body}`);
 }
 
+// ───────────────────────────────────────────────────────────────────────
+// Project grouping (v0.20+) — /p/:slug shows threads-in-project, not the
+// flat note list `/tag/project:slug` gives. Each card = one thread that
+// has ≥1 note tagged `project:<slug>`. Drives the agent's "multi-thread
+// project workspace" mental model that maps to Obsidian's folder shape.
+// ───────────────────────────────────────────────────────────────────────
+
+import type { ProjectThreadGroup } from "../core/storage";
+
+export function pageProject(slug: string, groups: ProjectThreadGroup[], totalNotes: number): string {
+  const latestCreated = groups[0]?.latestCreated ?? "";
+  const totalFinal = groups.reduce((acc, g) => acc + g.finalCount, 0);
+
+  const cardCss = `<style>
+    .proj-page { max-width: 1100px; margin: 0 auto; padding: 20px 28px 60px; }
+    .proj-head { padding: 12px 4px 24px; }
+    .proj-eyebrow { font-family: var(--vmono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vmuted); margin-bottom: 6px; }
+    .proj-eyebrow a { color: var(--vmuted); }
+    .proj-eyebrow a:hover { color: var(--vorange); }
+    .proj-title { font-family: var(--vhead); font-weight: 500; font-size: clamp(28px, 3.6vw, 40px); letter-spacing: -0.025em; margin: 0 0 6px; line-height: 1.1; }
+    .proj-title .proj-ns { color: var(--vorange); }
+    .proj-sub { font-family: var(--vserif); font-style: italic; font-size: 17px; color: var(--vmuted); margin: 6px 0 2px; }
+    .proj-meta { font-family: var(--vmono); font-size: 12px; color: var(--vmuted-2); margin-top: 8px; }
+    .proj-meta .final { color: var(--vorange); }
+    .proj-empty { padding: 60px 20px; text-align: center; color: var(--vmuted); }
+    .proj-empty p { font-family: var(--vserif); font-style: italic; font-size: 17px; line-height: 1.5; margin: 0 0 14px; }
+    .proj-empty code { font-family: var(--vmono); background: var(--vbg-2); padding: 2px 6px; border-radius: 3px; }
+
+    .proj-threads { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 20px; }
+    .proj-thread { background: var(--vpanel); border: 1px solid var(--vline); border-radius: 12px; padding: 18px 20px; transition: border-color .12s, transform .12s; text-decoration: none; color: inherit; display: flex; flex-direction: column; gap: 10px; }
+    .proj-thread:hover { border-color: var(--vorange); transform: translateY(-2px); }
+    .proj-thread__head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .proj-thread__name { font-family: var(--vhead); font-size: 17px; font-weight: 500; letter-spacing: -0.01em; color: var(--vink-2); }
+    .proj-thread__count { font-family: var(--vmono); font-size: 11px; color: var(--vmuted); margin-left: auto; }
+    .proj-thread__latest { font-family: var(--vmono); font-size: 11px; color: var(--vmuted); }
+    .proj-thread__latest .type { display: inline-block; background: var(--vorange-soft); color: var(--vorange); font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; padding: 2px 7px; border-radius: 9px; margin-right: 6px; }
+    .proj-thread__latest .when { color: var(--vmuted-2); }
+    .proj-thread__title { font-family: var(--vserif); font-style: italic; font-size: 14.5px; color: var(--vmuted); line-height: 1.4; margin: 0; }
+    .proj-thread__final { font-family: var(--vmono); font-size: 10px; color: var(--vorange); margin-top: 4px; }
+  </style>`;
+
+  const headerInner = `<span class="proj-ns">project:</span>${esc(slug)}`;
+  const meta = totalNotes > 0
+    ? `${groups.length} ${groups.length === 1 ? "thread" : "threads"} · ${totalNotes} ${totalNotes === 1 ? "note" : "notes"} · latest ${ago(latestCreated)}${totalFinal > 0 ? ` · <span class="final">★ ${totalFinal} final</span>` : ""}`
+    : "";
+
+  let inner: string;
+  if (groups.length === 0) {
+    inner = `<div class="proj-empty">
+      <p>No threads tagged <code>project:${esc(slug)}</code> yet.</p>
+      <p style="font-size: 14px; line-height: 1.55;">When you ask an agent to write something for this project, ask it to <strong>tag the note <code>project:${esc(slug)}</code></strong> — it'll show up here grouped by thread.</p>
+    </div>`;
+  } else {
+    const cards = groups.map((g) => {
+      const latest = g.notes[0]!;
+      const title = latest.title;
+      return `<a class="proj-thread" href="/t/${esc(g.thread_id)}">
+        <div class="proj-thread__head">
+          <span class="proj-thread__name">${esc(g.thread_id)}</span>
+          <span class="proj-thread__count">${g.noteCount} ${g.noteCount === 1 ? "note" : "notes"}</span>
+        </div>
+        <p class="proj-thread__title">${esc(title)}</p>
+        <div class="proj-thread__latest">
+          <span class="type">${esc(latest.type)}</span>
+          <span class="when">latest ${ago(g.latestCreated)}</span>
+        </div>
+        ${g.finalCount > 0 ? `<div class="proj-thread__final">★ ${g.finalCount} final</div>` : ""}
+      </a>`;
+    }).join("");
+    inner = `<div class="proj-threads">${cards}</div>`;
+  }
+
+  const body = `${cardCss}
+<main class="proj-page">
+  <div class="proj-head">
+    <div class="proj-eyebrow"><a href="/">← Notes</a> · <a href="/tag/${esc(`project:${slug}`)}">flat tag view</a></div>
+    <h1 class="proj-title">${headerInner}</h1>
+    <p class="proj-sub">Project workspace — one card per thread, tagged with <code>project:${esc(slug)}</code>.</p>
+    ${meta ? `<div class="proj-meta">${meta}</div>` : ""}
+  </div>
+  ${inner}
+</main>`;
+
+  return shell(`Project: ${slug}`, `${topbar("", "notes")}${body}`);
+}
+
 export function pageSearch(
   query: string,
   hits: SearchHit[],

@@ -2,6 +2,18 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.20.2 — 2026-05-15
+
+**Iteration gallery auto-refreshes when the next round lands.** Before this release, after the user picked a variant the gallery showed *"Waiting for the agent to propose round N+1…"* and stayed there until the user manually refreshed. The new round was live on disk — the viewer just wasn't watching. Now it watches.
+
+### Fixed
+- **`/n/:id/stream` accepts iteration notes.** Pre-v0.20.2 the SSE endpoint gated strictly on `note.live === true` and returned 404 for iteration notes (which carry `live=0` despite using the same JSONL substrate). Widened gate: a note is streamable when `live === true` OR `type === "iteration"`. Existing live-note behavior unchanged; iteration notes now plug into the same hub.
+- **Iteration body iframe auto-reloads on `kind:variant` SSE entries.** When `type === "iteration" && !is_final`, pageNote injects a chrome-side `EventSource` subscriber that watches the JSONL stream. On any new `kind:variant` entry (= a new round just landed via `propose_round`) it sets the body iframe's `src` with a cache-buster, triggering a fresh render that shows the new gallery. `kind:pick` entries are skipped — the existing click → POST → reload path already handles pick refreshes; reloading again from SSE would double-flash. Initial backlog burst on connect is suppressed via a 250ms quiet window so opening the page doesn't immediately reload it.
+
+### Tests
+- `tests/iteration-viewer.test.ts` (+4 tests, 13 total) — SSE endpoint accepts iteration notes, still 404s on plain snippet, iteration page emits the EventSource subscriber JS, plain pages don't.
+- `tests/live-viewer.test.ts` (1 updated) — pre-v0.20.2 error message *"not a live note"* changed to *"not streamable"* to reflect the wider gate.
+
 ## v0.20.1 — 2026-05-15
 
 **Sidebar navigation on list pages + context-aware notes.** Caught a real SKILL.md overpromise: I'd claimed earlier "the viewer aggregates tags in the sidebar" but `/tag/:slug` had no sidebar — only a flat list of notes. Users with multi-thread projects had no way to navigate between notes within a tag/project context. The fix is a left sidebar on list pages (mirroring `.note-shell`'s 2-column shape) plus `?from=…` context propagation so individual note pages know which list they came from.

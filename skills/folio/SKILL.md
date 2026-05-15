@@ -26,6 +26,7 @@ description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp)
 - "compare X and Y", "compare X vs Y", "differences between"
 - "ADR", "technical decision", "spec", "documentation"
 - "make me a note about…", "save this to folio"
+- **"show me N versions/variants of X", "N wariantów [czegoś]", "design candidates", "mockups", "logo proposals", "I'll pick one and you iterate"** → use `type: "iteration"` (see Iteration notes section, NOT a regular note dumped in chat)
 - Proactively after long structured responses (when the chat answer is already a rich artifact, offer: "Save to Folio as [type]?")
 - After a long debrief conversation (interview, meeting) → offer `journal`
 
@@ -59,11 +60,25 @@ description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp)
     For LIVE notes: body_html may be empty/minimal chrome — the feed
     becomes the content via append_entry.
 
+    ⚠ BEFORE writing body_html, decide the SHAPE:
+    - SINGLE deliverable (one research doc, one comparison, one snippet) →
+      proceed to step 5 with the corresponding `type`.
+    - APPEND-ONLY FEED (journal, todo, ops log) → `live: true`, see
+      Live notes section.
+    - N CANDIDATES FOR USER TO PICK BETWEEN (logo variants, hero mockups,
+      design directions, email tone options) → `type: "iteration"`, jump
+      to the Iteration notes section workflow: create() with chrome only,
+      then propose_round() with the N variants, then wait_for_pick().
+      DO NOT inline N options into one regular body_html or one chat
+      message — the user can't click to pick or fork from a pick.
+
 5.  create({ type, title, body_html, thread_id, theme?, tags?, live? })
     ↳ Theme from user config (default linen) unless you override deliberately.
     ↳ Leave theme_profile at its default ("hosted").
     ↳ live: true → returns stream_url + local_stream_url; type defaults
       to journal in the CLI, but in MCP you must pass type explicitly.
+    ↳ For iteration: body_html is just chrome (h1 + intro); variants come
+      via propose_round, NOT inside body_html.
 
 6.  Respond to the user with:
 
@@ -178,12 +193,25 @@ These render as generic pills + show up as auto-facets in the panel sidebar. Pic
 
 A different shape from live notes: agent generates N design candidates, user clicks one in a gallery, agent generates N variants of the pick, repeat. Tree-shaped (every variant has a `parent_variant_id` pointing at the round-winner that spawned it), append-only on the live-entries JSONL substrate.
 
-**When to use `type: "iteration"`:**
-- ✅ "Show me 3 versions of the landing hero, I'll pick one"
-- ✅ "Iterate on the email template — pick after each round"
-- ✅ Anything where you'd otherwise paste 3 mockups back-to-back and ask "which one?"
+**When to use `type: "iteration"` — look for these patterns in the prompt:**
+
+| The user said / asked for | Why it's iteration |
+|---|---|
+| "Show me 3 versions of the landing hero" / "Pokaż mi 3 wersje hero" | N candidates, will pick |
+| "Generate 6 logo variants" / "Przygotuj 6 wariantów logotypu" | Design exploration |
+| "Iterate on the email template — pick after each round" | Multi-round selection loop |
+| "Mockups to choose from" / "kierunki", "propozycje", "warianty" | Multiple directions, pick one |
+| "I'll pick one and you'll iterate on it" / "Ja wybiorę któryś, ty rozwiniesz" | Explicit pick-then-refine |
+| "Explore some directions for X" + numeric count | Open-ended creative |
+
+**Common ones that ARE iteration even if not phrased that way:** logo design, hero section, email template, onboarding flow, color palette, brand identity, poster, app icon — anywhere the deliverable is visual/creative AND the user wants to choose between agent-generated candidates.
+
+**When NOT to use:**
 - ❌ Single deliverable, no comparison ("write the email") → `snippet`
-- ❌ Side-by-side comparison of OPTIONS the user already has → `comparison`
+- ❌ Side-by-side comparison of OPTIONS the user already has (Postgres vs MySQL) → `comparison`
+- ❌ User is happy with one direction after you describe it in chat — only escalate to iteration when there are multiple to choose between
+
+**Critical anti-pattern:** ❌ NEVER list 3+ design candidates / variants / mockups inline in chat as "Option 1: …, Option 2: …, Option 3: …". The user can't click to pick, can't fork from a pick, loses lineage across rounds. If it would be ≥3 candidates, it's an iteration note — full stop.
 
 **Tool surface (v0.19.1):**
 
@@ -223,7 +251,29 @@ iteration_state({ note_id })
 
 **Variant content_html — make it standalone.** Each variant renders in its own sandboxed sub-iframe with a minimal system-font scaffold. CSS doesn't leak between cards. For a strong identity per variant include `<style>` blocks inline at the top of the variant.
 
-**Labels matter.** Set a short kebab-case `label` on each variant — the viewer shows it in the gallery card and the lineage breadcrumb after picking. Without it, the viewer falls back to first 4 chars of the variant id.
+**For logos, icons, and other vector graphics: use inline `<svg>`.** Since v0.19.3 the sanitizer fully supports SVG with `viewBox`, `<defs>` / `<marker>` for arrows, gradients, all typography + paint attrs. Inline SVG is the right answer for logo/icon iteration: vector (scales to any size), themable, no external image dependency, no `attach_asset` round-trip. Skeleton:
+
+```html
+<!-- variant content_html for a "logo proposal" -->
+<style>
+  body { display: flex; align-items: center; justify-content: center; padding: 20px; background: #fff; }
+  .logo { display: flex; align-items: center; gap: 10px; font-family: 'Familjen Grotesk', system-ui, sans-serif; }
+  .logo__mark { width: 48px; height: 48px; }
+  .logo__name { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; color: #1a1a1a; }
+  .logo__name span { color: #ff5a1f; }
+</style>
+<div class="logo">
+  <svg class="logo__mark" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="24" cy="24" r="22" fill="none" stroke="#ff5a1f" stroke-width="2"/>
+    <text x="24" y="32" text-anchor="middle" font-family="Familjen Grotesk" font-size="22" font-weight="700" fill="#1a1a1a">R</text>
+  </svg>
+  <span class="logo__name">rep<span>coach</span></span>
+</div>
+```
+
+Each variant is a self-contained little canvas. Six of these in one `propose_round` call = six logo directions the user can compare and click.
+
+**Labels matter.** Set a short kebab-case `label` on each variant — the viewer shows it in the gallery card and the lineage breadcrumb after picking. Without it, the viewer falls back to first 4 chars of the variant id. For logos use directional labels (`circuit-R`, `dumbbell-pulse`, `pixel-trainer`, `monogram-RC`) so the user remembers what they picked after round 1.
 
 **On `wait_for_pick` timeout:** the agent should call `iteration_state` to check whether the round was picked between the call and the timeout (rare race window), then either continue with the picked variant or stop the iteration.
 
@@ -233,15 +283,23 @@ iteration_state({ note_id })
 
 ## Choosing `type`
 
+**Decision order:**
+1. **Is the user asking for N candidates they'll pick between?** → `iteration` (do NOT dump them in chat or use a regular note — see Iteration notes section above).
+2. **Is this a feed that grows over time?** → `live: true` (see Live notes section).
+3. Otherwise pick from the static-shape table below.
+
 | Prompt signal | Type | Template (slot data) |
 |---|---|---|
-| "compare", "vs", "differences between", scorecard | `comparison` | `comparison.html.eta` |
+| **"show me N versions of X", "N wariantów [czegoś]", "design candidates", "logo proposals", "mockups to choose from", "I'll pick one and you'll iterate"** | **`iteration`** | (no template — variants live as entries, see Iteration notes section) |
+| "compare", "vs", "differences between", scorecard (user already has the options, just wants them side-by-side) | `comparison` | `comparison.html.eta` |
 | "research", "deep dive", "everything about", "summarize URL" | `research` | `research.html.eta` |
 | "debrief", "diary", "summary of the day / meeting" | `journal` | (custom body_html — no dedicated MVP template) |
 | "ADR", "technical decision", "spec", "proposal" | `technical` | `technical.html.eta` |
 | "save this" + short content (<400 words), single point | `snippet` | (custom body_html, single card layout) |
 
-If unclear → ask one question, or pick `research` as a safe default.
+**`comparison` vs `iteration` — the load-bearing distinction:** `comparison` is for OPTIONS THE USER ALREADY HAS (Postgres vs MySQL vs SQLite — three real things with known properties, agent renders them side-by-side). `iteration` is for OPTIONS THE AGENT GENERATES (6 logo directions, 3 hero layouts, 4 email tone variants) where the user picks one and the agent generates more from the pick.
+
+If unclear → ask one question. If a user prompt mentions "wariantów / versions / propositions / mockups" + "I'll pick / wybiorę / choose one", treat as iteration.
 
 ---
 
@@ -413,19 +471,87 @@ Always write a real `alt` — binary content is NOT FTS-indexed; the alt text is
 
 **Order with `create`:** attach first (you need the URL), then `create` with `body_html` that references it. Same `thread_id` in both calls.
 
+**Relative URLs are usually right.** Folio rewrites image URLs at render time. Use the **relative** form `/t/<thread>/asset/<filename>` inside `body_html`, NOT the absolute `url` from the `attach_asset` response. Why:
+
+- A relative URL renders correctly under whatever origin the user is viewing the note from — local viewer (`127.0.0.1:4810`), reverse-proxied public host, Tailscale Funnel, capability URL on cloud — all transparent.
+- The absolute `url` returned by `attach_asset` is built from `viewer_public_url` in config. If a recipient browses through a DIFFERENT host (Tailscale interface, alias domain, capability URL on a different cloud), absolute URLs break.
+- Capability URL rewrites (`/p/<token>/t/.../asset/...`) hook on the `/t/<thread>/asset/<file>` substring — relative or absolute both match, but relative produces cleaner output.
+
+Use the absolute `url` only when relaying outside Folio (email body, Telegram, anywhere the recipient won't be viewing through a Folio origin):
+
+```html
+<!-- ✅ inside body_html: relative path -->
+<img src="/t/morning-ride-2026-05-12/asset/speed-chart.png" alt="Speed over time — peaks at 38 km/h around km 14" width="800">
+
+<!-- ❌ inside body_html: absolute URL with viewer_public_url -->
+<img src="https://my-zeszyt.local/t/morning-ride-2026-05-12/asset/speed-chart.png" ...>
+<!-- breaks when user opens the note through Tailscale Funnel, capability URL on cloud, or local viewer -->
+
+<!-- ✅ in an email / Telegram message: absolute URL -->
+<a href="https://my-zeszyt.notibox.ai/t/.../asset/...">↗ Open</a>
+```
+
+---
+
+## Generating images from scratch (v0.19.3+)
+
+When the agent has an image to show that doesn't exist as a file yet (generated logo, icon, diagram, illustration, chart), pick the right tool — none of them is "hallucinate a URL".
+
+### 1. Vector content → inline `<svg>` (preferred for logos/icons/diagrams)
+
+Since v0.19.3 the sanitizer fully supports inline SVG with `viewBox` (case preserved), `<defs>`, `<marker>` (arrows), gradients, all paint + typography attrs. For logos, app icons, diagrams, simple illustrations, and any flat-color graphic the agent can describe as shapes + text, **inline SVG is the right answer.** Benefits:
+
+- Vector → scales to any size, looks crisp on retina
+- Themable → CSS variables / inline styles apply
+- No external dependency → no `attach_asset` round-trip, no broken URL risk
+- Search-indexable (text content inside `<text>` elements is FTS-visible)
+- Same file as the note — `tar` + go
+
+For iteration notes specifically (6 logo variants, 3 icon directions, etc.), each variant's `content_html` should be inline SVG. See the SVG example in the Iteration notes section above.
+
+### 2. Raster content the agent has the bytes of → `attach_asset`
+
+If the agent has access to an image-generation tool (DALL·E, Imagen, Midjourney via MCP, etc.) and gets bytes back, save them via `attach_asset`:
+
+```
+attach_asset({
+  thread_id,
+  filename: "hero-bg-v1.png",      // slug-style, descriptive, forever
+  content_base64: "<bytes>"
+})
+→ { url, local_url, ... }
+```
+
+Then reference the asset in `body_html` via the **relative path** `/t/<thread>/asset/<filename>` (see the "Relative URLs are usually right" subsection in Attaching assets above). NEVER inline base64 into `body_html`.
+
+### 3. External-hosted raster → `<img src="<absolute https URL>">`
+
+Only if the image actually lives at a stable public HTTPS URL the agent KNOWS exists (e.g. a CDN, a Wikipedia image, a public API response that returns an image URL). The sanitizer allows `https:` and `data:` schemes for `<img>`.
+
+### What NOT to do
+
+- ❌ **Hallucinating image URLs.** If you didn't call `attach_asset` and didn't generate inline SVG, there is no image. Writing `<img src="https://my-server.local/cool-logo-1.png">` does not create the image — it produces a broken link.
+- ❌ **Inline base64 in `body_html`.** Bloats the note, breaks copy-as-markdown, no FTS lift. Use `attach_asset` to store the bytes properly.
+- ❌ **External URLs you can't verify.** Don't grab a random image URL from training data and hope it's still up.
+- ❌ **For logos / icons specifically: using raster when SVG would do.** A `<svg viewBox="0 0 48 48">` with shapes is almost always better than a 512×512 PNG of the same logo.
+
 ---
 
 ## Anti-patterns
 
 - ❌ **Spamming `create`** for things that should live in agent memory or chat (short answers like "what's RAG?")
 - ❌ **Skipping `suggest_thread`** → creates duplicate threads. ALWAYS check first.
+- ❌ **Listing 3+ design candidates / variants / mockups inline in chat** ("Wariant 1: …, Wariant 2: …, Wariant 3: …") **instead of an iteration note.** The user can't click to pick, can't fork from a pick, you lose lineage across rounds. If you're about to type the phrase "here are N options for you to choose from" — STOP and call `create({ type: "iteration" })` + `propose_round` instead.
+- ❌ **Putting iteration variants inside `body_html` of a regular note** instead of using `propose_round`. No gallery, no click-to-pick, no lineage. If the user is meant to choose between things, it's iteration.
 - ❌ **Generating body without consulting the stylebook** → notes look inconsistent
 - ❌ **Missing metadata** (tags) — hurts retrieval
 - ❌ **Writing inline-styled HTML like it's 2005** — use the classes from theme.css
 - ❌ **Editing**: if the user asks "fix this" → create a NEW note in the same thread (append-only, ADR-014)
 - ❌ **Marking `is_final: true` on your own** — that's the user's call (from the viewer / CLI / explicit request)
-- ❌ **Inlining base64 binaries in `body_html`** — bloats the note, breaks copy-as-markdown, no FTS lift. Use `attach_asset` then reference the returned URL
-- ❌ **Calling `attach_asset` without thinking about the filename** — `IMG_4521.jpg` from a phone camera is fine, but generated assets deserve a slug name (`speed-chart.png` beats `chart1.png`). The filename is forever for that URL
+- ❌ **Inlining base64 binaries in `body_html`** — bloats the note, breaks copy-as-markdown, no FTS lift. Use `attach_asset` then reference the returned URL.
+- ❌ **Hallucinating image URLs you didn't actually attach.** If you didn't call `attach_asset` and didn't generate inline SVG, there's no image. Don't write `<img src="https://example.local/cool-logo.png">` and hope it works. See "Generating images from scratch" below.
+- ❌ **Using the absolute `url` from `attach_asset` response inside `body_html`** when the host might serve the note under a different domain (Tailscale, reverse proxy, multi-cloud, local + funnel). Use the RELATIVE path `/t/<thread>/asset/<filename>` instead — see "Generating images from scratch".
+- ❌ **Calling `attach_asset` without thinking about the filename** — `IMG_4521.jpg` from a phone camera is fine, but generated assets deserve a slug name (`speed-chart.png` beats `chart1.png`). The filename is forever for that URL.
 
 ---
 

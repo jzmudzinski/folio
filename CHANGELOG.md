@@ -2,6 +2,16 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.19.5 — 2026-05-15
+
+Single-line SKILL.md fix shipped because it materially changes agent routing in production.
+
+### Changed — `skills/folio/SKILL.md`
+
+Removed the `"Daily notes / projects manually managed in Obsidian"` line from the NO anti-triggers list. Real-world bug report: a paired-chat agent asked to generate **project research** correctly created a Folio research note but then appended *"the full project description goes to Obsidian"* — splitting one deliverable across two systems. Root cause: SKILL was explicitly telling agents reading top-down that **projects** belong to Obsidian, which conflicts with Folio's own research / technical / thread model that handles project work natively (one thread per project, append-only siblings as the project evolves).
+
+It's not Folio's job to tell users where their personal-knowledge-management lives. Removed the line. Other Obsidian-aware skills (if loaded alongside Folio in a stack like notibox / OpenClaw) can make their own routing claims; Folio stays in its lane.
+
 ## v0.19.4 — 2026-05-15
 
 Docs-only release to push the SKILL.md changes into the release tarball — the SKILL ships bundled in `dist/skills/folio/SKILL.md` and is what agents load via `folio install --target {claude-code,openclaw}`. The binary itself is unchanged from v0.19.3.

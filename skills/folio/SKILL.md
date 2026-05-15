@@ -33,7 +33,6 @@ description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp)
 **NO (anti-triggers):**
 - Short conversational answer ("what time is it?", "what's RAG?" when two sentences suffice)
 - Editing an existing file outside Folio (Folio does not edit files)
-- Daily notes / projects manually managed in Obsidian
 - One-off code snippet answering a precise question (unless the user explicitly says "save this")
 
 ---

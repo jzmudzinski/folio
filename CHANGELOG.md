@@ -2,6 +2,26 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.20.0 — 2026-05-15
+
+**Project grouping.** Until v0.20 Folio had no first-class abstraction for "a project spanning many threads". Users coming from Obsidian-style folders (one folder = one project, multiple files inside) had to think in flat threads where every `thread_id` is one doc + its iterations. The fix is a **convention + viewer surface** combo — no schema change, no thread-hierarchy refactor, just a tag pattern and a page that groups by it.
+
+### Added — convention
+- **`project:<slug>` tag.** The agent puts this tag on every note belonging to a project (research, decisions, design, ops log, technical specs — all carry the same `project:repcoach-fit` tag). SKILL.md gains a new "Project tag" subsection making this the load-bearing pattern.
+
+### Added — viewer
+- **`GET /p/:slug`** — project workspace page. Groups every note tagged `project:<slug>` by `thread_id`, renders one card per thread with note count + latest activity + ★ final count + latest note's type pill. Empty state when no notes carry the tag tells the user to ask the agent to add it.
+- **`GET /api/p/:slug`** — JSON variant for tooling. Returns `{ groups: [{ thread_id, noteCount, finalCount, latestCreated, notes[] }], totalNotes }`.
+
+### Added — storage
+- **`listProjectThreads(projectSlug, limit?)`** in `src/core/storage.ts`. Calls `listNotesByTag('project:<slug>')`, groups by `thread_id`, sorts threads by latest activity descending. Returns the same shape `/api/p/:slug` exposes.
+
+### Tests
+- `tests/project-grouping.test.ts` (new, 7 tests) — empty state, cross-thread grouping with counts, finalCount aggregation, sort-by-latest, leak prevention (other projects + untagged notes), full viewer round-trip (HTML + JSON), 400 on empty slug.
+
+### Why not hierarchical thread_ids?
+The alternative was nesting threads under projects (`/threads/repcoach-fit/logo/...`). That would have required: filesystem walker changes, sync push/pull schema changes, slug validation rewrite, capability URL routing changes. Tag + view gets the same UX with zero schema migration and clean cohabitation with the existing flat thread model.
+
 ## v0.19.5 — 2026-05-15
 
 Single-line SKILL.md fix shipped because it materially changes agent routing in production.

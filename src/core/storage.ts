@@ -775,6 +775,54 @@ export function listNotesByTag(tag: string, limit = 200): NoteMeta[] {
   return rows.map(rowToMeta);
 }
 
+/**
+ * Project grouping (v0.20+). Returns notes tagged `project:<slug>` grouped
+ * by their thread_id, sorted by most-recently-updated thread first.
+ *
+ * Each group is a thread that has at least one note in the project — the
+ * note may also carry other tags. Threads with zero project-tagged notes
+ * don't appear, even if they share a name slug. The grouping is
+ * tag-driven, not folder-driven.
+ *
+ * Use case: user's mental model is "project = many docs / threads"; this
+ * helper turns that into a list of threads instead of the flat tag view
+ * `/tag/<slug>` gives.
+ */
+export interface ProjectThreadGroup {
+  thread_id: string;
+  notes: NoteMeta[];   // ordered desc by created (latest first)
+  noteCount: number;
+  finalCount: number;
+  latestCreated: string;
+}
+
+export function listProjectThreads(projectSlug: string, limit = 500): {
+  groups: ProjectThreadGroup[];
+  totalNotes: number;
+} {
+  const tag = `project:${projectSlug}`;
+  const notes = listNotesByTag(tag, limit);
+  const byThread = new Map<string, NoteMeta[]>();
+  for (const n of notes) {
+    const arr = byThread.get(n.thread_id) ?? [];
+    arr.push(n);
+    byThread.set(n.thread_id, arr);
+  }
+  const groups: ProjectThreadGroup[] = [];
+  for (const [thread_id, threadNotes] of byThread.entries()) {
+    // Already came in created-desc order from listNotesByTag — keep it.
+    groups.push({
+      thread_id,
+      notes: threadNotes,
+      noteCount: threadNotes.length,
+      finalCount: threadNotes.filter((n) => n.is_final).length,
+      latestCreated: threadNotes[0]!.created,
+    });
+  }
+  groups.sort((a, b) => b.latestCreated.localeCompare(a.latestCreated));
+  return { groups, totalNotes: notes.length };
+}
+
 export function stats(): Record<string, any> {
   const d = db();
   return {

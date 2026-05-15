@@ -366,6 +366,29 @@ Full spec in **`STYLEBOOK.md`**. Quick rules:
 - A tag = what the user will use when searching
 - Per-project conventions work (e.g. `client:<slug>`, `project:<slug>`, `topic:<slug>`) — the viewer aggregates tags in the sidebar and offers a per-tag view at `/tag/<slug>`
 
+### Project tag — `project:<slug>` is the load-bearing pattern (v0.20+)
+
+In Folio a `thread_id` is **one document and its iterations** (the agent appends a new note when the user asks for "another version"). One project usually spans **many threads** — research, decisions, design, ops log, technical specs. Folio doesn't have a folder/project entity above threads; the convention is a `project:<slug>` tag on every note that belongs to the project. Viewer surfaces it two ways:
+
+- **`/p/<slug>`** — project workspace: one card per thread, with note count + latest activity + ★ final count. Best mental model for users coming from Obsidian folders.
+- **`/tag/project:<slug>`** — flat list of every project-tagged note across threads. Same data, less hierarchy.
+
+**Always tag project work:**
+
+```
+create({
+  type: "research",
+  title: "RepCoach onboarding research",
+  thread_id: "onboarding",
+  tags: ["project:repcoach-fit", "research", "onboarding"],
+  ...
+})
+```
+
+Tell the user where it'll land: include the project URL in the response when relevant — `MEDIA:<note-url>` plus *"see all project threads at `/p/<slug>`"*.
+
+**Don't split project work across systems.** Folio threads + a single `project:<slug>` tag cover the same shape as "one folder per project in Obsidian / Notion". Adding a project plan in Folio and the rest of the project elsewhere fractures the user's context.
+
 ---
 
 ## Attaching assets to threads (v0.7.0+)

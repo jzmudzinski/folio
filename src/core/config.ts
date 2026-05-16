@@ -139,6 +139,20 @@ export function bundledSkillsDir(): string {
   return join(import.meta.dir, "..", "..", "skills");
 }
 
+export function bundledHooksDir(): string {
+  // v0.21.0+: agent-host hook bundles (e.g. OpenClaw hooks at
+  // hooks/openclaw/folio-event-watcher/). Same resolution pattern as
+  // skills/themes. `folio install --target openclaw` symlinks
+  // ~/.openclaw/hooks/<name> → <bundledHooksDir>/openclaw/<name>.
+  const envDir = process.env.FOLIO_BUNDLED_HOOKS_DIR?.trim();
+  if (envDir && existsSync(envDir)) return envDir;
+  if (process.execPath && existsSync(process.execPath)) {
+    const next = join(process.execPath, "..", "hooks");
+    if (existsSync(next)) return next;
+  }
+  return join(import.meta.dir, "..", "..", "hooks");
+}
+
 export async function loadConfig(): Promise<FolioConfig> {
   if (!existsSync(configPath())) return { ...DEFAULT_CONFIG };
   try {

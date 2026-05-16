@@ -80,4 +80,14 @@ export interface CheckReport {
     entries: { scope: string; command: string; state: "ok" | "stale" }[];
     expectedCommand: string;
   };
+  /** v0.21.0+: OpenClaw-specific hook state. Other targets don't ship hooks
+   *  yet, so this stays optional. */
+  hook?: {
+    name: string;
+    expected: string;
+    installedAt: string | null;
+    currentTarget: string | null;
+    state: "ok" | "missing" | "stale" | "wrong-target" | "disabled";
+    note?: string;
+  };
 }

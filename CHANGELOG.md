@@ -2,6 +2,29 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.21.0 — 2026-05-16
+
+**OpenClaw hook integration.** Closes the long-parked future feature: agents hosted in OpenClaw now see Folio events surface in their context on every user turn — without any per-session wiring. `folio install --target openclaw` automates the whole setup (hook directory symlink + config entry); the existing skill + MCP install paths are unchanged.
+
+### Architecture (see `docs/openclaw-integration.md`)
+
+Three integration shapes were evaluated; v0.21.0 ships the simplest. **Option A — polling-on-message hook**: OpenClaw `message:received` fires → hook polls `~/Folio/threads/*/*.entries.jsonl` since last-seen cursor → filters meaningful entries (`kind:pick` / `kind:variant` / `state:done` / `view:pinned`) → pushes summary into the agent's context for this turn. Bounded execution, no daemons, no sockets. Resilient to OpenClaw restarts (cursor on disk). Future options (bridge daemon for autonomous loops between turns) deferred to v0.22+; full rationale in the ADR.
+
+### Added
+
+- **`hooks/openclaw/folio-event-watcher/`** — reference hook implementation in the repo. `HOOK.md` with OpenClaw frontmatter declaring `events: ["message:received"]`; `handler.ts` implementing the polling + filtering + cursor logic (~150 LOC, includes types for the OpenClaw event object).
+- **`bundledHooksDir()`** in `src/core/config.ts` — sibling to `bundledSkillsDir()`. Resolves the hooks dir via `FOLIO_BUNDLED_HOOKS_DIR` env override → execPath sibling → dev fallback. Tarball includes `hooks/` so `folio install` on a release binary finds it.
+- **`folio install --target openclaw` extension** — when the skill flag is on (default), also symlinks `~/.openclaw/hooks/folio-event-watcher/` → `<bundledHooksDir>/openclaw/folio-event-watcher/` and writes `hooks.internal.entries["folio-event-watcher"].enabled = true` to `~/.openclaw/openclaw.json`. Hook lifecycle follows the skill flag — `--mcp-only` skips the hook; `--skill-only` keeps it.
+- **`folio uninstall --target openclaw`** — mirror: removes the symlink + the config entry. Refuses to remove a hook directory that isn't a symlink (manually installed).
+- **`folio doctor --target openclaw`** — reports hook state alongside skill + MCP. New states: `ok`, `missing`, `wrong-target`, `disabled` (symlink in place but config flag is false), `stale` (symlink target missing).
+- **`CheckReport.hook` field** — typed optional field on the install check report. Other targets (Claude Code) don't ship hooks; the field stays undefined for them.
+
+### Tests
+- `tests/install-openclaw.test.ts` (+7 tests, 29 total) — install creates hook symlink + writes enabled flag, check reports ok/missing/disabled states, uninstall removes both, `--skill-only` keeps the hook, `--mcp-only` skips it.
+
+### Documentation
+- **`docs/openclaw-integration.md`** — ADR-shape: problem, Folio event surfaces, three integration architectures (polling-on-message / bridge daemon / hybrid), trade-offs that drove option A, future work for option B/C.
+
 ## v0.20.2 — 2026-05-15
 
 **Iteration gallery auto-refreshes when the next round lands.** Before this release, after the user picked a variant the gallery showed *"Waiting for the agent to propose round N+1…"* and stayed there until the user manually refreshed. The new round was live on disk — the viewer just wasn't watching. Now it watches.

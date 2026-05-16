@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { existsSync, mkdirSync, lstatSync, readlinkSync, symlinkSync, unlinkSync } from "node:fs";
 import { readJsonConfig } from "./json-config";
 import { skillSourcePath, mcpCommand, escapePointer } from "./claude-code";
+import { bundledHooksDir } from "../../core/config";
 import type {
   CheckReport,
   InstallOptions,
@@ -28,12 +29,15 @@ import type {
 } from "./types";
 
 const SKILL_NAME = "folio";
+const HOOK_NAME = "folio-event-watcher";
 
 export interface OpenclawPaths {
   home: string;
   openclawDir: string;       // ~/.openclaw
   workspaceSkills: string;   // ~/.openclaw/workspace/skills
   skillLink: string;         // ~/.openclaw/workspace/skills/folio
+  hooksDir: string;          // ~/.openclaw/hooks
+  hookLink: string;          // ~/.openclaw/hooks/folio-event-watcher
   configJson: string;        // ~/.openclaw/openclaw.json
 }
 
@@ -45,8 +49,16 @@ export function openclawPaths(homeOverride?: string): OpenclawPaths {
     openclawDir,
     workspaceSkills: join(openclawDir, "workspace", "skills"),
     skillLink: join(openclawDir, "workspace", "skills", SKILL_NAME),
+    hooksDir: join(openclawDir, "hooks"),
+    hookLink: join(openclawDir, "hooks", HOOK_NAME),
     configJson: join(openclawDir, "openclaw.json"),
   };
+}
+
+/** v0.21.0+: source path of the bundled folio-event-watcher OpenClaw hook.
+ *  Symlinked into ~/.openclaw/hooks/<HOOK_NAME>/ by `folio install`. */
+export function hookSourcePath(): string {
+  return join(bundledHooksDir(), "openclaw", HOOK_NAME);
 }
 
 /** True when OpenClaw appears to be installed on this machine. */
@@ -138,6 +150,57 @@ export function planInstall(opts: InstallOptions, paths = openclawPaths()): Inst
     }
   }
 
+  // ── Hook (v0.21.0+) — folio-event-watcher ──
+  // Surfaces new Folio events (iteration picks, variants, todo state, pins)
+  // into the agent's context on every user message. See
+  // docs/openclaw-integration.md for the architecture rationale.
+  //
+  // Gated by `wantSkill` because conceptually the hook and the skill are
+  // one package — the skill tells the agent what events MEAN, the hook
+  // delivers them. Users opting out of the skill with --skill=false
+  // presumably don't want the hook either.
+  if (wantSkill) {
+    const src = hookSourcePath();
+    if (!existsSync(src)) {
+      warnings.push(`Hook source missing at ${src} — Folio install bundle is incomplete.`);
+    } else {
+      const dst = paths.hookLink;
+      if (isSymlink(dst)) {
+        const current = readlinkSafe(dst);
+        if (current === src) {
+          actions.push({ kind: "noop", reason: `hook already linked → ${src}` });
+        } else {
+          actions.push({ kind: "rmSymlink", dst, currentTarget: current, reason: "hook symlink points elsewhere; will retarget" });
+          actions.push({ kind: "symlink", src, dst, reason: "create hook symlink" });
+        }
+      } else if (existsSync(dst)) {
+        warnings.push(`${dst} exists and is not a symlink; refusing to overwrite. Move it aside and re-run.`);
+      } else {
+        actions.push({ kind: "symlink", src, dst, reason: "create hook symlink" });
+      }
+    }
+
+    // Enable in OpenClaw config. The hooks block lives under
+    // hooks.internal.entries.<name> per the OpenClaw hook docs. We patch
+    // just that key — other hooks (or other top-level keys) untouched.
+    const cfg = readJsonConfig<any>(paths.configJson);
+    const existingHookCfg = cfg?.hooks?.internal?.entries?.[HOOK_NAME];
+    const desiredHookCfg = { enabled: true };
+    const same = existingHookCfg && typeof existingHookCfg === "object" && existingHookCfg.enabled === true;
+    if (same) {
+      actions.push({ kind: "noop", reason: "hook already enabled in openclaw.json" });
+    } else {
+      actions.push({
+        kind: "writeJson",
+        file: paths.configJson,
+        jsonPointer: `/hooks/internal/entries/${escapePointer(HOOK_NAME)}`,
+        before: existingHookCfg ?? null,
+        after: desiredHookCfg,
+        reason: existingHookCfg ? "hook entry differs; will update enabled flag" : "register hook in openclaw.json",
+      });
+    }
+  }
+
   // ── MCP ──
   if (wantMcp) {
     const cfg = readJsonConfig<any>(paths.configJson);
@@ -215,6 +278,33 @@ export function planUninstall(opts: UninstallOptions, paths = openclawPaths()): 
     }
   }
 
+  if (wantSkill) {
+    // Mirror of install: hook lifecycle follows skill flag. Remove symlink
+    // and config entry both. If the symlink isn't a symlink, leave alone
+    // (don't accidentally remove a manually-installed hook directory).
+    const dst = paths.hookLink;
+    if (isSymlink(dst)) {
+      const current = readlinkSafe(dst);
+      actions.push({ kind: "rmSymlink", dst, currentTarget: current, reason: "remove hook symlink" });
+    } else if (existsSync(dst)) {
+      warnings.push(`${dst} exists but is not a symlink; leaving alone.`);
+    } else {
+      actions.push({ kind: "noop", reason: "hook symlink already absent" });
+    }
+
+    const cfg = readJsonConfig<any>(paths.configJson);
+    const existingHookCfg = cfg?.hooks?.internal?.entries?.[HOOK_NAME];
+    if (existingHookCfg) {
+      actions.push({
+        kind: "deleteJson",
+        file: paths.configJson,
+        jsonPointer: `/hooks/internal/entries/${escapePointer(HOOK_NAME)}`,
+        before: existingHookCfg,
+        reason: "remove hook entry from openclaw.json",
+      });
+    }
+  }
+
   if (wantMcp) {
     const cfg = readJsonConfig<any>(paths.configJson);
     const existing = cfg?.mcp?.servers?.folio;
@@ -266,6 +356,7 @@ export function check(paths = openclawPaths()): CheckReport {
   }
 
   const entries: { scope: string; command: string; state: "ok" | "stale" }[] = [];
+  let hook: CheckReport["hook"];
   if (isOpenclawPresent(paths)) {
     const cfg = readJsonConfig<any>(paths.configJson);
     const entry = cfg?.mcp?.servers?.folio;
@@ -276,12 +367,43 @@ export function check(paths = openclawPaths()): CheckReport {
         state: entry.command === command && existsSync(entry.command) ? "ok" : "stale",
       });
     }
+
+    // ── Hook check (v0.21.0+) ──
+    const hookExpected = hookSourcePath();
+    const hookLink = paths.hookLink;
+    const hookCfg = cfg?.hooks?.internal?.entries?.[HOOK_NAME];
+    const enabled = hookCfg && typeof hookCfg === "object" && hookCfg.enabled === true;
+    if (isSymlink(hookLink)) {
+      const current = readlinkSafe(hookLink);
+      if (current === hookExpected) {
+        const state: NonNullable<CheckReport["hook"]>["state"] = existsSync(hookExpected)
+          ? (enabled ? "ok" : "disabled")
+          : "stale";
+        hook = {
+          name: HOOK_NAME,
+          expected: hookExpected,
+          installedAt: hookLink,
+          currentTarget: current,
+          state,
+          note: !existsSync(hookExpected)
+            ? "symlink target does not exist"
+            : (!enabled ? "symlink in place but disabled in openclaw.json" : undefined),
+        };
+      } else {
+        hook = { name: HOOK_NAME, expected: hookExpected, installedAt: hookLink, currentTarget: current, state: "wrong-target" };
+      }
+    } else if (existsSync(hookLink)) {
+      hook = { name: HOOK_NAME, expected: hookExpected, installedAt: hookLink, currentTarget: null, state: "wrong-target", note: "exists but is not a symlink" };
+    } else {
+      hook = { name: HOOK_NAME, expected: hookExpected, installedAt: null, currentTarget: null, state: "missing" };
+    }
   }
 
   return {
     target: "openclaw",
     skill,
     mcp: { entries, expectedCommand: command },
+    hook,
   };
 }
 

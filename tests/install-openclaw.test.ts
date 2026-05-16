@@ -55,15 +55,17 @@ test("planInstall on missing OpenClaw warns and emits no actions", () => {
   expect(plan.warnings[0]).toContain("OpenClaw not detected");
 });
 
-test("planInstall on fresh OpenClaw produces symlink + writeJson for MCP", () => {
+test("planInstall on fresh OpenClaw produces symlinks (skill + hook) + writeJson for hook entry + MCP", () => {
   seedOpenclawConfig();
   const plan = planInstall({ target: "openclaw" }, paths());
   const kinds = plan.actions.map((a) => a.kind);
   expect(kinds).toContain("symlink");
   expect(kinds).toContain("writeJson");
-  // No extraDirs cleanup needed on a fresh seed.
+  // v0.21.0+: two symlinks (skill + hook), two writeJsons (hook entry + MCP).
+  const symlinks = plan.actions.filter((a) => a.kind === "symlink");
+  expect(symlinks.length).toBe(2);
   const writes = plan.actions.filter((a) => a.kind === "writeJson");
-  expect(writes.length).toBe(1);
+  expect(writes.length).toBe(2);
 });
 
 test("apply install creates workspace symlink + writes MCP entry", () => {
@@ -271,4 +273,77 @@ test("refreshAfterUpdate is a noop when OpenClaw is absent entirely", () => {
   // No seed → openclaw.json missing.
   const r = refreshAfterUpdate(paths());
   expect(r.refreshed).toBe(0);
+});
+
+// ───── v0.21.0+: folio-event-watcher hook install ────────────────────────
+
+test("v0.21.0: install creates hook symlink + writes enabled flag", () => {
+  seedOpenclawConfig();
+  applyPlan(planInstall({ target: "openclaw" }, paths()));
+  // Hook symlink in ~/.openclaw/hooks/folio-event-watcher → bundled hook dir
+  expect(lstatSync(paths().hookLink).isSymbolicLink()).toBe(true);
+  const cfg = readJsonConfig<any>(paths().configJson);
+  expect(cfg.hooks.internal.entries["folio-event-watcher"].enabled).toBe(true);
+});
+
+test("v0.21.0: check reports hook state ok after install", () => {
+  seedOpenclawConfig();
+  applyPlan(planInstall({ target: "openclaw" }, paths()));
+  const r = check(paths());
+  expect(r.hook).toBeDefined();
+  expect(r.hook!.name).toBe("folio-event-watcher");
+  expect(r.hook!.state).toBe("ok");
+});
+
+test("v0.21.0: check reports hook missing on fresh openclaw (before install)", () => {
+  seedOpenclawConfig();
+  const r = check(paths());
+  expect(r.hook).toBeDefined();
+  expect(r.hook!.state).toBe("missing");
+});
+
+test("v0.21.0: check reports hook disabled when symlink present but enabled=false", () => {
+  seedOpenclawConfig();
+  applyPlan(planInstall({ target: "openclaw" }, paths()));
+  // Flip the enabled flag off — symlink still in place.
+  const cfg = readJsonConfig<any>(paths().configJson);
+  cfg.hooks.internal.entries["folio-event-watcher"].enabled = false;
+  const { writeFileSync } = require("node:fs");
+  writeFileSync(paths().configJson, JSON.stringify(cfg, null, 2));
+  const r = check(paths());
+  expect(r.hook!.state).toBe("disabled");
+});
+
+test("v0.21.0: uninstall removes hook symlink + entry alongside skill", () => {
+  seedOpenclawConfig();
+  applyPlan(planInstall({ target: "openclaw" }, paths()));
+  // confirm both in place
+  expect(lstatSync(paths().hookLink).isSymbolicLink()).toBe(true);
+  applyPlan(planUninstall({ target: "openclaw" }, paths()));
+  // hook symlink gone
+  expect(existsSync(paths().hookLink)).toBe(false);
+  const cfg = readJsonConfig<any>(paths().configJson);
+  expect(cfg.hooks?.internal?.entries?.["folio-event-watcher"]).toBeUndefined();
+});
+
+test("v0.21.0: install with --skill-only opts out of MCP but keeps hook (hook tracks skill flag)", () => {
+  seedOpenclawConfig();
+  const plan = planInstall({ target: "openclaw", mcp: false }, paths());
+  applyPlan(plan);
+  expect(lstatSync(paths().skillLink).isSymbolicLink()).toBe(true);
+  expect(lstatSync(paths().hookLink).isSymbolicLink()).toBe(true);
+  const cfg = readJsonConfig<any>(paths().configJson);
+  expect(cfg.hooks.internal.entries["folio-event-watcher"].enabled).toBe(true);
+  expect(cfg.mcp?.servers?.folio).toBeUndefined();
+});
+
+test("v0.21.0: install with --mcp-only does NOT install the hook (hook coupled to skill)", () => {
+  seedOpenclawConfig();
+  const plan = planInstall({ target: "openclaw", skill: false }, paths());
+  applyPlan(plan);
+  expect(existsSync(paths().hookLink)).toBe(false);
+  expect(existsSync(paths().skillLink)).toBe(false);
+  const cfg = readJsonConfig<any>(paths().configJson);
+  expect(cfg.hooks?.internal?.entries?.["folio-event-watcher"]).toBeUndefined();
+  expect(cfg.mcp?.servers?.folio).toBeDefined();
 });

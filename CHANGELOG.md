@@ -2,6 +2,20 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.21.1 — 2026-05-17
+
+**"Hand off to agent" button + Share trigger moved into the sidebar.** Two viewer chrome changes that group all per-note actions in one place.
+
+### Added
+- **`↗ Hand off to agent` button** in `.side-aux`. Click → copies a minimal note reference to the clipboard: URL + title + thread + type + a one-line instruction telling the receiving agent to call `folio.get` for the full body. User pastes the payload into any agent chat. Zero deep links, no per-host URL schemes — works in every agent surface (Claude Code, OpenClaw, ChatGPT, etc.). Visual confirmation on copy ("✓ Copied — paste into your agent chat") that reverts after 1.8s.
+
+### Changed
+- **Share trigger moved from topbar to sidebar.** Pre-v0.21.1 the `↗ Share` button lived in the topbar nav (v0.19.0 design). In v0.21.1 it joins the other per-note actions in `.side-aux` (Copy plain / Copy markdown / Raw HTML / Print / **Share publicly** / **Hand off to agent** / Delete). Topbar stays for cross-page nav only (Notes / Threads / Stats / Cloud). The Share popover content + behavior is unchanged — still fixed-position top-right, same form, same active-dot indicator (now next to the sidebar label).
+- `topbar()` signature: third arg `shareForId` is now ignored. Old callers keep working as before — the param is just a no-op.
+
+### Tests
+- `tests/viewer-shares.test.ts` (+3 tests, 14 total) — Share trigger sits inside `.side-aux` not `v-nav`, topbar nav specifically lacks share-trigger, Hand off button present with all metadata data-* attrs, inline JS contains the expected clipboard payload template strings.
+
 ## v0.21.0 — 2026-05-16
 
 **OpenClaw hook integration.** Closes the long-parked future feature: agents hosted in OpenClaw now see Folio events surface in their context on every user turn — without any per-session wiring. `folio install --target openclaw` automates the whole setup (hook directory symlink + config entry); the existing skill + MCP install paths are unchanged.

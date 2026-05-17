@@ -239,23 +239,64 @@ test("DELETE share → proxies to cloud revoke", async () => {
 
 // ───── UI markup ────────────────────────────────────────────────────────
 
-test("note page emits topbar Share trigger + popover scaffolding", async () => {
+test("note page emits Share trigger (now in sidebar, v0.21.1+) + popover scaffolding", async () => {
   await bootViewer();
   const id = await makeNote();
   const r = await fetch(`${viewerUrl}/n/${id}`);
   expect(r.status).toBe(200);
   const html = await r.text();
-  // Trigger sits in the nav with active-dot hidden by default.
+  // Trigger sits in the side-aux list (moved from topbar in v0.21.1).
   expect(html).toContain('id="share-trigger"');
   expect(html).toContain('class="active-dot"');
-  // Popover scaffolding present.
+  // The id is rendered inside the .side-aux <nav> block, not in the topbar.
+  expect(html).toMatch(/<nav class="side-aux">[\s\S]*id="share-trigger"[\s\S]*<\/nav>/);
+  // Popover scaffolding present (unchanged from v0.19/v0.20).
   expect(html).toContain('id="share-pop"');
   expect(html).toContain('id="share-form"');
   expect(html).toContain('id="share-manage"');
-  // Form fields present.
   expect(html).toContain('id="share-expires"');
   expect(html).toContain('id="share-maxviews"');
   expect(html).toContain('id="share-recipient"');
+});
+
+test("v0.21.1: Share trigger no longer in topbar nav", async () => {
+  await bootViewer();
+  const id = await makeNote();
+  const r = await fetch(`${viewerUrl}/n/${id}`);
+  const html = await r.text();
+  // Extract the v-nav block specifically (greedy regex would span across
+  // the v-nav close into the side-aux block where share-trigger DOES live).
+  const navMatch = html.match(/<nav class="v-nav">([\s\S]*?)<\/nav>/);
+  expect(navMatch).not.toBeNull();
+  expect(navMatch![1]).not.toContain("share-trigger");
+  expect(navMatch![1]).not.toContain("v-share-trigger");
+});
+
+test("v0.21.1: Hand off to agent button present in sidebar + carries note metadata via data-* attrs", async () => {
+  await bootViewer();
+  const id = await makeNote();
+  const r = await fetch(`${viewerUrl}/n/${id}`);
+  const html = await r.text();
+  expect(html).toContain('id="folio-handoff-btn"');
+  expect(html).toContain('↗ Hand off to agent');
+  // Metadata attrs the click handler reads to build the clipboard payload.
+  expect(html).toContain(`data-note-id="${id}"`);
+  expect(html).toContain('data-note-title="Test note"');
+  expect(html).toContain('data-thread-id="shares-test"');
+  expect(html).toContain('data-note-type="snippet"');
+});
+
+test("v0.21.1: Handoff JS handler emits a payload referencing folio.get + URL", async () => {
+  await bootViewer();
+  const id = await makeNote();
+  const r = await fetch(`${viewerUrl}/n/${id}`);
+  const html = await r.text();
+  // The clipboard payload template strings should be in the inline JS. The
+  // escaped backticks in the source render to real backticks in the served
+  // HTML once the surrounding template literal expands.
+  expect(html).toContain("'Folio note: '");
+  expect(html).toContain("'Title: '");
+  expect(html).toContain("call `folio.get`");
 });
 
 test("/n/:id/shares (unpaired) shows the not-paired hint", async () => {

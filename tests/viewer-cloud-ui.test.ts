@@ -172,10 +172,17 @@ test("POST /api/sync/pair with bad code returns 502 with cloud's error", async (
   expect(body.error).toContain("pair failed");
 });
 
-test("topbar has ☁ Cloud link", async () => {
+test("v0.21.2: topbar has Sync link (renamed from Cloud, icon dropped)", async () => {
   const html = await fetch(`${viewerUrl}/`).then((r) => r.text());
+  // URL stays /cloud (route unchanged) but the label is now "Sync" and the
+  // ☁ icon is gone. Test the v-nav block specifically so we don't match
+  // "Cloud" appearing in unrelated copy elsewhere on the page.
   expect(html).toContain('href="/cloud"');
-  expect(html).toContain("Cloud");
+  const navMatch = html.match(/<nav class="v-nav">([\s\S]*?)<\/nav>/);
+  expect(navMatch).not.toBeNull();
+  expect(navMatch![1]).toContain(">Sync</a>");
+  expect(navMatch![1]).not.toContain("☁");
+  expect(navMatch![1]).not.toContain(">Cloud<");
 });
 
 test("GET /api/cloud/stats (unpaired) returns 400", async () => {

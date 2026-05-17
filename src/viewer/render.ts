@@ -587,7 +587,7 @@ function topbar(query = "", active?: "notes" | "threads" | "stats" | "cloud", _s
       <a href="/"${on("notes")}>Notes</a>
       <a href="/threads"${on("threads")}>Threads</a>
       <a href="/stats"${on("stats")}>Stats</a>
-      <a href="/cloud"${on("cloud")} title="Sync &amp; cloud pairing">☁ Cloud</a>
+      <a href="/cloud"${on("cloud")} title="Cloud pairing + push/pull">Sync</a>
     </nav>
   </div>
 </header>`;
@@ -1165,9 +1165,16 @@ const SHARE_POPOVER_CSS = `<style>
 .side-aux #share-trigger .active-dot[hidden] { display: none; }
 .side-aux #folio-handoff-btn.copied { color: #2f9050; }
 
-.share-pop { position: fixed; top: 54px; right: 18px; width: 280px; background: var(--vpanel); border: 1px solid var(--vline); border-radius: 10px; box-shadow: 0 12px 36px rgba(0,0,0,0.16); z-index: 100; overflow: hidden; opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity .14s, transform .14s, visibility .14s; }
-.share-pop.is-open { opacity: 1; visibility: visible; transform: translateY(0); }
-.share-pop::before { content: ''; position: absolute; top: -6px; right: 64px; width: 10px; height: 10px; background: var(--vpanel); border-left: 1px solid var(--vline); border-top: 1px solid var(--vline); transform: rotate(45deg); }
+/* Popover positioned dynamically by JS via inline top/left styles on open
+   (v0.21.2+) — anchored to the right of the sidebar Share trigger so the
+   form sits next to where the user clicked. Falls back to top-right via
+   the data-position="top-right" attribute on body if needed. */
+.share-pop { position: fixed; top: 54px; left: 380px; width: 280px; background: var(--vpanel); border: 1px solid var(--vline); border-radius: 10px; box-shadow: 0 12px 36px rgba(0,0,0,0.16); z-index: 100; overflow: hidden; opacity: 0; visibility: hidden; transform: translateX(-4px); transition: opacity .14s, transform .14s, visibility .14s; }
+.share-pop.is-open { opacity: 1; visibility: visible; transform: translateX(0); }
+/* Pointer triangle on the LEFT edge (now that popover sits to the right
+   of the trigger). Vertical center is set inline via --share-pop-arrow-top
+   CSS custom property by the open() function to match the trigger's y. */
+.share-pop::before { content: ''; position: absolute; top: var(--share-pop-arrow-top, 18px); left: -6px; width: 10px; height: 10px; background: var(--vpanel); border-left: 1px solid var(--vline); border-bottom: 1px solid var(--vline); transform: rotate(45deg); }
 .share-pop__head { padding: 14px 18px 8px; }
 .share-pop__title { font-family: var(--vmono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vmuted); font-weight: 600; }
 .share-pop__form { padding: 0 18px 14px; display: flex; flex-direction: column; gap: 9px; }
@@ -1255,9 +1262,30 @@ function sharePopoverJs(noteId: string): string {
   var activeDot = document.getElementById('share-active-dot');
   var lastToken = null;
 
+  function positionNearTrigger() {
+    // Anchor the popover to the right of the trigger so the form appears
+    // where the user clicked (v0.21.2+). Trigger lives in the left sidebar
+    // (.side-aux). Popover floats over the main iframe to the trigger's
+    // right. If the trigger goes offscreen vertically (long sidebar with
+    // many actions), clamp top to viewport bounds with a small margin.
+    var rect = trigger.getBoundingClientRect();
+    var popHeight = pop.offsetHeight || 280;
+    var viewportH = window.innerHeight;
+    var margin = 12;
+    var top = rect.top - 4;
+    if (top + popHeight > viewportH - margin) top = Math.max(margin, viewportH - popHeight - margin);
+    pop.style.top = top + 'px';
+    pop.style.left = (rect.right + 14) + 'px';
+    // Align the arrow triangle with the trigger's vertical center.
+    var arrowTop = Math.max(8, Math.min(popHeight - 14, rect.top + rect.height / 2 - top - 5));
+    pop.style.setProperty('--share-pop-arrow-top', arrowTop + 'px');
+  }
   function open() {
+    positionNearTrigger();
     pop.classList.add('is-open');
+    // Recompute after the popover is visible (offsetHeight needs paint).
     setTimeout(function () {
+      positionNearTrigger();
       var first = document.getElementById('share-expires');
       if (first) first.focus();
     }, 60);

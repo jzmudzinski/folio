@@ -564,16 +564,12 @@ document.addEventListener('keydown', (e) => {
 })();
 </script>`;
 
-function topbar(query = "", active?: "notes" | "threads" | "stats" | "cloud", shareForId?: string): string {
+function topbar(query = "", active?: "notes" | "threads" | "stats" | "cloud", _shareForId?: string): string {
   const on = (k: string) => (active === k ? ' class="on"' : "");
-  // The Share trigger appears only on note pages (when shareForId is set).
-  // active-dot beside the label lights up via JS when the note has live
-  // capability-URL shares — at-a-glance signal that "this note is already
-  // published somewhere". Per B3 mockup: minimal popover with form + a
-  // single bar linking to /n/:id/shares for full management.
-  const shareBtn = shareForId
-    ? `<a href="#" id="share-trigger" class="v-share-trigger" data-note-id="${esc(shareForId)}" title="Share publicly via capability URL">↗ Share<span class="active-dot" id="share-active-dot" hidden></span></a>`
-    : "";
+  // shareForId param kept for backwards-compat callers but no longer wired —
+  // v0.21.1 moved the Share trigger into .side-aux (sidebar) where the rest
+  // of the per-note actions live. The popover content itself is unchanged.
+  void _shareForId;
   return `
 <header class="v-top">
   <div class="v-top-inner">
@@ -592,7 +588,6 @@ function topbar(query = "", active?: "notes" | "threads" | "stats" | "cloud", sh
       <a href="/threads"${on("threads")}>Threads</a>
       <a href="/stats"${on("stats")}>Stats</a>
       <a href="/cloud"${on("cloud")} title="Sync &amp; cloud pairing">☁ Cloud</a>
-      ${shareBtn}
     </nav>
   </div>
 </header>`;
@@ -1160,9 +1155,15 @@ export function pageThread(threadId: string, notes: NoteMeta[]): string {
 // ───────────────────────────────────────────────────────────────────────
 
 const SHARE_POPOVER_CSS = `<style>
+/* Share trigger moved to .side-aux in v0.21.1; keep the legacy selectors
+   around for any callers that still pass shareForId, plus the new sidebar
+   location styling. */
 .v-share-trigger { position: relative; }
-.v-share-trigger .active-dot { display: inline-block; width: 6px; height: 6px; background: var(--vorange); border-radius: 50%; margin-left: 6px; vertical-align: middle; }
-.v-share-trigger .active-dot[hidden] { display: none; }
+.v-share-trigger .active-dot,
+.side-aux #share-trigger .active-dot { display: inline-block; width: 6px; height: 6px; background: var(--vorange); border-radius: 50%; margin-left: 6px; vertical-align: middle; }
+.v-share-trigger .active-dot[hidden],
+.side-aux #share-trigger .active-dot[hidden] { display: none; }
+.side-aux #folio-handoff-btn.copied { color: #2f9050; }
 
 .share-pop { position: fixed; top: 54px; right: 18px; width: 280px; background: var(--vpanel); border: 1px solid var(--vline); border-radius: 10px; box-shadow: 0 12px 36px rgba(0,0,0,0.16); z-index: 100; overflow: hidden; opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity .14s, transform .14s, visibility .14s; }
 .share-pop.is-open { opacity: 1; visibility: visible; transform: translateY(0); }
@@ -1677,6 +1678,48 @@ export function pageNote(note: NoteMeta, _themeName: string, context?: NoteListC
         if (armed) disarm();
       });
     })();
+
+    // ─── Hand off to agent (v0.21.1+) ─────────────────────────────────
+    // Click → copy a minimal note reference to clipboard. User pastes
+    // into their agent chat. Payload is intentionally short — agents with
+    // Folio MCP can call folio.get to pull the full body; the URL is
+    // the universal fallback for anyone else. No deep links, no per-host
+    // URL schemes; just structured text that works in any chat surface.
+    (function(){
+      var ho = document.getElementById('folio-handoff-btn');
+      if (!ho) return;
+      ho.addEventListener('click', function(){
+        var id = ho.dataset.noteId;
+        var title = ho.dataset.noteTitle;
+        var thread = ho.dataset.threadId;
+        var type = ho.dataset.noteType;
+        var origin = window.location.origin;
+        var payload = [
+          'Folio note: ' + origin + '/n/' + id,
+          'Title: ' + title,
+          'Thread: ' + thread,
+          'Type: ' + type,
+          '',
+          'Please continue work on this Folio note.',
+          'If you have folio MCP installed, call \`folio.get\` to load the full body.',
+          'What should we do next?',
+        ].join('\\n');
+        var prev = ho.dataset.defaultLabel || '↗ Hand off to agent';
+        navigator.clipboard.writeText(payload).then(function(){
+          ho.textContent = '✓ Copied — paste into your agent chat';
+          ho.classList.add('copied');
+          setTimeout(function(){
+            ho.textContent = prev;
+            ho.classList.remove('copied');
+          }, 1800);
+        }).catch(function(){
+          ho.textContent = '✗ copy failed (clipboard denied)';
+          setTimeout(function(){
+            ho.textContent = prev;
+          }, 1800);
+        });
+      });
+    })();
   })();</script>`;
 
   // Live notes: inject a side panel iframe with the compiled feed plus
@@ -1767,7 +1810,7 @@ export function pageNote(note: NoteMeta, _themeName: string, context?: NoteListC
   const shellClass = isLive && !isInlineLive ? "note-shell has-live" : "note-shell";
   const sharePop = sharePopoverHtml(note.id);
 
-  return shell(note.title, `${topbar("", undefined, note.id)}
+  return shell(note.title, `${topbar()}
 ${SHARE_POPOVER_CSS}
 <div class="reading-progress"><div class="reading-progress-fill"></div></div>
 <div class="${shellClass}">
@@ -1793,6 +1836,14 @@ ${SHARE_POPOVER_CSS}
       <button class="side-action" data-copy="markdown" data-label="⎘ Copy as markdown">⎘ Copy as markdown</button>
       <a href="/raw/${note.id}" target="_blank">↗ View raw HTML</a>
       <button class="side-action" id="folio-print-btn" type="button">↗ Print / PDF</button>
+      <a href="#" id="share-trigger" class="side-action" data-note-id="${esc(note.id)}" title="Share publicly via capability URL">↗ Share publicly<span class="active-dot" id="share-active-dot" hidden></span></a>
+      <button class="side-action" id="folio-handoff-btn" type="button"
+              data-note-id="${esc(note.id)}"
+              data-note-title="${esc(note.title)}"
+              data-thread-id="${esc(note.thread_id)}"
+              data-note-type="${esc(note.type)}"
+              data-default-label="↗ Hand off to agent"
+              title="Copy a reference to this note for pasting into an agent chat">↗ Hand off to agent</button>
       <button class="side-action danger" id="folio-delete-btn"
               data-note-id="${esc(note.id)}"
               data-thread-id="${esc(note.thread_id)}"

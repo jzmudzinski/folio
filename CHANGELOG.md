@@ -2,6 +2,18 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.21.2 — 2026-05-17
+
+Two viewer chrome polish changes following up on v0.21.1.
+
+### Changed
+- **Share popover anchors next to its trigger.** v0.21.1 moved the Share trigger into the sidebar but kept the popover at a fixed top-right viewport position — visually disconnected from the click. v0.21.2 positions the popover dynamically: on open, the bootstrap JS reads `trigger.getBoundingClientRect()` and sets inline `top` / `left` so the popover floats just to the right of the trigger. Arrow triangle moves to the left edge, vertical offset set via a `--share-pop-arrow-top` CSS variable so it always points at the trigger's center. Clamps to viewport bounds when the trigger sits low (long sidebar).
+- **Topbar "Cloud" → "Sync"; ☁ icon dropped.** The route stays `/cloud` (no redirect needed; existing bookmarks unaffected), but the label is now `Sync` — matches what users actually do there (push/pull). Pre-v0.21.2 label was `☁ Cloud` from when the page was just status-only.
+
+### Tests
+- `tests/viewer-shares.test.ts` (+1) — Share popover JS contains `positionNearTrigger` + `getBoundingClientRect` + `--share-pop-arrow-top`.
+- `tests/viewer-cloud-ui.test.ts` (1 updated) — topbar Sync link present, ☁ + old "Cloud" label removed.
+
 ## v0.21.1 — 2026-05-17
 
 **"Hand off to agent" button + Share trigger moved into the sidebar.** Two viewer chrome changes that group all per-note actions in one place.

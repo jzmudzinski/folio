@@ -286,6 +286,19 @@ test("v0.21.1: Hand off to agent button present in sidebar + carries note metada
   expect(html).toContain('data-note-type="snippet"');
 });
 
+test("v0.21.2: Share popover JS anchors to the trigger via getBoundingClientRect (not fixed top-right)", async () => {
+  await bootViewer();
+  const id = await makeNote();
+  const r = await fetch(`${viewerUrl}/n/${id}`);
+  const html = await r.text();
+  // The bootstrap JS must read the trigger's rect and set inline top/left
+  // on the popover element — no more hardcoded fixed top-right position.
+  expect(html).toContain("positionNearTrigger");
+  expect(html).toContain("getBoundingClientRect");
+  // CSS variable for the arrow's vertical offset is also set inline.
+  expect(html).toContain("--share-pop-arrow-top");
+});
+
 test("v0.21.1: Handoff JS handler emits a payload referencing folio.get + URL", async () => {
   await bootViewer();
   const id = await makeNote();

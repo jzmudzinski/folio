@@ -2,6 +2,27 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.22.1 — 2026-05-18
+
+**Edit metadata popover in the viewer.** v0.22.0 shipped the `updateNoteMetadata()` storage function + `update_metadata` MCP tool + `folio edit` CLI but no in-browser UI — users could only edit metadata from the agent or the terminal. v0.22.1 fills the gap with a popover modeled on the Share popover.
+
+### Added
+- **`✎ Edit metadata` button** in `.side-aux` (sits above the Copy / Share / Hand-off / Delete actions on every `/n/:id` page). Click opens a popover anchored to the trigger via `getBoundingClientRect()` (same dynamic-position pattern as Share since v0.21.2).
+- **Popover form** with title input, comma-separated tags input, theme dropdown, `Final` checkbox. Inputs are prefilled to current values. Save submits only the fields that changed (diffed against the initial snapshot), so a no-touch Save shows a "No changes to save" hint instead of round-tripping to the server.
+- **POST `/api/notes/:id/metadata`** in `src/viewer/server.ts`. JSON body accepts any subset of `{title, tags, theme, is_final}`; calls `updateNoteMetadata()` and returns `{ok, updated_fields, meta}` on success, `{ok:false, reason}` with status 400 (unknown theme), 404 (unknown id), or 200 (no-change — a benign info response, not an error).
+- **`editMetadataPopoverHtml()` + `editMetadataPopoverJs()`** helpers in `src/viewer/render.ts`, alongside the Share popover helpers. Share/Edit popovers use distinct DOM ids so they don't collide; CSS reuses the same shape (320px width vs 280px for Share — tag input + theme dropdown wanted a bit more room).
+
+### Changed
+- The inline theme dropdown in the sidebar (`<select class="theme-switch">`) stays unchanged — still preview-only via `?theme=X` URL param. Permanent theme changes go through the popover. This separation avoids the "did my click just save or just preview?" ambiguity.
+
+### Tests
+- `tests/viewer-edit-metadata.test.ts` (+8 tests) — `#edit-trigger` + `#edit-pop` present with prefilled values, JS posts to `/api/notes/:id/metadata` and reloads on success, happy path returns updated meta, theme change rewrites both the DB row and the on-disk HTML `<link>`, no-change returns `ok:false reason:'no-change'` with 200, unknown theme returns 400, bad id returns 404.
+- Full suite: 546 tests across 51 files, all passing (was 538).
+
+### Not included (deliberate)
+- **Replace UI is still CLI/MCP only.** A "Replace body" textarea in the viewer is a bigger surface (large free-form editor, theme-aware paste handling) and waits for a focused pass. `folio replace <id> --html @file` and the `replace` MCP tool both ship in v0.22.0 already.
+- **Click-to-edit on the article title.** The H1 lives inside the body iframe and the parent chrome can't reach it (null-origin sandbox); editing happens via the popover only.
+
 ## v0.22.0 — 2026-05-18
 
 **Selective append-only relaxation: metadata editable + `replace` primitive.** Based on the design analysis [Append-only w Folio — czy paradygmat się broni], ADR-014's pure append-only model was found to be inconsistently enforced (live notes already mutate via chain-of-refs) and generated ~30% noise across ~94 real notes — typically v2/v3/v4 versions of the same document, where the only delta was a typo, a tweak, or a sanitizer fix. v0.22.0 ships Step 1 (metadata edits) + Step 2 (`replace` primitive) of the recommended graduated relaxation. Body files remain immutable; the new mutability is metadata-only + supersede pointers.

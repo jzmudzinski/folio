@@ -144,6 +144,92 @@ test("renderIterationRaw: breadcrumb chains across multiple picked rounds", () =
   expect((html.match(/<span class="iter-bc__arrow">/g) ?? []).length).toBe(2);
 });
 
+test("renderIterationRaw v0.23: density toolbar present + auto-density picks 3 for compact gallery", () => {
+  const variants: Variant[] = [
+    { id: "v1", round: 1, parent_variant_id: null, label: "a", content_html: "<p>tiny</p>", ts: "t", state: "open" },
+    { id: "v2", round: 1, parent_variant_id: null, label: "b", content_html: "<p>also tiny</p>", ts: "t", state: "open" },
+    { id: "v3", round: 1, parent_variant_id: null, label: "c", content_html: "<p>still tiny</p>", ts: "t", state: "open" },
+  ];
+  const html = renderIterationRaw({
+    noteId: "n",
+    title: "t",
+    chromeHtml: "",
+    state: {
+      rounds: [{ round: 1, parent_variant_id: null, variants, picked_variant_id: null, picked_at: null }],
+      lineage: [],
+      current_round: { round: 1, parent_variant_id: null, variants, picked_variant_id: null, picked_at: null },
+      is_finalized: false,
+    },
+  });
+  expect(html).toContain('class="iter-gallery__density"');
+  expect(html).toContain('data-cols="1"');
+  expect(html).toContain('data-cols="2"');
+  expect(html).toContain('data-cols="3"');
+  // 3 small variants → grid defaults to 3-col density
+  expect(html).toMatch(/<div class="iter-gallery__grid" data-cols="3"/);
+});
+
+test("renderIterationRaw v0.23: auto-density picks 2 for 4+ variants with light content", () => {
+  const mkVariant = (i: number): Variant => ({
+    id: `v${i}`, round: 1, parent_variant_id: null, label: `v${i}`,
+    content_html: "<p>short content</p>", ts: "t", state: "open",
+  });
+  const variants = [1, 2, 3, 4, 5].map(mkVariant);
+  const html = renderIterationRaw({
+    noteId: "n",
+    title: "t",
+    chromeHtml: "",
+    state: {
+      rounds: [{ round: 1, parent_variant_id: null, variants, picked_variant_id: null, picked_at: null }],
+      lineage: [],
+      current_round: { round: 1, parent_variant_id: null, variants, picked_variant_id: null, picked_at: null },
+      is_finalized: false,
+    },
+  });
+  expect(html).toMatch(/<div class="iter-gallery__grid" data-cols="2"/);
+});
+
+test("renderIterationRaw v0.23: auto-density picks 1 for 4+ heavy-content variants", () => {
+  const heavyContent = "<p>" + "x".repeat(7000) + "</p>";
+  const mkVariant = (i: number): Variant => ({
+    id: `v${i}`, round: 1, parent_variant_id: null, label: `v${i}`,
+    content_html: heavyContent, ts: "t", state: "open",
+  });
+  const variants = [1, 2, 3, 4, 5, 6].map(mkVariant);
+  const html = renderIterationRaw({
+    noteId: "n",
+    title: "t",
+    chromeHtml: "",
+    state: {
+      rounds: [{ round: 1, parent_variant_id: null, variants, picked_variant_id: null, picked_at: null }],
+      lineage: [],
+      current_round: { round: 1, parent_variant_id: null, variants, picked_variant_id: null, picked_at: null },
+      is_finalized: false,
+    },
+  });
+  expect(html).toMatch(/<div class="iter-gallery__grid" data-cols="1"/);
+});
+
+test("renderIterationRaw v0.23: bootstrap script handles density toolbar clicks + localStorage", () => {
+  const variants: Variant[] = [
+    { id: "v1", round: 1, parent_variant_id: null, label: "a", content_html: "<p>x</p>", ts: "t", state: "open" },
+  ];
+  const html = renderIterationRaw({
+    noteId: "n",
+    title: "t",
+    chromeHtml: "",
+    state: {
+      rounds: [{ round: 1, parent_variant_id: null, variants, picked_variant_id: null, picked_at: null }],
+      lineage: [],
+      current_round: { round: 1, parent_variant_id: null, variants, picked_variant_id: null, picked_at: null },
+      is_finalized: false,
+    },
+  });
+  expect(html).toContain("folio-iter-density:");
+  expect(html).toContain("localStorage.setItem");
+  expect(html).toContain("syncButtons");
+});
+
 test("renderIterationRaw: escapes variant labels into card attributes", () => {
   const variants: Variant[] = [
     { id: 'v"1', round: 1, parent_variant_id: null, label: "<script>x</script>", content_html: "<p>x</p>", ts: "t", state: "open" },

@@ -103,13 +103,31 @@ export function renderIterationRaw(args: {
   const headCount = readonly
     ? `${current?.variants.length ?? 0} variants`
     : `${current?.variants.length ?? 0} variants · pick one to advance`;
+  // v0.23 — auto-pick default density based on variant count + content size.
+  // Heuristic: >=4 variants OR avg content_html >6kB → 2-col default (more
+  // breathing room per mockup). Else 3-col (compact). User can override via
+  // the toolbar; choice persists in localStorage per-note.
+  const autoDensity = (() => {
+    if (!current) return "3";
+    const n = current.variants.length;
+    const avgLen = current.variants.reduce((acc, v) => acc + (v.content_html?.length ?? 0), 0) / Math.max(1, n);
+    if (n >= 4 && avgLen >= 6000) return "1";
+    if (n >= 4 || avgLen >= 6000) return "2";
+    return "3";
+  })();
+
   const gallery = current
     ? `<section class="iter-gallery">
         <header class="iter-gallery__head">
           <span class="iter-gallery__round">Round ${current.round}</span>
           <span class="iter-gallery__count">${headCount}</span>${headSuffix}
+          <span class="iter-gallery__density" role="group" aria-label="Gallery density">
+            <button type="button" class="iter-gallery__density-btn" data-cols="1" title="One per row · full width">▭</button>
+            <button type="button" class="iter-gallery__density-btn" data-cols="2" title="Two columns">▭▭</button>
+            <button type="button" class="iter-gallery__density-btn" data-cols="3" title="Three columns · compact">▭▭▭</button>
+          </span>
         </header>
-        <div class="iter-gallery__grid">
+        <div class="iter-gallery__grid" data-cols="${autoDensity}" data-note-id="${esc(args.noteId)}">
           ${current.variants.map((v) => renderVariantCard(v, current.round, readonly)).join("\n")}
         </div>
       </section>`
@@ -128,16 +146,40 @@ export function renderIterationRaw(args: {
   const css = `<style>
     .iter-page{max-width:1100px;margin:0 auto;padding:0 28px 60px}
     .iter-chrome{margin:0 0 28px}
-    .iter-gallery__head{display:flex;align-items:baseline;gap:14px;margin:0 0 14px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted,#6b6b66)}
+    .iter-gallery__head{display:flex;align-items:baseline;gap:14px;margin:0 0 14px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted,#6b6b66);flex-wrap:wrap}
     .iter-gallery__round{color:var(--accent,#ff5a1f);font-weight:600}
+    /* v0.23 — density toolbar (1c / 2c / 3c). Last-pressed wins; auto default
+       computed server-side from variant count + content size. Persists per-
+       note in localStorage so the user's preferred density sticks. */
+    .iter-gallery__density{margin-left:auto;display:inline-flex;gap:0;border:1px solid rgba(10,10,10,0.12);border-radius:6px;overflow:hidden}
+    @media (prefers-color-scheme: dark){.iter-gallery__density{border-color:rgba(255,255,255,0.15)}}
+    .iter-gallery__density-btn{background:transparent;border:0;padding:4px 9px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:0.04em;color:var(--muted,#6b6b66);cursor:pointer;border-right:1px solid rgba(10,10,10,0.08)}
+    @media (prefers-color-scheme: dark){.iter-gallery__density-btn{border-right-color:rgba(255,255,255,0.1)}}
+    .iter-gallery__density-btn:last-child{border-right:0}
+    .iter-gallery__density-btn:hover{color:var(--accent,#ff5a1f);background:rgba(255,90,31,0.06)}
+    .iter-gallery__density-btn.is-active{background:var(--accent,#ff5a1f);color:#fff}
+    /* Density-driven grid. Default 3-col auto-fit (graduated minmax so 3
+       columns survive down to ~960px); explicit data-cols overrides. Below
+       640px always single column regardless of choice. */
     .iter-gallery__grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
-    @media (max-width:640px){.iter-gallery__grid{grid-template-columns:1fr}}
+    .iter-gallery__grid[data-cols="1"]{grid-template-columns:1fr}
+    .iter-gallery__grid[data-cols="2"]{grid-template-columns:repeat(2,1fr)}
+    .iter-gallery__grid[data-cols="3"]{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+    @media (max-width:960px){.iter-gallery__grid[data-cols="3"]{grid-template-columns:repeat(2,1fr)}}
+    @media (max-width:640px){.iter-gallery__grid,.iter-gallery__grid[data-cols="1"],.iter-gallery__grid[data-cols="2"],.iter-gallery__grid[data-cols="3"]{grid-template-columns:1fr}}
     .iter-card{background:#fff;border:2px solid rgba(10,10,10,0.10);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;transition:transform .15s,border-color .15s,opacity .25s;position:relative}
     @media (prefers-color-scheme: dark){.iter-card{background:#1a1a18;border-color:rgba(255,255,255,0.10)}}
     .iter-card--open[role="button"]:hover{border-color:var(--accent,#ff5a1f);transform:translateY(-2px);cursor:pointer}
     .iter-card--picked{border-color:#2f9050;border-width:3px}
     .iter-card--rejected{opacity:0.32;pointer-events:none}
+    /* Adaptive preview aspect: 3/2 at 3 cols (compact gallery), 4/3 at 2 cols
+       (taller, more room for content), 16/9 at 1 col (wide hero — most room
+       for dense mockups). Same .iter-card__preview reused — the container
+       grid's data-cols cascades via :where(). */
     .iter-card__preview{width:100%;aspect-ratio:3/2;border:0;display:block;background:#fafaf7}
+    .iter-gallery__grid[data-cols="2"] .iter-card__preview{aspect-ratio:4/3}
+    .iter-gallery__grid[data-cols="1"] .iter-card__preview{aspect-ratio:16/9;min-height:340px}
+    @media (max-width:640px){.iter-card__preview{aspect-ratio:4/3}}
     @media (prefers-color-scheme: dark){.iter-card__preview{background:#0e0e0d}}
     .iter-card__meta{padding:10px 14px;display:flex;justify-content:space-between;align-items:center;border-top:1px solid rgba(10,10,10,0.06);font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;color:var(--muted,#6b6b66)}
     @media (prefers-color-scheme: dark){.iter-card__meta{border-color:rgba(255,255,255,0.06)}}
@@ -185,6 +227,38 @@ export function renderIterationRaw(args: {
         var id = card.getAttribute('data-variant-id');
         if(id) postPick(id);
       });
+
+      // v0.23 — density toolbar. Server picks an auto default from variant
+      // count + content size; user override persists in localStorage per
+      // note. On load we read the saved preference and apply it; clicks
+      // update both the DOM attribute and the saved value.
+      var grid = document.querySelector('.iter-gallery__grid');
+      var btns = document.querySelectorAll('.iter-gallery__density-btn');
+      if (grid && btns.length) {
+        var noteId = grid.getAttribute('data-note-id') || '';
+        var storageKey = 'folio-iter-density:' + noteId;
+        var saved = null;
+        try { saved = localStorage.getItem(storageKey); } catch (_e) {}
+        if (saved === '1' || saved === '2' || saved === '3') {
+          grid.setAttribute('data-cols', saved);
+        }
+        function syncButtons() {
+          var current = grid.getAttribute('data-cols');
+          btns.forEach(function(b){
+            b.classList.toggle('is-active', b.getAttribute('data-cols') === current);
+          });
+        }
+        syncButtons();
+        btns.forEach(function(b){
+          b.addEventListener('click', function(){
+            var cols = b.getAttribute('data-cols');
+            if (!cols) return;
+            grid.setAttribute('data-cols', cols);
+            try { localStorage.setItem(storageKey, cols); } catch (_e) {}
+            syncButtons();
+          });
+        });
+      }
     })();
   </script>`;
 

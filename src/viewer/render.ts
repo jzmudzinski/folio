@@ -2422,7 +2422,7 @@ ${SHARE_POPOVER_CSS}
   <main class="note-main">
     ${supersedeBanner}${banner}
     <div class="note-iframe-wrap">
-      <iframe class="note-iframe" src="/raw/${note.id}" title="${esc(note.title)}" sandbox="allow-scripts allow-popups allow-forms allow-modals"></iframe>
+      <iframe class="note-iframe" src="/raw/${note.id}" title="${esc(note.title)}" sandbox="allow-scripts allow-popups allow-forms allow-modals" allow="fullscreen"></iframe>
     </div>
   </main>${livePanelHtml}
 </div>

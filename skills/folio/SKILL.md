@@ -138,8 +138,29 @@ Decision order:
 | "debrief", "diary", "summary of the day / meeting" | `journal` |
 | "ADR", "technical decision", "spec", "proposal" | `technical` |
 | "save this" + short content (<400 words), single point | `snippet` |
+| **"slide deck", "presentation", "talk", "pokaz mi to w prezentacji"** | **`presentation`** (v0.26+) |
 
 **`comparison` vs `iteration` — the load-bearing distinction:** `comparison` = options the user already has (real things with known properties, agent renders side-by-side). `iteration` = options the agent generates (logo directions, hero layouts, email tone variants) where the user picks one and the agent refines.
+
+**`presentation` shape (v0.26+):** body_html is a sequence of `<section class="slide">` blocks. The viewer hides all but the current and adds keyboard nav (← / → / Space / Home / End / digit 1-9), F → fullscreen, S → speaker mode (reveals `<aside class="notes">` inside the current slide). Theme: usually `plain` because each slide wants its own typography + layout. Skeleton:
+
+```html
+<style>
+  .slide { background: #f5f3ee; }
+  .slide h1 { font-size: 64px; font-family: 'Familjen Grotesk', sans-serif; }
+  .slide.cover { background: #0a0a0a; color: #f5f3ee; }
+</style>
+<section class="slide cover">
+  <h1>Project NotiBox-Jetson</h1>
+  <p>Q3 review · 2026-09-15</p>
+  <aside class="notes">Open with the cost slide first if the room is execs.</aside>
+</section>
+<section class="slide">
+  <h1>The plan in three numbers</h1>
+  <ul><li>12 cameras</li><li>4 sites</li><li>1 NotiBox per site</li></ul>
+</section>
+<!-- as many <section class="slide"> blocks as you need -->
+```
 
 If unclear → ask one question. If a prompt mentions "wariantów / versions / propositions / mockups" + "I'll pick / wybiorę / choose one", treat as iteration.
 

@@ -413,6 +413,18 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
             );
             html = html.replace("</body>", `<script>${INLINE_FEED_BOOTSTRAP_JS}</script></body>`);
           }
+          // v0.26: presentation notes — inject slide CSS + nav script
+          // into the body so <section class="slide"> blocks behave as
+          // slides with keyboard nav (←/→/space), fullscreen (F), speaker
+          // notes toggle (S). Finalized presentations keep the nav (it's
+          // useful for reading a saved deck) — only the body_html itself
+          // becomes immutable per ADR-014, the chrome script is render-
+          // time and harmless on a final note.
+          if (note.type === "presentation") {
+            const { PRESENTATION_CSS, PRESENTATION_JS } = await import("./presentation-render");
+            html = html.replace("</head>", `<style>${PRESENTATION_CSS}</style></head>`);
+            html = html.replace("</body>", `<script>${PRESENTATION_JS}</script></body>`);
+          }
           // v0.18: iteration notes — swap the article body for a server-
           // rendered gallery built from the JSONL state machine. Chrome
           // (h1/intro from agent's body_html) survives via extractChrome.

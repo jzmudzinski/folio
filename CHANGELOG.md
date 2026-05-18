@@ -2,6 +2,43 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.26.0 — 2026-05-18
+
+**Presentation mode: `type: "presentation"`.** Phase 1 step 3 — closes the last gap from the [living-docs research](http://127.0.0.1:4810/n/01KRY7WZEV499TDWXGJH57JH4A). A presentation note's body_html is a sequence of `<section class="slide">` blocks; the viewer hides all but the current and adds keyboard nav + fullscreen + speaker mode.
+
+### Added
+- **`"presentation"` in `NoteType` union** (`src/core/types.ts`) + the `ALLOWED_TYPES` allow-list in `src/mcp/server.ts`. Existing list views / filters automatically pick it up. No template, no schema change — agents put `<section class="slide">` blocks directly in `body_html` (usually with `theme: "plain"` for per-slide layout freedom).
+- **`src/viewer/presentation-render.ts`** with `PRESENTATION_CSS` + `PRESENTATION_JS`. Render-time inject in the `/raw/:id` handler when `note.type === "presentation"`: CSS hides non-current slides (`.slide:not(.is-current)` style is `display: none`); JS handles navigation. Generic across themes — agents pick the per-slide look themselves.
+- **Keyboard nav inside the slide iframe**:
+  - `← / →` / `Space` / `Enter` / `PageDown` / `PageUp` / `Backspace` — prev / next
+  - `Home` / `End` — first / last
+  - `1`-`9` — jump to slide N
+  - `F` — toggle fullscreen via `requestFullscreen()` on `<html>` (works because `<iframe>` now carries `allow="fullscreen"`)
+  - `S` — toggle speaker mode (reveals `<aside class="notes">` blocks inside the current slide, marks the slide with a "SPEAKER MODE" badge)
+- **Click-to-advance**: clicking right half of slide → next, left half → prev. Skips clicks on `<a>` / `<button>` / `<input>` / `<textarea>` / `<select>` / `<label>` so interactive demos inside slides keep working.
+- **Bottom-right `.slide-nav` overlay**: shows `current/total` slide counter + key hints (`←/→` / `F` / `S`). `pointer-events: none` so it never steals clicks.
+- **Empty-state hint**: when a presentation note has no `<section class="slide">` blocks at all, the script injects a centered italic message telling the agent to add them. Beats a silent blank page.
+- **`<iframe class="note-iframe">` carries `allow="fullscreen"`** on every note (not just presentations) so fullscreen API works from any inline `<script>`.
+
+### SKILL update
+- New row in the `Choosing type` table: `"slide deck", "presentation", "talk", "pokaż mi to w prezentacji"` → `presentation`.
+- Presentation skeleton example (cover slide + content slide + speaker notes) shown inline.
+
+### Tests
+- `tests/presentation-mode.test.ts` (+9 tests) — createNote accepts `type: "presentation"`; `listNotes({type: "presentation"})` filter works; `/raw/:id` injects CSS + JS for presentation notes; non-presentation notes do NOT get the script (regression guard); presentation note with no slides shows empty-state hint; `<iframe class="note-iframe">` always has `allow="fullscreen"`; PRESENTATION_JS handles arrows/digits/F/S/`isContentEditable` skip; PRESENTATION_CSS includes slide visibility + speaker rules + nav overlay; NoteType union round-trip stores `"presentation"`.
+- Full suite: 610 tests across 55 files, all passing (was 601).
+
+### Why
+With v0.24 surfacing `slot:presentation` and v0.25 closing the kanban-todo gap, the only remaining Phase 1 win was the slide deck shape — previously a `theme: "plain"` + hand-rolled JS workaround. v0.26 makes it a native type with consistent kbd nav across decks.
+
+### Phase 1 complete
+With this release, Phase 1 of the project-workspace plan ships:
+- v0.24 → rich `/p/<slug>` dashboard + `slot:<name>` convention
+- v0.25 → kanban view for live todo notes
+- v0.26 → presentation mode with `type: "presentation"`
+
+Phase 2 (Gantt / timeline primitive + cross-note embedding) waits for real dogfooding feedback after a few weeks of Phase 1 use.
+
 ## v0.25.0 — 2026-05-18
 
 **Kanban view for live notes with state:* tagged entries.** Phase 1 step 2 of the [project-workspace plan](http://127.0.0.1:4810/n/01KRY7WZEV499TDWXGJH57JH4A). Live-note panel iframe gets a `Feed | Kanban` toggle; the kanban mode shows 4 swim-lanes by compiled state (open / in_progress / done / cancelled) and per-card move buttons that fire a tag-only follow-up entry. Same JSONL substrate; one new render mode + one new endpoint.

@@ -1,8 +1,8 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig, folioRoot, bundledThemesDir, themesDir, viewerPublicBaseUrl, threadAssetsDir, isSafeAssetFilename } from "../core/config";
-import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, deleteNote, listThreads, listPopularTags, listNotesByTag, listProjectThreads, updateNoteMetadata } from "../core/storage";
-import { db, logEvent } from "../core/db";
+import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, deleteNote, listThreads, listPopularTags, listNotesByTag, listProjectThreads, updateNoteMetadata, listContinueRail, logNoteView } from "../core/storage";
+import { db } from "../core/db";
 import { pageList, pageSearch, pageThread, pageThreads, pageNote, pageStats, pageError, pageTag, pageCloud, pageShares, pageProject } from "./render";
 import { injectBootstrap } from "./note-bootstrap";
 import { rawNoteHeaders } from "../core/csp";
@@ -100,7 +100,12 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
             notes = notes.filter((n) => !n.is_final && n.expires_at && new Date(n.expires_at).getTime() - Date.now() < 7 * 86400000);
           }
           const popularTags = listPopularTags(20);
-          return htmlResp(pageList(notes, countSummary(), type ?? undefined, finalOnly ? "final" : expiring ? "expiring" : undefined, popularTags, tag ?? undefined));
+          // v0.23 — continue-rail. Only fetched on the bare home view (no
+          // filters); pageList itself decides whether to render it.
+          const continueRail = (!type && !tag && !finalOnly && !expiring)
+            ? listContinueRail({ limit: 5 })
+            : [];
+          return htmlResp(pageList(notes, countSummary(), type ?? undefined, finalOnly ? "final" : expiring ? "expiring" : undefined, popularTags, tag ?? undefined, continueRail));
         }
 
         // GET /search?q=...
@@ -323,7 +328,10 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
           const id = path.slice(3);
           const note = getNoteMeta(id);
           if (!note) return htmlResp(pageError(404, `Note "${id}" not found.`), 404);
-          logEvent("note_viewed", { source: "viewer" }, note.id, note.thread_id);
+          // v0.23 — debounced view tracking (30 min per note). Replaces the
+          // raw logEvent("note_viewed") call so tab refreshes don't game the
+          // continue-rail score.
+          logNoteView(note.id, note.thread_id);
 
           // ?from=tag:<X> or ?from=project:<Y> threads list context through
           // to pageNote — overrides the "Back to list" link, prev/next, and

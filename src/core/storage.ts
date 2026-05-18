@@ -1019,6 +1019,140 @@ export function listThreads(query?: string, limit = 200): { thread_id: string; c
     .all(scoped, slugLike, limit);
 }
 
+/**
+ * v0.23 — "Continue where you left off" data.
+ *
+ * Score per thread = sum of decayed weights for every touch in the window:
+ *   weight(touch) = 1 / (days_since_touch + 1)
+ * so a touch today scores 1.0, yesterday 0.5, six days ago ~0.14. Multiple
+ * touches accumulate. The thread surfaces with whichever (recency × frequency)
+ * mix the user actually generated — no manual pinning, no ML.
+ *
+ * Touches we count: note_created (write), note_finalized (decision),
+ * live_entry_appended (continuous work on a feed), note_viewed (user
+ * actually opened the note in the viewer). View tracking is debounced
+ * 30 min per (note × day) so refreshing a tab doesn't game the score —
+ * see logNoteView() below.
+ *
+ * Per-thread enrichment after scoring: latest head note (title + id),
+ * project slug if any note in the thread carries a project:<slug> tag,
+ * and a pending-iteration flag (any non-finalized iteration note in the
+ * thread). The rail click target uses these — project → /p/<slug>,
+ * pending iteration → /n/<latest-iteration-id>, otherwise /n/<latest>.
+ */
+export interface ContinueRailItem {
+  thread_id: string;
+  latest_note_id: string;
+  title: string;
+  project_slug: string | null;
+  touch_count: number;
+  score: number;
+  last_touch: string;
+  has_pending_iteration: boolean;
+  pending_iteration_id: string | null;
+}
+
+const RAIL_EVENT_KINDS = ["note_created", "note_viewed", "note_finalized", "live_entry_appended"] as const;
+
+export function listContinueRail(opts?: { limit?: number; window_days?: number }): ContinueRailItem[] {
+  const limit = Math.max(1, Math.min(20, opts?.limit ?? 5));
+  const windowDays = Math.max(1, Math.min(60, opts?.window_days ?? 7));
+  const d = db();
+
+  // Step 1 — score every thread that received a tracked event in the window.
+  // INNER JOIN to notes keeps the score limited to threads with at least one
+  // surviving head note (drops fully-deleted or fully-superseded threads).
+  const scored = d
+    .query<{ thread_id: string; touches_7d: number; last_touch: string; score: number }, [string, number]>(
+      `WITH window_events AS (
+         SELECT e.thread_id, e.ts, e.kind
+         FROM events e
+         WHERE e.ts > datetime('now', ?)
+           AND e.kind IN ('note_created', 'note_viewed', 'note_finalized', 'live_entry_appended')
+           AND e.thread_id IS NOT NULL
+       )
+       SELECT we.thread_id,
+              COUNT(*) AS touches_7d,
+              MAX(we.ts) AS last_touch,
+              SUM(1.0 / (julianday('now') - julianday(we.ts) + 1)) AS score
+       FROM window_events we
+       WHERE EXISTS (
+         SELECT 1 FROM notes n
+         WHERE n.thread_id = we.thread_id
+           AND n.status = 'active'
+           AND n.superseded_by IS NULL
+       )
+       GROUP BY we.thread_id
+       ORDER BY score DESC
+       LIMIT ?`,
+    )
+    .all(`-${windowDays} days`, limit);
+
+  if (scored.length === 0) return [];
+
+  // Step 2 — per-thread enrichment. One query each; total ≤ limit threads.
+  return scored.map((t): ContinueRailItem => {
+    const latest = d
+      .query<{ id: string; title: string }, [string]>(
+        `SELECT id, title FROM notes
+         WHERE thread_id = ? AND status = 'active' AND superseded_by IS NULL
+         ORDER BY created DESC LIMIT 1`,
+      )
+      .get(t.thread_id);
+    const projectRow = d
+      .query<{ tag: string }, [string]>(
+        `SELECT tt.tag FROM tags tt
+         JOIN notes n ON n.id = tt.note_id
+         WHERE n.thread_id = ? AND n.status = 'active' AND n.superseded_by IS NULL
+           AND tt.tag LIKE 'project:%'
+         ORDER BY n.created DESC LIMIT 1`,
+      )
+      .get(t.thread_id);
+    const pendingIter = d
+      .query<{ id: string }, [string]>(
+        `SELECT id FROM notes
+         WHERE thread_id = ? AND type = 'iteration' AND is_final = 0
+           AND status = 'active' AND superseded_by IS NULL
+         ORDER BY created DESC LIMIT 1`,
+      )
+      .get(t.thread_id);
+    return {
+      thread_id: t.thread_id,
+      latest_note_id: latest?.id ?? "",
+      title: latest?.title ?? t.thread_id,
+      project_slug: projectRow ? projectRow.tag.slice("project:".length) : null,
+      touch_count: t.touches_7d,
+      score: t.score,
+      last_touch: t.last_touch,
+      has_pending_iteration: pendingIter != null,
+      pending_iteration_id: pendingIter?.id ?? null,
+    };
+  });
+}
+
+/**
+ * Debounced view tracker. Called by the /n/:id viewer route. Logs a
+ * `note_viewed` event for the rail score, but at most once per
+ * (note × 30-minute window) — a user refreshing a tab three times in
+ * five minutes counts as one touch, not three. The debounce window is
+ * checked against the events table itself so we don't need a separate
+ * cache (and it's correct across server restarts).
+ *
+ * Cheap: one SELECT + maybe one INSERT per page view.
+ */
+export function logNoteView(noteId: string, threadId: string): void {
+  const recentRow = db()
+    .query<{ ts: string }, [string]>(
+      `SELECT ts FROM events
+       WHERE note_id = ? AND kind = 'note_viewed'
+         AND ts > datetime('now', '-30 minutes')
+       ORDER BY ts DESC LIMIT 1`,
+    )
+    .get(noteId);
+  if (recentRow) return; // debounced — already counted within the last 30 min
+  logEvent("note_viewed", { thread_id: threadId, via: "viewer" }, noteId, threadId);
+}
+
 export function suggestThread(title: string, limit = 5): { thread_id: string; example_title: string; count: number }[] {
   const ftsQuery = escapeFtsQuery(title);
   if (!ftsQuery) return [];

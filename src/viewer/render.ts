@@ -2336,10 +2336,28 @@ export function pageNote(note: NoteMeta, _themeName: string, context?: NoteListC
       });
       window.addEventListener("message", function(ev){
         var d = ev.data;
-        if (!d || d.ns !== "folio" || d.type !== "inline-feed-ready") return;
-        ready = true;
-        for (var i = 0; i < queued.length; i++) sendToBody(queued[i]);
-        queued.length = 0;
+        if (!d) return;
+        if (d.ns === "folio" && d.type === "inline-feed-ready") {
+          ready = true;
+          for (var i = 0; i < queued.length; i++) sendToBody(queued[i]);
+          queued.length = 0;
+          return;
+        }
+        // v0.27 — kanban view inside the body iframe posts move intents up
+        // ('folio-feed' namespace shared with panel mode). Forward to the
+        // entries endpoint; SSE re-delivers the new entry so both feed
+        // and kanban views re-render via the existing append path.
+        if (d.ns === "folio-feed" && d.type === "move" && d.entry_id && d.state) {
+          fetch("/api/notes/" + encodeURIComponent(noteId) + "/entries", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              content_html: "",
+              tags: ["state:" + d.state],
+              refs: [d.entry_id],
+            }),
+          }).catch(function () { /* SSE reconnect recovers */ });
+        }
       });
     })();</script>`;
   } else if (note.type === "iteration" && !note.is_final) {

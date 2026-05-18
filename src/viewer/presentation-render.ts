@@ -20,6 +20,11 @@ export const PRESENTATION_CSS = `
 /* v0.26 presentation mode — slide visibility + small navigation chrome. */
 html, body { height: 100%; }
 body { margin: 0; padding: 0; overflow: hidden; }
+/* v0.27 — body gains a thumbnails-rail layout when the sidebar is shown */
+body.has-thumbs { display: grid; grid-template-columns: 140px 1fr; min-height: 100vh; }
+body.has-thumbs.is-fullscreen { display: block; }
+body.has-thumbs > .slide { grid-column: 2; }
+body.has-thumbs.is-fullscreen > .slide { grid-column: 1 / -1; }
 .slide {
   box-sizing: border-box;
   width: 100%;
@@ -86,7 +91,60 @@ body.is-speaker .slide.is-current::before {
   color: rgba(10,10,10,0.55);
   font-size: 18px;
 }
+
+/* v0.27 — thumbnails sidebar. Left rail of small slide previews. Click
+   jumps to slide N. Current slide highlighted. Toggle visibility with T.
+   Hidden automatically in fullscreen so the slide takes the whole viewport. */
+.thumbs-rail {
+  grid-column: 1;
+  background: rgba(10,10,10,0.04);
+  border-right: 1px solid rgba(10,10,10,0.08);
+  padding: 12px 8px;
+  overflow-y: auto;
+  display: none;
+}
+body.has-thumbs .thumbs-rail { display: block; }
+body.has-thumbs.is-fullscreen .thumbs-rail { display: none; }
+.thumb {
+  background: #fff;
+  border: 2px solid rgba(10,10,10,0.1);
+  border-radius: 5px;
+  padding: 8px 9px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: rgba(10,10,10,0.7);
+  transition: border-color .12s, transform .12s;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 64px;
+  position: relative;
+  overflow: hidden;
+}
+.thumb:hover { border-color: rgba(255,90,31,0.5); transform: translateY(-1px); }
+.thumb.is-current { border-color: #ff5a1f; box-shadow: 0 2px 8px rgba(255,90,31,0.15); }
+.thumb .thumb-n { color: #ff5a1f; font-weight: 700; font-size: 10px; }
+.thumb .thumb-h {
+  font-family: 'Familjen Grotesk', system-ui, sans-serif;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: rgba(10,10,10,0.85);
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+  letter-spacing: 0;
+  text-transform: none;
+}
 @media (prefers-color-scheme: dark) {
+  .thumbs-rail { background: rgba(245,243,238,0.04); border-right-color: rgba(245,243,238,0.08); }
+  .thumb { background: rgba(245,243,238,0.06); border-color: rgba(245,243,238,0.12); color: rgba(245,243,238,0.7); }
+  .thumb .thumb-h { color: rgba(245,243,238,0.85); }
   .slide aside.notes { background: rgba(245,243,238,0.05); color: rgba(245,243,238,0.7); }
   .slide-empty { color: rgba(245,243,238,0.55); }
 }
@@ -137,16 +195,85 @@ export const PRESENTATION_JS = `
   // Initial state: first slide visible.
   slides[0].classList.add("is-current");
 
+  // v0.27 — Thumbnails sidebar. Build once from the existing .slide list;
+  // click jumps to slide. Persisted toggle so the user can keep or hide it.
+  // For each thumb pull the first heading or, failing that, a short text
+  // sample so even un-titled slides have a recognizable label.
+  var THUMBS_KEY = "folio-pres-thumbs";
+  function firstHeadingOrText(slide) {
+    var h = slide.querySelector("h1, h2, h3");
+    if (h && h.textContent) return h.textContent.trim().slice(0, 80);
+    var t = (slide.textContent || "").trim().replace(/\s+/g, " ");
+    return t.slice(0, 80) || "(empty)";
+  }
+  var rail = document.createElement("aside");
+  rail.className = "thumbs-rail";
+  rail.setAttribute("aria-label", "Slide thumbnails");
+  rail.innerHTML = slides.map(function (s, i) {
+    return '<div class="thumb" data-thumb-n="' + i + '"' + (i === 0 ? ' role="button" tabindex="0"' : ' role="button" tabindex="0"') + '>' +
+      '<span class="thumb-n">' + (i + 1) + '</span>' +
+      '<span class="thumb-h">' + (firstHeadingOrText(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")) + '</span>' +
+      '</div>';
+  }).join("");
+  // Insert before the first slide so layout flows correctly with grid.
+  document.body.insertBefore(rail, slides[0]);
+
+  var thumbsVisible = true;
+  try {
+    var saved = localStorage.getItem(THUMBS_KEY);
+    if (saved === "hidden") thumbsVisible = false;
+  } catch (_) {}
+  function applyThumbs() {
+    if (thumbsVisible) document.body.classList.add("has-thumbs");
+    else document.body.classList.remove("has-thumbs");
+  }
+  applyThumbs();
+
+  function updateThumbs() {
+    var ts = rail.querySelectorAll(".thumb");
+    for (var ti = 0; ti < ts.length; ti++) {
+      ts[ti].classList.toggle("is-current", ti === current);
+    }
+  }
+  rail.addEventListener("click", function (e) {
+    var t = e.target && e.target.closest && e.target.closest(".thumb");
+    if (!t) return;
+    var n = parseInt(t.getAttribute("data-thumb-n") || "-1", 10);
+    if (n >= 0) show(n);
+  });
+  rail.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    var t = e.target && e.target.closest && e.target.closest(".thumb");
+    if (!t) return;
+    e.preventDefault();
+    var n = parseInt(t.getAttribute("data-thumb-n") || "-1", 10);
+    if (n >= 0) show(n);
+  });
+
   // Tiny chrome overlay (bottom-right) — counter + key hints.
   var nav = document.createElement("div");
   nav.className = "slide-nav";
   nav.innerHTML = '<span class="pos"><span data-pos>1</span>/' + slides.length + '</span> ' +
-    '<span class="key">←/→</span> nav <span class="key">F</span> full <span class="key">S</span> spk';
+    '<span class="key">←/→</span> nav <span class="key">F</span> full <span class="key">T</span> thumbs <span class="key">S</span> spk';
   document.body.appendChild(nav);
   var posEl = nav.querySelector("[data-pos]");
   function updateNav() {
     if (posEl) posEl.textContent = String(current + 1);
+    updateThumbs();
   }
+  function toggleThumbs() {
+    thumbsVisible = !thumbsVisible;
+    try { localStorage.setItem(THUMBS_KEY, thumbsVisible ? "visible" : "hidden"); } catch (_) {}
+    applyThumbs();
+  }
+
+  // Fullscreen state affects the rail visibility via body.is-fullscreen
+  // class; the actual hide is in CSS.
+  function syncFullscreenClass() {
+    if (document.fullscreenElement) document.body.classList.add("is-fullscreen");
+    else document.body.classList.remove("is-fullscreen");
+  }
+  document.addEventListener("fullscreenchange", syncFullscreenClass);
 
   // Keyboard nav. Captured at document level so any focused element passes
   // through — slides may contain inputs / buttons inside interactive demos,
@@ -167,6 +294,8 @@ export const PRESENTATION_JS = `
       e.preventDefault(); toggleFullscreen();
     } else if (e.key === "s" || e.key === "S") {
       e.preventDefault(); toggleSpeaker();
+    } else if (e.key === "t" || e.key === "T") {
+      e.preventDefault(); toggleThumbs();
     } else if (e.key >= "1" && e.key <= "9") {
       var n = parseInt(e.key, 10) - 1;
       if (n < slides.length) { e.preventDefault(); show(n); }

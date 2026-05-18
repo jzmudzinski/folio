@@ -411,7 +411,10 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
               /(<article[^>]*data-folio-content[^>]*>)([\s\S]*?)(<\/article>)/,
               (_m, open, content, close) => `${open}${spliceFeedIntoBody(content, feedHtml)}${close}`
             );
-            html = html.replace("</body>", `<script>${INLINE_FEED_BOOTSTRAP_JS}</script></body>`);
+            // v0.27 — bake noteId into iframe so kanban view can use it for
+            // localStorage view-mode key + future inline move-by-id flows.
+            const noteIdLit = JSON.stringify(note.id);
+            html = html.replace("</body>", `<script>window.__folioInlineNoteId = ${noteIdLit};</script><script>${INLINE_FEED_BOOTSTRAP_JS}</script></body>`);
           }
           // v0.26: presentation notes — inject slide CSS + nav script
           // into the body so <section class="slide"> blocks behave as

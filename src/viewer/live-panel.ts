@@ -58,8 +58,12 @@ export function panelIframeSrcdoc(args: { theme_css: string; entries_css: string
   .lane[data-state="in_progress"] .lane__head { color: #2c4ad9; }
   .lane[data-state="done"] .lane__head { color: #2f9050; }
   .lane[data-state="cancelled"] .lane__head { color: #c8412a; }
-  .kard { background: var(--surface, #fff); border: 1px solid var(--text-muted, rgba(0,0,0,0.08)); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; display: flex; flex-direction: column; gap: 6px; }
+  .kard { background: var(--surface, #fff); border: 1px solid var(--text-muted, rgba(0,0,0,0.08)); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; display: flex; flex-direction: column; gap: 6px; cursor: grab; transition: opacity .15s, transform .15s, box-shadow .15s; }
   @media (prefers-color-scheme: dark) { .kard { background: rgba(245,243,238,0.06); border-color: rgba(245,243,238,0.12); } }
+  .kard:active { cursor: grabbing; }
+  .kard.is-dragging { opacity: 0.4; transform: scale(0.97); }
+  .lane.is-drop-target { background: rgba(255,90,31,0.08); box-shadow: inset 0 0 0 2px var(--accent, #ff5a1f); }
+  .lane.is-drop-target .lane__head { color: var(--accent, #ff5a1f) !important; }
   .kard__body { font-size: 12.5px; line-height: 1.4; color: var(--ink, #0a0a0a); }
   @media (prefers-color-scheme: dark) { .kard__body { color: var(--ink, #f0f0eb); } }
   .kard__body * { max-width: 100%; }
@@ -179,13 +183,13 @@ const PANEL_RENDER_JS = `
         if (lane.state === "done") cls += " is-done";
         if (lane.state === "cancelled") cls += " is-cancelled";
         var ts = (c.ts || "").slice(0, 16).replace("T", " ");
-        return '<div class="' + cls + '" data-entry-id="' + esc(c.id) + '">' +
+        return '<div class="' + cls + '" data-entry-id="' + esc(c.id) + '" draggable="true">' +
           '<div class="kard__body">' + c.content_html + '</div>' +
           '<div class="kard__meta"><span>' + esc(ts) + '</span>' + (c.pinned ? '<span>★ pinned</span>' : '') + '</div>' +
           (moves ? '<div class="kard__moves">' + moves + '</div>' : '') +
           '</div>';
       }).join("");
-      return '<div class="lane" data-state="' + lane.state + '">' +
+      return '<div class="lane" data-state="' + lane.state + '" data-lane-state="' + lane.state + '">' +
         '<div class="lane__head"><span>' + esc(lane.label) + '</span><span class="lane-cnt">' + (byState[lane.state] || []).length + '</span></div>' +
         items +
         '</div>';
@@ -259,6 +263,65 @@ const PANEL_RENDER_JS = `
       btn.classList.remove("busy");
       btn.disabled = false;
     }
+  });
+
+  // v0.27 — HTML5 drag-and-drop. Cards carry draggable=true; on drop into
+  // a different lane, fire the same move postMessage as the buttons.
+  // Same-lane drop is a no-op (no API roundtrip for "nothing changed").
+  var draggingId = null;
+  kanbanEl.addEventListener("dragstart", function (e) {
+    var card = e.target && e.target.closest && e.target.closest(".kard");
+    if (!card) return;
+    draggingId = card.getAttribute("data-entry-id");
+    card.classList.add("is-dragging");
+    try { e.dataTransfer.setData("text/plain", draggingId); e.dataTransfer.effectAllowed = "move"; } catch (_) {}
+  });
+  kanbanEl.addEventListener("dragend", function (e) {
+    var card = e.target && e.target.closest && e.target.closest(".kard");
+    if (card) card.classList.remove("is-dragging");
+    Array.prototype.forEach.call(kanbanEl.querySelectorAll(".lane.is-drop-target"), function (l) {
+      l.classList.remove("is-drop-target");
+    });
+    draggingId = null;
+  });
+  kanbanEl.addEventListener("dragover", function (e) {
+    var lane = e.target && e.target.closest && e.target.closest(".lane");
+    if (!lane || !draggingId) return;
+    e.preventDefault(); // signal "drop allowed here"
+    try { e.dataTransfer.dropEffect = "move"; } catch (_) {}
+    if (!lane.classList.contains("is-drop-target")) {
+      // Only highlight one lane at a time
+      Array.prototype.forEach.call(kanbanEl.querySelectorAll(".lane.is-drop-target"), function (l) {
+        l.classList.remove("is-drop-target");
+      });
+      lane.classList.add("is-drop-target");
+    }
+  });
+  kanbanEl.addEventListener("dragleave", function (e) {
+    var lane = e.target && e.target.closest && e.target.closest(".lane");
+    // Only clear highlight when leaving the lane entirely (not when hovering
+    // a child element inside it).
+    if (lane && !lane.contains(e.relatedTarget)) {
+      lane.classList.remove("is-drop-target");
+    }
+  });
+  kanbanEl.addEventListener("drop", function (e) {
+    var lane = e.target && e.target.closest && e.target.closest(".lane");
+    if (!lane) return;
+    e.preventDefault();
+    var newState = lane.getAttribute("data-lane-state");
+    var entryId = draggingId;
+    lane.classList.remove("is-drop-target");
+    if (!entryId || !newState) return;
+    // Detect same-lane drop: card's current lane equals target lane.
+    var sourceLane = kanbanEl.querySelector('.kard[data-entry-id="' + entryId + '"]');
+    if (sourceLane) {
+      var srcLaneEl = sourceLane.closest(".lane");
+      if (srcLaneEl && srcLaneEl.getAttribute("data-lane-state") === newState) return;
+    }
+    try {
+      parent.postMessage({ ns: "folio-feed", type: "move", entry_id: entryId, state: newState }, "*");
+    } catch (_) {}
   });
 
   window.addEventListener("message", function (e) {

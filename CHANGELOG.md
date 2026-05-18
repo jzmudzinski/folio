@@ -2,6 +2,49 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.27.0 — 2026-05-18
+
+**Phase 1 finishing touches** — three quality-of-life wins on top of the v0.24-v0.26 project workspace push: drag-and-drop on kanban cards, slide thumbnails sidebar in presentation mode, and inline-mode kanban (todo notes with `inline: true` now also get the Feed | Kanban toggle).
+
+### Added
+
+#### Drag-and-drop on kanban cards (panel mode)
+- Cards carry `draggable="true"`; lanes accept drop via `dragover` / `drop` event handlers.
+- Visual feedback: card gets `.is-dragging` (opacity + scale-down); target lane gets `.is-drop-target` (inset orange ring + accent header color).
+- Same-lane drop is a no-op (no API roundtrip for "nothing changed").
+- Different-lane drop fires the same `move` postMessage as the move buttons → chrome → `POST /api/notes/:id/entries` → SSE redelivers → card moves lane in real time.
+- Move buttons stay (keyboard / touch fallback when DnD isn't ergonomic).
+
+#### Slide thumbnails sidebar (presentation mode)
+- Left rail with miniaturized slide previews. Each shows slide number + first heading / text sample. Current slide highlighted via `.is-current` (orange border + soft glow).
+- Click thumb → jumps to slide N. Enter / Space activates focused thumb (keyboard accessible).
+- New `T` key: toggle rail visibility. Preference persists in `localStorage` under `folio-pres-thumbs`.
+- Rail auto-hides in fullscreen (CSS hooks on `body.is-fullscreen`, set by the new `fullscreenchange` listener).
+- Body uses CSS grid (`grid-template-columns: 140px 1fr`) when rail visible; degrades to single-column flow in fullscreen.
+
+#### Inline-mode kanban
+- Live notes with `inline: true` (the default for journals / todos) now also get the Feed | Kanban toggle, sitting just above the `<section data-folio-live-feed>` placeholder. Hidden by default; surfaces automatically when at least one entry carries a `state:*` tag.
+- Body iframe runs a client-side mirror of `core/live.ts compile()` to derive `compiled_tags` + `state` + `pinned` from the raw entry stream. Same compile rule the panel mode uses.
+- Per-note localStorage key `folio-inline-view:<note-id>` persists the toggle choice across reloads.
+- 4 lanes (Open / In progress / Done / Cancelled) with per-card move buttons + drag-and-drop (mirrors panel mode's DnD wiring).
+- Move click → `postMessage` to chrome with `{ns:'folio-feed', type:'move', entry_id, state}`. Chrome forwards to `POST /api/notes/:id/entries`. SSE re-delivers the new entry → kanban recompiles + lanes redraw automatically.
+
+### Changed
+- `INLINE_FEED_BOOTSTRAP_JS` in `src/core/feed-render.ts` extended ~6× — gains the compile function, kanban renderer, toggle UI mount, DnD wiring. Feed-view append path is unchanged.
+- `/raw/:id` handler injects `<script>window.__folioInlineNoteId = …</script>` for inline-rendered live notes so the bootstrap knows its own note id (used for the localStorage key + future inline-only flows).
+- Inline-live chrome script in `pageNote` (the parent-side EventSource forwarder) now also listens for `move` messages from the body iframe and forwards them to the entries endpoint. Same forwarding contract as panel mode.
+- `<iframe class="note-iframe">` carries `allow="fullscreen"` (was added in v0.26 for presentation; this just notes it's universal — works for any future fullscreen-using note).
+
+### Tests
+- `tests/kanban-dnd-thumbs-inline.test.ts` (+12 tests):
+  - **Panel DnD:** `draggable="true"` attribute on cards, `data-lane-state` on lanes, dragstart/dragover/dragleave/drop bound, `.is-dragging` + `.is-drop-target` CSS, same-lane no-op guard
+  - **Slide thumbnails:** `.thumbs-rail` + `.thumb` + `.thumb.is-current` CSS, JS builds rail / wires T key / persists in localStorage, `fullscreenchange` listener toggles `body.is-fullscreen`, end-to-end `GET /raw/` of a presentation note injects rail markup builder
+  - **Inline kanban:** bootstrap includes compile + 4 lanes + DnD wiring, uses `__folioInlineNoteId`, `/raw/` bakes the noteId script, chrome script forwards moves to `/api/notes/:id/entries`
+- Full suite: 622 tests across 56 files, all passing (was 610).
+
+### Why
+Closes the Phase 1 polish loop. DnD makes kanban feel native (touchable on iPad too). Slide thumbnails make a long deck navigable without counting slides. Inline kanban brings the same view to where most todo notes actually live (since `slot:todo` defaults to `inline: true`). After v0.27 every Phase 1 surface has the UX it deserves; the spec for Phase 2 (Gantt / cross-note embed) can wait on real dogfooding feedback.
+
 ## v0.26.0 — 2026-05-18
 
 **Presentation mode: `type: "presentation"`.** Phase 1 step 3 — closes the last gap from the [living-docs research](http://127.0.0.1:4810/n/01KRY7WZEV499TDWXGJH57JH4A). A presentation note's body_html is a sequence of `<section class="slide">` blocks; the viewer hides all but the current and adds keyboard nav + fullscreen + speaker mode.

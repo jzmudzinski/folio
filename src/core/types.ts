@@ -41,6 +41,12 @@ export interface Note {
    *  Side panel is suppressed for these notes. Only meaningful when live=1.
    *  Default false (live notes keep using the side panel). */
   inline_render: boolean;
+  /** v0.22: id of the note that replaced this one, or null if this note is
+   *  still the head version. Set via the `replace` primitive. The old
+   *  .html file is preserved verbatim (capability URL stays valid for
+   *  anyone who already shared it), but listings, thread views, and
+   *  search hide superseded notes by default. */
+  superseded_by: string | null;
 }
 
 export interface NoteMeta {
@@ -64,6 +70,7 @@ export interface NoteMeta {
   origin_device_id: string | null;
   owner_device_id: string | null;
   inline_render: boolean;
+  superseded_by: string | null;
 }
 
 export interface CreateNoteInput {

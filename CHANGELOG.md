@@ -2,6 +2,42 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.22.0 — 2026-05-18
+
+**Selective append-only relaxation: metadata editable + `replace` primitive.** Based on the design analysis [Append-only w Folio — czy paradygmat się broni], ADR-014's pure append-only model was found to be inconsistently enforced (live notes already mutate via chain-of-refs) and generated ~30% noise across ~94 real notes — typically v2/v3/v4 versions of the same document, where the only delta was a typo, a tweak, or a sanitizer fix. v0.22.0 ships Step 1 (metadata edits) + Step 2 (`replace` primitive) of the recommended graduated relaxation. Body files remain immutable; the new mutability is metadata-only + supersede pointers.
+
+### Step 1 — metadata is editable
+
+- **`updateNoteMetadata({id, title?, tags?, theme?, is_final?})`** in `src/core/storage.ts`. Edits title / tags / theme / `is_final` in place. The HTML file is regenerated atomically (body extracted via `extractBodyHtml`, re-injected through `renderNote` with new metadata) — no body bytes change. FTS index refreshes. Empty/whitespace title rejected as no-change. Unknown theme returns `{ok:false, reason:"unknown-theme"}`. `is_final` flip routes through `finalize()` / `unfinalize()` so the side effects (live → compiled body, iteration → frozen rounds, expires_at reset) keep their one canonical implementation.
+- **`update_metadata` MCP tool** (`src/mcp/server.ts`). Same shape; returns the fresh meta + list of `updated_fields`. The existing `unfinalize` MCP handler was simplified to call the new `unfinalize()` storage function (extracted from inline SQL).
+- **`folio edit <id> [--title T] [--theme X] [--tags "a,b,c"] [--final|--unfinal]`** CLI command (`src/cli/commands/edit.ts`). Mutually-exclusive `--final` / `--unfinal` flag pair.
+
+### Step 2 — `replace` primitive
+
+- **New DB column `notes.superseded_by TEXT`** added via migration v4→v5 (`src/core/migrations.ts`) + present in `PHASE2_SCHEMA` for greenfield. Partial index `notes_by_superseded ON notes(superseded_by) WHERE superseded_by IS NOT NULL` covers default-listing filters.
+- **`replaceNote({old_id, body_html, title?, tags?, theme?})`** in storage. Creates a new note in the same thread (inheriting type/theme/tags/title from old by default), then sets `old.superseded_by = new.id`. Old `.html` file stays on disk verbatim — capability URLs that pointed at `/n/<old-id>` still resolve to the original content. `already-superseded` guard prevents accidental fork (a chain stays linear).
+- **`resolveHeadOfChain(id)`** walks the supersede pointers forward up to 10 hops. Used by the viewer banner.
+- **Default-filter listings hide superseded notes.** `listNotes` (+ new `include_superseded?` opt-in), `searchNotes` (+ opt-in), `listNotesByTag`, `listThreads`, `listProjectThreads` (via tag listing) all skip notes with `superseded_by IS NOT NULL`. Thread count in `/threads` reflects head versions only — a 4-note thread collapsed via `replace` shows as `count=1`, which matches the user's mental model.
+- **Viewer supersede banner.** `pageNote` renders an indigo-tinted banner on the old URL: *"↻ Replaced — this version has been superseded — [new title] is the current head"* with a direct link. The head note (most recent) has no banner.
+- **`replace` MCP tool** + **`folio replace <id> --html @path [--title T] [--theme X] [--tags "a,b"]`** CLI.
+- **`note_superseded` event** logged for analytics (carries old_id, new_id, old_title, new_title, thread_id, type).
+
+### Not changed (deliberately)
+- **ADR-014 still binds for body bytes.** No edit-in-place tool. The plain-text shape of a published `/n/<id>` is forever — `replace` creates a new URL.
+- **`iteration` and `technical` notes still benefit from the existing append-only flow** (variants and ADR drafts are points). `replace` is the right tool for `snippet` / `comparison` / `research` polish — the analysis spells out the per-type calibration in the verdict.
+- **Cloud sync schema unchanged.** Superseded notes still push/pull as ordinary notes; cloud-side filtering of supersede chains is deferred (would need a cloud migrator entry + cloud render changes). Practical impact: local viewer hides superseded versions; the public/relayed cloud view shows all versions until cloud catches up. Capability URL trust holds either way (immutable files).
+
+### Tests
+- `tests/update-metadata.test.ts` (+13 tests) — title/tags/theme/`is_final` change paths, multi-field combined update, FTS refresh, live note `is_final` compiles entries, no-change / not-found / unknown-theme error reasons, title trim, `updated` timestamp bump.
+- `tests/replace.test.ts` (+14 tests) — `superseded_by` set, old `.html` byte-identical after replace, inherit-by-default, overrides applied, listings/search/tag/thread filters hide superseded by default, `include_superseded` reveals them, `already-superseded` and `not-found` errors, `resolveHeadOfChain` walks multi-hop chains, viewer banner present on old URL + absent on head, `note_superseded` event logged.
+- `tests/migrations.test.ts` (3 updated) — head schema version bumped from "4" to "5".
+- `tests/live-mcp.test.ts` (1 updated) — tool count 20 → 22 (adds `update_metadata` + `replace`).
+- Full suite: 538 tests across 50 files, all passing (was 511).
+
+### Migration notes
+- Existing dbs auto-migrate on next open: `ALTER TABLE notes ADD COLUMN superseded_by TEXT` (column defaults to NULL — all existing notes are heads). No data loss, no manual step.
+- `package.json` bumps to 0.22.0. Tool count in MCP discovery reports 22.
+
 ## v0.21.3 — 2026-05-18
 
 **`plain` theme gets a permissive sanitizer.** The plain theme's contract is "the agent owns the visual identity for this note." But the strict allowlist was still stripping safe HTML5 tags like `<b>`, `<i>`, `<u>`, `<s>`, `<q>` along with their `id`s — breaking agent-built widgets that did `getElementById('counter')` against a `<b id="counter">` placeholder. v0.21.3 plumbs a new `mode: "permissive"` option through `sanitize()` that `createNote()` opts into automatically whenever `theme === "plain"`. Other themes are unchanged.

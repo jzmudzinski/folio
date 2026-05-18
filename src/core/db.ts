@@ -58,7 +58,13 @@ CREATE TABLE IF NOT EXISTS notes (
   -- parent→iframe postMessage. When 0 (default), live note body stays
   -- static and entries render in the side panel. Migration v3→v4 adds
   -- the column to pre-existing dbs.
-  inline_render INTEGER NOT NULL DEFAULT 0
+  inline_render INTEGER NOT NULL DEFAULT 0,
+  -- v0.22 replace primitive: id of the note that replaced this one, or
+  -- NULL if this note is the head version. Default listings filter
+  -- WHERE superseded_by IS NULL so the thread view stays clean after a
+  -- replace. The old .html file stays on disk for capability-URL stability.
+  -- Migration v4→v5 adds the column to pre-existing dbs.
+  superseded_by TEXT
 );
 CREATE INDEX IF NOT EXISTS notes_by_type ON notes(type, created DESC);
 CREATE INDEX IF NOT EXISTS notes_by_thread ON notes(thread_id, created DESC);
@@ -69,6 +75,11 @@ CREATE INDEX IF NOT EXISTS notes_by_live ON notes(live, last_entry_at) WHERE liv
 -- BEFORE this phase runs. Greenfield installs get the column from the
 -- CREATE TABLE above, then this index.
 CREATE INDEX IF NOT EXISTS notes_by_origin ON notes(origin_device_id);
+-- v4→v5: covers the WHERE superseded_by IS NULL filter that every default
+-- listing query now carries. Partial index keeps it small (most notes are
+-- heads). Greenfield gets the column from CREATE TABLE; pre-existing dbs
+-- get it from the v4→v5 migration which runs before this CREATE INDEX.
+CREATE INDEX IF NOT EXISTS notes_by_superseded ON notes(superseded_by) WHERE superseded_by IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS tags (
   note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,

@@ -1,6 +1,6 @@
 import type { NoteMeta, SearchHit } from "../core/types";
 import { db } from "../core/db";
-import { resolveHeadOfChain, listPopularTags } from "../core/storage";
+import { resolveHeadOfChain, listPopularTags, type ContinueRailItem } from "../core/storage";
 import { listThemes } from "../core/themes";
 import { panelIframeSrcdoc, LIVE_CHROME_JS } from "./live-panel";
 import { ENTRIES_CSS } from "./entries-css";
@@ -184,6 +184,27 @@ a { color: inherit; text-decoration: none; }
 .row.with-snippet { padding: 14px 8px; align-items: start; }
 .row.with-snippet .snippet { font-family: var(--vserif); font-size: 16px; font-style: italic; color: var(--vmuted); line-height: 1.55; margin-top: 6px; max-width: 64ch; }
 .row.with-snippet .snippet mark { background: var(--vorange-soft); color: var(--vink); padding: 0 3px; border-radius: 2px; font-style: normal; font-weight: 500; font-family: var(--vbody); }
+
+/* v0.23 — Continue-rail. Soft orange band that sits between filter strip
+   and the date-grouped notes list. Shown only on the bare home view
+   (no activeType / activeStatus / activeTag) and only when the score
+   query returned at least one item. Score is recency × frequency from
+   the events table; see listContinueRail() in storage.ts. */
+.v-rail { margin: 0 calc(-1 * var(--gutter, 32px)) 22px; padding: 18px var(--gutter, 32px) 22px; background: linear-gradient(180deg, var(--vorange-soft) 0%, transparent 100%); border-bottom: 1px solid color-mix(in srgb, var(--vorange) 18%, transparent); }
+.v-rail__head { font-family: var(--vmono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vorange); font-weight: 600; margin: 0 0 14px; display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.v-rail__head .hint { color: var(--vmuted-2); font-weight: 400; font-size: 10.5px; letter-spacing: 0.08em; text-transform: none; }
+.v-rail__cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.v-rail-card { display: flex; flex-direction: column; gap: 7px; background: var(--vpanel); border: 1px solid var(--vline); border-radius: 10px; padding: 14px 16px; color: var(--vink); text-decoration: none; transition: border-color .15s, transform .15s, box-shadow .15s; min-width: 0; }
+.v-rail-card:hover { border-color: var(--vorange); transform: translateY(-1px); box-shadow: 0 6px 16px rgba(255,90,31,0.10); }
+.v-rail-card.hot { border-color: var(--vorange); box-shadow: 0 6px 16px rgba(255,90,31,0.12); }
+.v-rail-card .proj { font-family: var(--vmono); font-size: 10.5px; color: var(--vorange); letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v-rail-card .ttl { font-family: var(--vhead); font-size: 14px; font-weight: 500; line-height: 1.32; color: var(--vink); letter-spacing: -0.005em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.v-rail-card .meta { font-family: var(--vmono); font-size: 10px; color: var(--vmuted); margin-top: auto; padding-top: 4px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.v-rail-card .meta .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--vmuted-2); flex-shrink: 0; }
+.v-rail-card .iter-flag { background: var(--vorange-soft); border: 1px solid color-mix(in srgb, var(--vorange) 35%, transparent); color: var(--vorange); padding: 1px 6px; border-radius: 4px; font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; }
+@media (max-width: 640px) {
+  .v-rail__cards { grid-template-columns: 1fr; }
+}
 
 .cluster { display: grid; grid-template-columns: 1fr auto; gap: 24px; padding: 18px 18px 18px 22px; background: var(--vbg-2); border: 1px solid var(--vline); border-radius: 12px; margin-bottom: 10px; position: relative; overflow: hidden; transition: border-color .15s, transform .15s; }
 .cluster:hover { border-color: var(--vorange); transform: translateY(-1px); }
@@ -878,13 +899,63 @@ function tagCloud(tags: { tag: string; count: number }[], activeTag?: string): s
   return `<div class="tag-cloud">${tags.map((t) => tagChip(t, t.tag === activeTag)).join("")}</div>`;
 }
 
+/**
+ * v0.23 — Continue-rail renderer. The rail is purely presentation; scoring
+ * + per-thread enrichment lives in `listContinueRail()`. Click target:
+ *   - pending iteration round → /n/<iteration-id> (decision is one tap away)
+ *   - else project tag present → /p/<slug> (the project workspace view)
+ *   - else → /n/<latest-note-id> (jump back into the document itself)
+ *
+ * First card always carries `.hot` so it visually leads. We don't badge
+ * "newest" or rank cards individually — score already does that ordering;
+ * the user reads top-to-left as "what I'm most likely to want next".
+ */
+function renderContinueRail(items: ContinueRailItem[]): string {
+  if (items.length === 0) return "";
+  const ago = (iso: string): string => {
+    const ms = Date.now() - new Date(iso).getTime();
+    const mins = Math.round(ms / 60_000);
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.round(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.round(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    return `${Math.round(days / 7)}w ago`;
+  };
+  const cards = items.map((it, i) => {
+    const href = it.has_pending_iteration && it.pending_iteration_id
+      ? `/n/${it.pending_iteration_id}`
+      : it.project_slug
+        ? `/p/${encodeURIComponent(it.project_slug)}`
+        : `/n/${it.latest_note_id}`;
+    const projLabel = it.project_slug ? `project:${it.project_slug}` : it.thread_id;
+    const meta = it.has_pending_iteration
+      ? `<span class="iter-flag">iteration · pending pick</span>`
+      : `<span>${ago(it.last_touch)}</span><span class="dot"></span><span>${it.touch_count} ${it.touch_count === 1 ? "touch" : "touches"}</span><span class="dot"></span><span>★ ${(Math.round(it.score * 10) / 10).toFixed(1)}</span>`;
+    const cls = (i === 0 ? " hot" : "") + (it.has_pending_iteration ? " iter" : "");
+    return `<a href="${href}" class="v-rail-card${cls}">
+      <div class="proj">${esc(projLabel)}</div>
+      <div class="ttl">${esc(it.title)}</div>
+      <div class="meta">${meta}</div>
+    </a>`;
+  }).join("");
+  return `<section class="v-rail">
+    <header class="v-rail__head">
+      <span>↻ Continue where you left off</span>
+      <span class="hint">last 7 days · scored by recency × frequency</span>
+    </header>
+    <div class="v-rail__cards">${cards}</div>
+  </section>`;
+}
+
 export function pageList(
   notes: NoteMeta[],
   counts: CountSummary,
   activeType?: string,
   activeStatus?: string,
   popularTags: { tag: string; count: number }[] = [],
-  activeTag?: string
+  activeTag?: string,
+  continueRail: ContinueRailItem[] = [],
 ): string {
   const groups = new Map<string, NoteMeta[]>();
   for (const n of notes) {
@@ -918,9 +989,15 @@ export function pageList(
     : activeType
     ? `No notes of type <code>${esc(activeType)}</code>.`
     : `Create your first note: <code>folio new --title "..." --html @file.html</code>`;
+  // v0.23 — continue-rail injected at the top of the page body, but only
+  // on the bare home view. Filter-narrowed views (by type/status/tag)
+  // already have an intent — surfacing "what you worked on lately" on
+  // top of "show me only research notes" would be noise.
+  const railHtml = !activeType && !activeStatus && !activeTag ? renderContinueRail(continueRail) : "";
+
   const body = notes.length === 0
     ? `<div class="empty"><h2>Empty</h2><p class="lead">${emptyMsg}</p></div>`
-    : `<main class="v-page">${groupsHtml}${tagsSection}</main>`;
+    : `<main class="v-page">${railHtml}${groupsHtml}${tagsSection}</main>`;
 
   const meta = notes.length > 0 ? `${notes.length} ${notes.length === 1 ? "note" : "notes"} · latest ${ago(notes[0]!.created)}` : "";
   return shell("Folio", `${topbar("", "notes")}${filterBar(activeType, activeStatus, counts, meta, activeTag)}${activeFilterStrip(activeTag, activeType, activeStatus)}${body}`);

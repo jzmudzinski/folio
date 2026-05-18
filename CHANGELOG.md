@@ -2,6 +2,31 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.23.0 — 2026-05-18
+
+**Continue where you left off — homepage rail.** Coming back to Folio used to mean scrolling a flat created-DESC list of 94 notes to find the project you actually worked on last. v0.23.0 adds a soft-orange band above the list with up to 5 cards for the threads you've actively touched in the last 7 days, ordered by `recency × frequency`. Click a card and you're back in the project workspace (or directly in the pending iteration round). Zero new user actions; the score is computed from the events table that's been running since v0.7.
+
+### Added
+- **`listContinueRail({ limit, window_days })`** in `src/core/storage.ts`. Returns up to `limit` (default 5, capped 20) head threads, ranked by `SUM(1 / (days_since_touch + 1))` over touches in the last `window_days` (default 7, capped 60). Touch kinds: `note_created`, `note_viewed`, `note_finalized`, `live_entry_appended`. Per-thread enrichment: latest head note id + title, project slug if any note carries `project:<slug>`, pending-iteration flag (any non-finalized iteration note in the thread). All in pure SQL — no JSONL reads per item, no view-cache rebuild.
+- **`logNoteView(noteId, threadId)`** — debounced view tracker called by the viewer's `/n/:id` handler. Drops the call if a `note_viewed` event for the same note already exists within the last 30 minutes (so tab refreshes don't game the score). Debounce window is checked against the events table itself — correct across server restarts, no in-memory cache to invalidate.
+- **`renderContinueRail(items)`** in `src/viewer/render.ts` + CSS. Rail is a `.v-rail` section with up to 5 `<a class="v-rail-card">` links above the date-grouped notes list. Soft orange gradient band visually separates "what's hot" from "everything ordered by created". First card carries `.hot` (subtle box-shadow). Per-card meta shows time-ago + touch count + score (e.g. `2h ago · 5 touches · ★ 3.2`); a thread with a pending iteration shows `iteration · pending pick` pill instead.
+- **Click routing** (priority order): pending iteration → `/n/<iteration-id>` (one click to the decision gallery) → project tag → `/p/<slug>` (workspace view) → fallback `/n/<latest-head-id>` (the document itself).
+
+### Changed
+- **`GET /n/:id`** now calls `logNoteView()` (debounced) instead of `logEvent("note_viewed", …)` (raw). Net effect for the events log: at most one `note_viewed` per (note, 30-min window) instead of one per page load. Score quality up; events table growth down.
+- **`pageList()` signature** gains optional `continueRail: ContinueRailItem[]` last arg (defaults to `[]`). Existing callers continue to work. Rail only renders on the bare home view (no `activeType`/`activeStatus`/`activeTag`); filtered views deliberately don't show it.
+
+### Tests
+- `tests/continue-rail.test.ts` (+17 tests) covering: empty state, recency × frequency ordering, `limit` honored, project-slug extraction, pending-iteration flag + clearing on `finalize`, superseded-aware head resolution, decay (5-day-old event scores below today's), `logNoteView` debounce (3 calls → 1 event), debounce window expiry (rewinding ts re-arms), rail HTML present on `/`, rail HIDDEN on `/?type=research`, rail HIDDEN on empty DB, click routing for pending-iteration / project-tag / fallback cases, and end-to-end debounce when fetching `/n/:id` twice.
+- Full suite: 572 tests across 52 files, all passing (was 555).
+
+### Why
+Per the design analysis in [Append-only paradigm note](http://127.0.0.1:4810/n/01KRXDPS5ET30PGZCYT8QDJ2E4) + the [navigation iteration round](http://127.0.0.1:4810/n/01KRY18STDZAB4CGAY8C1RK94N) where the user picked option #1 (`continue-rail`) over sidebar / dashboard / Cmd-K / pinned / activity-sort alternatives. Detailed mockup + plan: [v2 continue-rail note](http://127.0.0.1:4810/n/01KRY1MCN2WRZHVTHKPE1W3QMQ).
+
+### Migration notes
+- No schema change. `events` table has carried `kind` + `thread_id` since v0.7; the rail's SQL just reads it differently. Greenfield installs work immediately; existing installs see a useful rail after a few touches (each `note_created` from before this release counts retroactively).
+- `package.json` bumps to `0.23.0` (new feature → minor).
+
 ## v0.22.3 — 2026-05-18
 
 **Iteration gallery responsiveness.** Six dense mockups in a single round forced the user into 3×2 thumbnails too small to compare side-by-side. v0.22.3 adds a 1c/2c/3c density toolbar with auto-default picked from variant count + content size, per-note localStorage persistence, graduated viewport breakpoints, and adaptive card aspect ratio.

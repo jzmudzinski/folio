@@ -1207,6 +1207,33 @@ const SHARE_POPOVER_CSS = `<style>
 .share-pop__manage .cnt { background: var(--vorange); color: #fff; font-size: 9px; padding: 1px 7px; border-radius: 9px; font-weight: 600; }
 .share-pop__manage .arrow { color: var(--vorange); font-weight: 600; }
 .share-pop__manage[hidden] { display: none; }
+
+/* v0.22 — Edit metadata popover. Same shape as share-pop (fixed-position,
+   arrow on left edge pointing at the trigger in .side-aux). Form layout
+   inherits the share-pop__form pattern. Wider (320px vs 280px) because the
+   tag input + theme dropdown want a bit more room. */
+.edit-pop { position: fixed; top: 54px; left: 380px; width: 320px; background: var(--vpanel); border: 1px solid var(--vline); border-radius: 10px; box-shadow: 0 12px 36px rgba(0,0,0,0.16); z-index: 100; overflow: hidden; opacity: 0; visibility: hidden; transform: translateX(-4px); transition: opacity .14s, transform .14s, visibility .14s; }
+.edit-pop.is-open { opacity: 1; visibility: visible; transform: translateX(0); }
+.edit-pop::before { content: ''; position: absolute; top: var(--edit-pop-arrow-top, 18px); left: -6px; width: 10px; height: 10px; background: var(--vpanel); border-left: 1px solid var(--vline); border-bottom: 1px solid var(--vline); transform: rotate(45deg); }
+.edit-pop__head { padding: 14px 18px 8px; display: flex; align-items: center; justify-content: space-between; }
+.edit-pop__title { font-family: var(--vmono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vmuted); font-weight: 600; }
+.edit-pop__hint { font-family: var(--vmono); font-size: 9.5px; color: var(--vmuted-2); }
+.edit-pop__form { padding: 0 18px 14px; display: flex; flex-direction: column; gap: 9px; }
+.edit-pop__row { display: flex; flex-direction: column; gap: 3px; }
+.edit-pop__row label { font-family: var(--vmono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--vmuted); }
+.edit-pop__row input, .edit-pop__row select { padding: 7px 10px; border: 1px solid var(--vline); border-radius: 5px; background: var(--vbg); color: inherit; font-family: var(--vmono); font-size: 12.5px; }
+.edit-pop__row input:focus, .edit-pop__row select:focus { outline: none; border-color: var(--vorange); }
+.edit-pop__row .hint { font-family: var(--vmono); font-size: 9.5px; color: var(--vmuted-2); margin-top: 2px; }
+.edit-pop__check { display: flex; align-items: center; gap: 8px; font-family: var(--vmono); font-size: 11.5px; color: var(--vink-2); cursor: pointer; user-select: none; padding: 4px 0; }
+.edit-pop__check input { margin: 0; cursor: pointer; }
+.edit-pop__actions { display: flex; gap: 8px; margin-top: 4px; }
+.edit-pop__cancel { flex: 1; background: transparent; color: var(--vmuted); border: 1px solid var(--vline); padding: 9px; border-radius: 6px; font-family: 'Familjen Grotesk', sans-serif; font-weight: 500; font-size: 12.5px; cursor: pointer; letter-spacing: 0.05em; text-transform: uppercase; }
+.edit-pop__cancel:hover { color: var(--vink); border-color: var(--vink); }
+.edit-pop__save { flex: 2; background: var(--vorange); color: #fff; border: 0; padding: 9px; border-radius: 6px; font-family: 'Familjen Grotesk', sans-serif; font-weight: 600; font-size: 12.5px; cursor: pointer; letter-spacing: 0.05em; text-transform: uppercase; }
+.edit-pop__save:hover { background: #e64a0e; }
+.edit-pop__save:disabled { opacity: 0.55; cursor: wait; }
+.edit-pop__error { padding: 10px 18px; border-top: 1px solid var(--vline); color: #c8412a; font-size: 12px; line-height: 1.5; display: none; }
+.edit-pop__error.is-shown { display: block; }
 </style>`;
 
 function sharePopoverHtml(noteId: string): string {
@@ -1401,6 +1428,179 @@ function sharePopoverJs(noteId: string): string {
   });
 
   refreshActive();
+})();`;
+}
+
+/**
+ * v0.22: Edit metadata popover — title / tags / theme / is_final.
+ *
+ * Modeled directly after sharePopoverHtml: same `aside` shell, same arrow
+ * positioning, opens on click of the trigger in .side-aux. Form submits
+ * to POST /api/notes/:id/metadata; on success the page reloads so the new
+ * title in the side h1 + new tag list + new theme.css <link> render
+ * naturally without a chunk of imperative DOM patching.
+ */
+function editMetadataPopoverHtml(note: NoteMeta): string {
+  const themes = listThemes();
+  const themeOptions = themes
+    .map((t) => `<option value="${esc(t.name)}"${t.name === note.theme ? " selected" : ""}>${esc(t.name)}</option>`)
+    .join("");
+  return `<aside class="edit-pop" id="edit-pop" role="dialog" aria-label="Edit metadata" data-note-id="${esc(note.id)}">
+  <div class="edit-pop__head">
+    <div class="edit-pop__title">Edit metadata</div>
+    <div class="edit-pop__hint">body stays immutable</div>
+  </div>
+  <form class="edit-pop__form" id="edit-form">
+    <div class="edit-pop__row">
+      <label for="edit-title">Title</label>
+      <input id="edit-title" name="title" type="text" value="${esc(note.title)}" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="edit-pop__row">
+      <label for="edit-tags">Tags</label>
+      <input id="edit-tags" name="tags" type="text" value="${esc(note.tags.join(", "))}" placeholder="a, b, c" autocomplete="off" spellcheck="false">
+      <span class="hint">comma-separated · empty = clear all</span>
+    </div>
+    <div class="edit-pop__row">
+      <label for="edit-theme">Theme</label>
+      <select id="edit-theme" name="theme">${themeOptions}</select>
+    </div>
+    <label class="edit-pop__check">
+      <input type="checkbox" id="edit-final" name="is_final"${note.is_final ? " checked" : ""}>
+      <span>Final · skip auto-cleanup</span>
+    </label>
+    <div class="edit-pop__actions">
+      <button class="edit-pop__cancel" type="button" id="edit-cancel">Cancel</button>
+      <button class="edit-pop__save" type="submit" id="edit-save">Save</button>
+    </div>
+  </form>
+  <div class="edit-pop__error" id="edit-error"></div>
+</aside>`;
+}
+
+function editMetadataPopoverJs(noteId: string): string {
+  // The trigger is `#edit-trigger` in .side-aux. Same positioning + open/close
+  // pattern as the share popover. On Save: POST the changed fields (skip
+  // fields that match the inputs' initial values to avoid spurious
+  // updates), surface no-change as a benign hint, reload on success.
+  return `(function () {
+  var noteId = ${JSON.stringify(noteId)};
+  var trigger = document.getElementById('edit-trigger');
+  var pop = document.getElementById('edit-pop');
+  if (!trigger || !pop) return;
+  var form = document.getElementById('edit-form');
+  var titleEl = document.getElementById('edit-title');
+  var tagsEl = document.getElementById('edit-tags');
+  var themeEl = document.getElementById('edit-theme');
+  var finalEl = document.getElementById('edit-final');
+  var saveBtn = document.getElementById('edit-save');
+  var cancelBtn = document.getElementById('edit-cancel');
+  var errorBox = document.getElementById('edit-error');
+
+  // Snapshot the initial input values to diff against on save. Avoids
+  // posting a no-change patch when the user opens the popover and clicks
+  // Save without touching anything.
+  var initial = {
+    title: titleEl.value,
+    tags: tagsEl.value,
+    theme: themeEl.value,
+    is_final: finalEl.checked,
+  };
+
+  function positionNearTrigger() {
+    var rect = trigger.getBoundingClientRect();
+    var popHeight = pop.offsetHeight || 340;
+    var viewportH = window.innerHeight;
+    var margin = 12;
+    var top = rect.top - 4;
+    if (top + popHeight > viewportH - margin) top = Math.max(margin, viewportH - popHeight - margin);
+    pop.style.top = top + 'px';
+    pop.style.left = (rect.right + 14) + 'px';
+    var arrowTop = Math.max(8, Math.min(popHeight - 14, rect.top + rect.height / 2 - top - 5));
+    pop.style.setProperty('--edit-pop-arrow-top', arrowTop + 'px');
+  }
+  function open() {
+    positionNearTrigger();
+    pop.classList.add('is-open');
+    setTimeout(function () {
+      positionNearTrigger();
+      if (titleEl) titleEl.focus();
+    }, 60);
+  }
+  function close() {
+    pop.classList.remove('is-open');
+    errorBox.classList.remove('is-shown');
+    // Restore the inputs to initial values so reopening shows the saved state.
+    titleEl.value = initial.title;
+    tagsEl.value = initial.tags;
+    themeEl.value = initial.theme;
+    finalEl.checked = initial.is_final;
+  }
+  function showError(msg) {
+    errorBox.textContent = msg;
+    errorBox.classList.add('is-shown');
+  }
+
+  trigger.addEventListener('click', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (pop.classList.contains('is-open')) close(); else open();
+  });
+  cancelBtn.addEventListener('click', function (e) {
+    e.preventDefault();
+    close();
+  });
+  document.addEventListener('click', function (e) {
+    if (!pop.classList.contains('is-open')) return;
+    if (pop.contains(e.target) || trigger.contains(e.target)) return;
+    close();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && pop.classList.contains('is-open')) close();
+  });
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    errorBox.classList.remove('is-shown');
+    var body = {};
+    if (titleEl.value !== initial.title) body.title = titleEl.value;
+    if (tagsEl.value !== initial.tags) {
+      body.tags = tagsEl.value.split(',').map(function(t){ return t.trim(); }).filter(Boolean);
+    }
+    if (themeEl.value !== initial.theme) body.theme = themeEl.value;
+    if (finalEl.checked !== initial.is_final) body.is_final = finalEl.checked;
+    if (Object.keys(body).length === 0) {
+      showError('No changes to save.');
+      return;
+    }
+    saveBtn.disabled = true;
+    var prevLabel = saveBtn.textContent;
+    saveBtn.textContent = 'Saving…';
+    fetch('/api/notes/' + encodeURIComponent(noteId) + '/metadata', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (r) {
+      return r.json().then(function (d) { return { ok: r.ok, status: r.status, data: d }; });
+    }).then(function (resp) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = prevLabel;
+      if (!resp.ok || !resp.data.ok) {
+        var reason = (resp.data && resp.data.reason) || ('HTTP ' + resp.status);
+        if (reason === 'unknown-theme') showError('Unknown theme: ' + (body.theme || ''));
+        else if (reason === 'no-change') showError('No changes to save.');
+        else showError(reason);
+        return;
+      }
+      // Reload so the new title / tag chips / theme link in the parent
+      // chrome show the persisted state. Body iframe gets its own refresh
+      // for free since the wrapper HTML was regenerated server-side.
+      window.location.reload();
+    }).catch(function (err) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = prevLabel;
+      showError(err && err.message ? err.message : 'Network error.');
+    });
+  });
 })();`;
 }
 
@@ -1857,6 +2057,7 @@ export function pageNote(note: NoteMeta, _themeName: string, context?: NoteListC
   }
   const shellClass = isLive && !isInlineLive ? "note-shell has-live" : "note-shell";
   const sharePop = sharePopoverHtml(note.id);
+  const editPop = editMetadataPopoverHtml(note);
 
   return shell(note.title, `${topbar()}
 ${SHARE_POPOVER_CSS}
@@ -1880,6 +2081,7 @@ ${SHARE_POPOVER_CSS}
       ${tagsHtml}
     </dl>
     <nav class="side-aux">
+      <button class="side-action" id="edit-trigger" type="button" data-note-id="${esc(note.id)}" title="Edit title / tags / theme / final">✎ Edit metadata</button>
       <button class="side-action" data-copy="plain" data-label="⎘ Copy plain text">⎘ Copy plain text</button>
       <button class="side-action" data-copy="markdown" data-label="⎘ Copy as markdown">⎘ Copy as markdown</button>
       <a href="/raw/${note.id}" target="_blank">↗ View raw HTML</a>
@@ -1907,8 +2109,10 @@ ${SHARE_POPOVER_CSS}
   </main>${livePanelHtml}
 </div>
 ${sharePop}
+${editPop}
 ${noteScript}${liveScript}
-<script>${sharePopoverJs(note.id)}</script>`, { bodyClass: "note-page" });
+<script>${sharePopoverJs(note.id)}</script>
+<script>${editMetadataPopoverJs(note.id)}</script>`, { bodyClass: "note-page" });
 }
 
 // ───────────────────────────────────────────────────────────────────────

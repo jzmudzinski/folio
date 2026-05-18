@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig, folioRoot, bundledThemesDir, themesDir, viewerPublicBaseUrl, threadAssetsDir, isSafeAssetFilename } from "../core/config";
-import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, deleteNote, listThreads, listPopularTags, listNotesByTag, listProjectThreads } from "../core/storage";
+import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, deleteNote, listThreads, listPopularTags, listNotesByTag, listProjectThreads, updateNoteMetadata } from "../core/storage";
 import { db, logEvent } from "../core/db";
 import { pageList, pageSearch, pageThread, pageThreads, pageNote, pageStats, pageError, pageTag, pageCloud, pageShares, pageProject } from "./render";
 import { injectBootstrap } from "./note-bootstrap";
@@ -455,6 +455,43 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
           const ref = req.headers.get("referer");
           if (ref) return Response.redirect(ref, 303);
           return jsonResp({ ok: true });
+        }
+
+        // POST /api/notes/:id/metadata  (v0.22+ — title/tags/theme/is_final edit)
+        // Body: JSON { title?, tags?, theme?, is_final? }. Any subset of
+        // these can be passed; updateNoteMetadata rejects the call as
+        // no-change if every field equals the current value. On success:
+        // {ok:true, updated_fields:[…]}. The viewer's Edit-metadata popover
+        // reloads the page so the new title / tag list / theme link are
+        // visible without further round-trips.
+        if (req.method === "POST" && /^\/api\/notes\/[^/]+\/metadata$/.test(path)) {
+          const id = path.split("/")[3]!;
+          let body: Record<string, unknown> = {};
+          try { body = (await req.json()) as Record<string, unknown>; } catch { /* default {} */ }
+          const patch: Parameters<typeof updateNoteMetadata>[0] = { id };
+          if (typeof body.title === "string") patch.title = body.title;
+          if (Array.isArray(body.tags)) patch.tags = (body.tags as unknown[]).map(String);
+          if (typeof body.theme === "string") patch.theme = body.theme;
+          if (typeof body.is_final === "boolean") patch.is_final = body.is_final;
+          const result = await updateNoteMetadata(patch);
+          if (!result.ok) {
+            const code = result.reason === "not-found" ? 404
+                       : result.reason === "unknown-theme" ? 400
+                       : 200; // no-change isn't really an error, just an info response
+            return jsonResp({ ok: false, reason: result.reason }, code);
+          }
+          return jsonResp({
+            ok: true,
+            updated_fields: result.updated_fields,
+            meta: {
+              id: result.meta!.id,
+              title: result.meta!.title,
+              theme: result.meta!.theme,
+              tags: result.meta!.tags,
+              is_final: result.meta!.is_final,
+              updated: result.meta!.updated,
+            },
+          });
         }
 
         // GET /cloud — sync + cloud pairing UI

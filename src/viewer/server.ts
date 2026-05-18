@@ -502,6 +502,62 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
           });
         }
 
+        // POST /api/notes/:id/entries  (v0.25+ — append entry from viewer UI)
+        // Body: JSON { content_html?, tags?, refs?, importance? }
+        // The viewer's Kanban "move to column" click hits this with a tag-only
+        // follow-up (refs:[X] + tags:[state:done]) to mutate an entry's
+        // compiled state per the chain-of-entries pattern. Same validation as
+        // MCP append_entry: note must be live + not final, refs must point
+        // at existing entries.
+        if (req.method === "POST" && /^\/api\/notes\/[^/]+\/entries$/.test(path)) {
+          const id = path.split("/")[3]!;
+          const note = getNoteMeta(id);
+          if (!note) return jsonResp({ error: "not found" }, 404);
+          // is_final check FIRST — finalize() sets live=0, so checking live
+          // first would mask the more informative "note is final" error.
+          if (note.is_final) return jsonResp({ error: "note is final" }, 400);
+          if (!note.live) return jsonResp({ error: "not a live note" }, 400);
+          let body: Record<string, unknown> = {};
+          try { body = (await req.json()) as Record<string, unknown>; } catch { /* default {} */ }
+          const refs = Array.isArray(body.refs) ? (body.refs as unknown[]).map(String) : undefined;
+          const live = await import("../core/live");
+          const jsonl = live.entriesPath(join(folioRoot(), note.path));
+          if (refs && refs.length > 0) {
+            const existing = new Set(live.readEntries(jsonl).map((e) => e.id));
+            const bad = refs.filter((r) => !existing.has(r));
+            if (bad.length > 0) return jsonResp({ error: `unknown refs: ${bad.join(", ")}` }, 400);
+          }
+          let result;
+          try {
+            result = live.appendEntry(jsonl, {
+              content_html: typeof body.content_html === "string" ? body.content_html : "",
+              tags: Array.isArray(body.tags) ? (body.tags as unknown[]).map(String) : undefined,
+              refs,
+              importance: typeof body.importance === "number" ? (body.importance as 1|2|3|4|5) : undefined,
+              source_ref: typeof body.source_ref === "string" ? body.source_ref : undefined,
+            });
+          } catch (e: any) {
+            return jsonResp({ error: e?.message ?? String(e) }, 400);
+          }
+          const { updateLastEntryAt } = await import("../core/storage");
+          updateLastEntryAt(id, result.entry.ts);
+          const sseHub = await import("../core/sse-hub");
+          sseHub.publish(id, jsonl);
+          // Same analytics event the MCP path emits so live-rail + dashboard
+          // pick up viewer-driven appends too.
+          const { logEvent } = await import("../core/db");
+          logEvent("live_entry_appended", {
+            entry_id: result.entry.id,
+            tags_count: result.entry.tags.length,
+            refs_count: result.entry.refs?.length ?? 0,
+            content_size_bytes: Buffer.byteLength(result.entry.content_html, "utf-8"),
+            rendered: result.entry.content_html.trim().length > 0,
+            sanitizer_drops: result.sanitizer_drops,
+            via: "viewer",
+          }, id, note.thread_id);
+          return jsonResp({ ok: true, entry_id: result.entry.id, ts: result.entry.ts });
+        }
+
         // GET /cloud — sync + cloud pairing UI
         if (req.method === "GET" && path === "/cloud") {
           const { loadSyncState } = await import("../core/sync");

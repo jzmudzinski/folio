@@ -2304,7 +2304,7 @@ export function pageNote(note: NoteMeta, _themeName: string, context?: NoteListC
   let liveScript = "";
   if (isLive && !isInlineLive) {
     const themeCss = loadThemeCss(note.theme) ?? "";
-    const srcdoc = panelIframeSrcdoc({ theme_css: themeCss, entries_css: ENTRIES_CSS });
+    const srcdoc = panelIframeSrcdoc({ theme_css: themeCss, entries_css: ENTRIES_CSS, noteId: note.id });
     livePanelHtml = `
   <aside class="live-panel" aria-label="Live entries feed">
     <iframe class="live-panel-iframe" title="Live feed" sandbox="allow-scripts" srcdoc="${esc(srcdoc)}"></iframe>

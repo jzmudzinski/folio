@@ -2,6 +2,29 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.25.0 — 2026-05-18
+
+**Kanban view for live notes with state:* tagged entries.** Phase 1 step 2 of the [project-workspace plan](http://127.0.0.1:4810/n/01KRY7WZEV499TDWXGJH57JH4A). Live-note panel iframe gets a `Feed | Kanban` toggle; the kanban mode shows 4 swim-lanes by compiled state (open / in_progress / done / cancelled) and per-card move buttons that fire a tag-only follow-up entry. Same JSONL substrate; one new render mode + one new endpoint.
+
+### Added
+- **`POST /api/notes/:id/entries`** viewer endpoint. JSON body `{ content_html?, tags?, refs?, importance?, source_ref? }`. Same validation as MCP `append_entry`: note must be live + not final, refs must point at existing entries. On success: `{ ok: true, entry_id, ts }`. Logs `live_entry_appended` with `via: "viewer"` so analytics can tell viewer-driven appends from MCP/CLI appends.
+- **Panel iframe `Feed | Kanban` toggle** in `src/viewer/live-panel.ts`. Hidden by default; revealed when the compiled feed contains at least one entry with a `state:*` tag (matches the SKILL convention for todos). Choice persists in `localStorage` under `folio-panel-view:<note-id>` per note.
+- **Kanban renderer** in the panel iframe. Four lanes (Open / In progress / Done / Cancelled) plus a header count per lane. Each card shows the entry's HTML body, ISO-prefix timestamp, optional `★ pinned` marker, and a row of move buttons (`→ in prog` / `→ done` / `✕ cancel` / `↶ reopen`) tailored to the lane. Done-lane cards get strikethrough; cancelled cards get dimmed.
+- **Move button → chrome → endpoint pipeline.** Clicking a move button postMessages `{ns:'folio-feed', type:'move', entry_id, state}` up to chrome; chrome fetches `POST /api/notes/:id/entries` with a tag-only follow-up (`{tags: ["state:<new>"], refs: [entry_id]}`). SSE re-delivers the new entry to the panel and the card "moves" lane in real time via the existing compile pipeline.
+- **`panelIframeSrcdoc` signature** gains `noteId: string` so the panel can build the localStorage key and the move-message payload. Existing call site in `pageNote` passes `note.id`.
+
+### Tests
+- `tests/kanban-view.test.ts` (+15 tests) — `panelIframeSrcdoc` embeds noteId/toggle/kanban container/localStorage key, four-lane shape, move button data attrs, `LIVE_CHROME_JS` forwards moves to the entries endpoint with `state:* + refs`. Endpoint: append round-trip, tag-only follow-up (kanban move) round-trip, unknown refs → 400, non-live → 400 (with `is_final` check first so finalized live notes show the "final" error), bad id → 404, `live_entry_appended` event records `via: "viewer"`. End-to-end: `GET /n/:id` of a live note embeds the panel iframe with `window.__folioPanelNoteId` baked in.
+- Full suite: 601 tests across 54 files, all passing (was 586).
+
+### Not changed
+- **Inline-mode live notes** (the `inline: true` flavor — entries rendered inside body_html) keep the feed-only view for now. The kanban toggle currently lives in the panel mode only. Inline mode kanban is a v0.26 candidate — the renderer module here is already shared-ready.
+- **MCP `append_entry`** unchanged. The viewer endpoint is a thin parallel path with the same contract — both call into the same `live.appendEntry()` helper.
+- **`state:*` tag values** are still convention space. The kanban renderer recognizes the four states from SKILL.md (open / in_progress / done / cancelled); other values land in the open lane by default. `snoozed` is rendered as a generic pill but not yet given its own lane — under review.
+
+### Why
+Continuing the project-workspace push: with v0.24 surfacing `slot:todo` as a canonical doc card on `/p/<slug>`, the actual todo work happens inside that note. The flat feed view is fine for chronological log items but doesn't match how users think about open / in-progress / done work. Kanban view closes that gap on the existing JSONL substrate.
+
 ## v0.24.0 — 2026-05-18
 
 **Project workspace as a dashboard, not a list.** Phase 0 + Phase 1 step 1 of the [Folio-as-project-workspace plan](http://127.0.0.1:4810/n/01KRY7WZEV499TDWXGJH57JH4A). Introduces a `slot:<name>` tag convention for canonical living docs (roadmap / todo / changelog / release-notes / vision / hub / presentation / gantt) and rebuilds `/p/<slug>` to surface them as first-class cards above the existing thread list.

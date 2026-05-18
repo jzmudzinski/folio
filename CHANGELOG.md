@@ -16,11 +16,18 @@ All notable changes per release. The latest version is documented in [README.md]
 - The `✎ Edit metadata` button in `.side-aux`.
 - `editMetadataPopoverHtml()`, `editMetadataPopoverJs()`, and the `.edit-pop*` CSS block — all replaced by `inlineMetadataEditorJs()` (single concentrated handler for title + tags + toast; theme save link is wired alongside the existing preview logic in `noteScript`).
 
-### SKILL updated
-- **Frontmatter rewritten** to reflect the new mutation contract: *"Body editing: agent-only via the MCP `replace` tool (or new note in the same thread); metadata (title/tags/theme/is_final) is editable inline in the viewer OR via `update_metadata`."* Old wording "Append-only model: never edits" was a v0.21 lie under v0.22.
-- **New section "Mutation surfaces (v0.22+)"** with a 3-row table (body / metadata / live entries — who can drive each) and a decision tree mapping user phrases to the right tool. Explicitly names the user-facing inline editors so the agent doesn't intrude on jobs the user can do faster ("you can click the title in the viewer to rename inline").
-- **Mandatory-loop step 7 rewritten** — the previous "do NOT edit the old one — ADR-014 append-only" is replaced with a three-branch rule: body change → `replace()`; pure metadata → `update_metadata()` (or hand off to the user's inline editor); different artifact → `create()` with same thread.
-- **Anti-pattern bullet** updated: "Refusing to edit because Folio is append-only" is now the anti-pattern, with the supported paths spelled out.
+### SKILL restructured per Anthropic's [Skill best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)
+- **SKILL.md trimmed 597 → 240 lines** (under the 500-line soft cap). Long sections moved out to `skills/folio/reference/*.md`:
+  - `live-notes.md` (~104 lines) — render modes, tool surface, chain-of-entries, tag conventions
+  - `iteration-notes.md` (~109 lines) — propose_round/wait_for_pick workflow, variant content_html, SVG-for-logos skeleton
+  - `themes.md` (~32 lines) — full theme picker table
+  - `assets.md` (~120 lines) — attach_asset, relative-URL rule, generating images (SVG vs raster vs external)
+- **References one level deep from SKILL.md** — no chained `a → b → c` lookups, matching the best-practices "Avoid deeply nested references" guidance.
+- **Reference files >100 lines carry their own ToC** at the top.
+- **Frontmatter description tightened** to third-person, what+when, with mutation contract spelled out. New form: *"Creates visually-rich HTML knowledge artifacts in Folio (folio-mcp). Use when… Body changes flow through the `replace` MCP tool (agent-only); metadata… via `update_metadata`."* (~580 chars, under the 1024 limit).
+- **New section "Mutation surfaces"** with a 3-row table (body / metadata / live entries) and a decision tree mapping user phrases to the right tool. Explicitly names the user-facing inline editors so the agent doesn't intrude on jobs the user can do faster.
+- **Mandatory-loop step 7 rewritten** — three-branch rule (body → `replace`; metadata → `update_metadata` or hand off to inline editor; different artifact → `create` with same thread). The previous "do NOT edit the old one — ADR-014 append-only" wording was a v0.21 promise under v0.22.
+- **Anti-pattern bullet** updated: "Refusing to edit because Folio is append-only" is now the anti-pattern, with supported paths spelled out.
 
 ### Tests
 - `tests/viewer-edit-metadata.test.ts` rewritten (+5 tests, 13 total) — `editable-title` h1 with data-note-id, `tag-editor` with chip+×+add+suggest, `theme-save` link present and hidden by default, `inlineMetadataEditorJs` embeds popularTags + handles `ArrowDown` navigation + posts to the metadata endpoint, regression guard that the v0.22.1 popover is gone (`id="edit-trigger"`, `id="edit-pop"` not in output). Endpoint cases (happy path, theme rewrites HTML link, no-change, unknown-theme, bad id) unchanged from v0.22.1.

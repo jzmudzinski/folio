@@ -1,5 +1,6 @@
 import type { NoteMeta, SearchHit } from "../core/types";
 import { db } from "../core/db";
+import { resolveHeadOfChain } from "../core/storage";
 import { listThemes } from "../core/themes";
 import { panelIframeSrcdoc, LIVE_CHROME_JS } from "./live-panel";
 import { ENTRIES_CSS } from "./entries-css";
@@ -383,6 +384,10 @@ body.list-page { overflow: hidden; }
 .note-banner .lbl { color: var(--vamber); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; font-size: 10.5px; }
 .note-banner .finalize-btn { font-family: var(--vhead); font-weight: 500; font-size: 13px; letter-spacing: -0.005em; padding: 6px 14px; border-radius: 7px; background: var(--vink); color: var(--vbg); border: 0; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
 .note-banner .finalize-btn:hover { background: var(--vorange); }
+.note-banner.supersede-banner { background: linear-gradient(90deg, rgba(44,74,217,0.08), transparent 60%); }
+.note-banner.supersede-banner .lbl { color: #2c4ad9; }
+.note-banner.supersede-banner a { color: var(--vorange); text-decoration: none; font-weight: 600; }
+.note-banner.supersede-banner a:hover { text-decoration: underline; }
 .note-iframe-wrap { background: var(--vpanel); flex: 1; min-height: 0; }
 .note-iframe { width: 100%; height: 100%; border: 0; display: block; }
 
@@ -1428,6 +1433,21 @@ export function pageNote(note: NoteMeta, _themeName: string, context?: NoteListC
        </div>`
     : "";
 
+  // v0.22 supersede banner. When viewing /n/<old-id> after `replace`,
+  // show a banner pointing to the current head. We walk the chain via
+  // resolveHeadOfChain — a head may itself have been replaced again, and
+  // we want the user one click away from the latest version, not the
+  // immediate successor.
+  let supersedeBanner = "";
+  if (note.superseded_by) {
+    const head = resolveHeadOfChain(note.id);
+    if (head && head.id !== note.id) {
+      supersedeBanner = `<div class="note-banner supersede-banner">
+        <div><span class="lbl">↻ Replaced</span>&nbsp; this version has been superseded — <a href="/n/${head.id}">${esc(head.title)}</a> is the current head</div>
+      </div>`;
+    }
+  }
+
   // Sibling notes in thread, ascending — for version label + prev/next nav
   const allSiblings = db()
     .query<{ id: string; created: string }, [string]>(
@@ -1880,7 +1900,7 @@ ${SHARE_POPOVER_CSS}
     </nav>
   </aside>
   <main class="note-main">
-    ${banner}
+    ${supersedeBanner}${banner}
     <div class="note-iframe-wrap">
       <iframe class="note-iframe" src="/raw/${note.id}" title="${esc(note.title)}" sandbox="allow-scripts allow-popups allow-forms allow-modals"></iframe>
     </div>

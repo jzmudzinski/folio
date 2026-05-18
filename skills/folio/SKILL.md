@@ -21,14 +21,19 @@ description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp)
 
 ## When to use Folio
 
+**Language note.** Triggers below are intent patterns shown in English. Match equivalents in whatever language the user writes — e.g. Polish "przeanalizuj X z różnych perspektyw" is the same intent as "analyze X from multiple perspectives". Don't keyword-match the literal English string.
+
 **YES (triggers):**
-- "research [topic]", "expand on", "summarize", "deep dive", "TL;DR this URL"
-- "compare X and Y", "compare X vs Y", "differences between"
-- "ADR", "technical decision", "spec", "documentation"
-- "make me a note about…", "save this to folio"
-- **"show me N versions/variants of X", "N wariantów [czegoś]", "design candidates", "mockups", "logo proposals", "I'll pick one and you iterate"** → use `type: "iteration"` (see Iteration notes section, NOT a regular note dumped in chat)
-- Proactively after long structured responses (when the chat answer is already a rich artifact, offer: "Save to Folio as [type]?")
+- Research / expand / deep-dive / summarize a topic or URL → typically `research`
+- Compare two or more things, list differences, scorecard → `comparison`
+- **Analyze / evaluate / review / audit / critique X; "is X justified?"; rationale check on an existing decision** → usually `technical` or `research`
+- **"From multiple perspectives", "tradeoffs of X", "pros and cons", "look at this from different angles"** — this phrasing all but guarantees a structured answer (sections + tables + recommendation). Go to Folio BEFORE drafting prose.
+- ADR, technical decision, spec, design doc, architecture writeup → `technical`
+- Explicit save intents: "make me a note about…", "save this to folio"
+- **Show N versions / variants / design candidates / mockups / "I'll pick one and you iterate"** → use `type: "iteration"` (see Iteration notes section, NOT a regular note dumped in chat)
 - After a long debrief conversation (interview, meeting) → offer `journal`
+
+**Predict-first heuristic.** The old wording "after long structured responses, offer to save" is the failure mode — you write prose in chat, then ghost-offer to save, and most of the value (tables, scorecards, color-coded findings, in-page nav) is already lost to flat markdown. **Replace with: if you can already tell the answer will need ≥2 of {multi-section headers, tables, scorecards, perspectives, recommendation/verdict block, comparison matrix} → start in Folio, not in chat.** Reactive offers stay valid only for cases that genuinely surprised you mid-answer.
 
 **NO (anti-triggers):**
 - Short conversational answer ("what time is it?", "what's RAG?" when two sentences suffice)

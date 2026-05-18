@@ -19,6 +19,9 @@ import {
   listNotes,
   searchNotes,
   finalize,
+  unfinalize,
+  updateNoteMetadata,
+  replaceNote,
   listThreads,
   suggestThread,
   stats,
@@ -148,6 +151,36 @@ const tools: Tool[] = [
       type: "object",
       required: ["id"],
       properties: { id: { type: "string" } },
+    },
+  },
+  {
+    name: "replace",
+    description: "Supersede an existing note with a new revision (v0.22+). Body is the only thing that meaningfully changes; the old note's .html file stays on disk verbatim (capability URL still works for anyone who already received it) but listings, thread views, and search hide it. This is the right tool when the user says 'fix this' / 'polish it' / 'redo this' for note types where prior drafts are noise (snippet, comparison, research). For iteration / technical notes where variant history matters, keep using the create-new-in-same-thread pattern. Inherits type / theme / tags / thread_id / title from the old note unless you override; the new note gets its own ULID. Errors: not-found (old id unknown), already-superseded (old note already pointed at a successor; replace that one instead).",
+    inputSchema: {
+      type: "object",
+      required: ["old_id", "body_html"],
+      properties: {
+        old_id: { type: "string", description: "Note id (ULID) being replaced." },
+        body_html: { type: "string", description: "New body HTML. Sanitized per the note's theme (permissive for plain, strict everywhere else)." },
+        title: { type: "string", description: "Optional new title. Default: inherit from old." },
+        tags: { type: "array", items: { type: "string" }, description: "Optional new tag set (replaces, not adds). Default: inherit." },
+        theme: { type: "string", description: "Optional new theme. Default: inherit." },
+      },
+    },
+  },
+  {
+    name: "update_metadata",
+    description: "Update editable metadata on an existing note (v0.22+). Body stays immutable — that's still ADR-014. Use this for: fixing a typo in the title, retagging, switching theme on a polished note, toggling is_final. For body edits, the model is still 'new note in the same thread' (or use `replace`). At least one of {title, tags, theme, is_final} must change vs current — passing only no-op values returns ok:false reason:'no-change'. The note's .html file is regenerated atomically with the new metadata; created timestamp stays, updated bumps to now. FTS index is refreshed.",
+    inputSchema: {
+      type: "object",
+      required: ["id"],
+      properties: {
+        id: { type: "string", description: "Note id (ULID) to update." },
+        title: { type: "string", description: "New title. Empty or whitespace-only values are rejected (kept as no-change)." },
+        tags: { type: "array", items: { type: "string" }, description: "Complete new tag set (REPLACES the old set, not adds to it). Pass [] to clear all tags." },
+        theme: { type: "string", description: "Theme name to switch to. Must be a known theme (bundled or user). Unknown theme → ok:false reason:'unknown-theme'." },
+        is_final: { type: "boolean", description: "Flip the finalize state. true → routes through finalize() (live notes compile entries; iteration notes freeze rounds; expires_at cleared). false → routes through unfinalize() (re-arms expiry to created + default_lifespan)." },
+      },
     },
   },
   {
@@ -512,18 +545,65 @@ export async function buildServer(): Promise<Server> {
           const note = getNoteMeta(id);
           if (!note) return errContent(`Not found: ${id}`);
           if (!note.is_final) return jsonContent({ ok: false, id, note: "Already not final, no change." });
+          const ok = await unfinalize(id);
           const cfg = await loadConfig();
-          // Re-arm expiry: created + default_lifespan
-          db().run(
-            "UPDATE notes SET is_final = 0, expires_at = datetime(?, '+' || ? || ' days'), updated = datetime('now') WHERE id = ?",
-            [note.created, cfg.default_lifespan_days, id]
-          );
-          // Log event for analytics
-          db().run(
-            "INSERT INTO events (ts, kind, note_id, thread_id, data) VALUES (?, ?, ?, ?, ?)",
-            [new Date().toISOString(), "note_unfinalized", id, note.thread_id, JSON.stringify({ via: "mcp" })]
-          );
-          return jsonContent({ ok: true, id, expires_at_reset_to: `created + ${cfg.default_lifespan_days} days` });
+          return jsonContent({ ok, id, expires_at_reset_to: `created + ${cfg.default_lifespan_days} days` });
+        }
+
+        case "replace": {
+          const old_id = String(args.old_id ?? "");
+          const body_html = String(args.body_html ?? "");
+          if (!old_id) return errContent("Missing old_id");
+          if (!body_html) return errContent("Missing body_html");
+          const patch: Parameters<typeof replaceNote>[0] = { old_id, body_html };
+          if (typeof args.title === "string") patch.title = args.title;
+          if (Array.isArray(args.tags)) patch.tags = (args.tags as unknown[]).map(String);
+          if (typeof args.theme === "string") patch.theme = args.theme;
+          const result = await replaceNote(patch);
+          if (!result.ok) {
+            if (result.reason === "not-found") return errContent(`Not found: ${old_id}`);
+            if (result.reason === "already-superseded") return errContent(`Note ${old_id} is already superseded; replace its successor instead.`);
+            return errContent(`Replace failed: ${result.reason ?? "unknown"}`);
+          }
+          return jsonContent({
+            ok: true,
+            old_id: result.old_id,
+            new_id: result.new_meta!.id,
+            new_slug: result.new_meta!.slug,
+            new_local_url: `${viewerLocalBaseUrl()}/n/${result.new_meta!.id}`,
+            new_public_url: `${(await loadConfig()).viewer_public_url || viewerLocalBaseUrl()}/n/${result.new_meta!.id}`,
+            old_local_url: `${viewerLocalBaseUrl()}/n/${result.old_id}`,
+          });
+        }
+
+        case "update_metadata": {
+          const id = String(args.id ?? "");
+          if (!id) return errContent("Missing id");
+          const inputPatch: { id: string; title?: string; tags?: string[]; theme?: string; is_final?: boolean } = { id };
+          if (typeof args.title === "string") inputPatch.title = args.title;
+          if (Array.isArray(args.tags)) inputPatch.tags = (args.tags as unknown[]).map(String);
+          if (typeof args.theme === "string") inputPatch.theme = args.theme;
+          if (typeof args.is_final === "boolean") inputPatch.is_final = args.is_final;
+          const result = await updateNoteMetadata(inputPatch);
+          if (!result.ok) {
+            if (result.reason === "not-found") return errContent(`Not found: ${id}`);
+            if (result.reason === "unknown-theme") return errContent(`Unknown theme: ${inputPatch.theme}`);
+            if (result.reason === "no-change") return jsonContent({ ok: false, id, reason: "no-change", note: "Pass at least one field different from current state." });
+            return errContent(`Update failed: ${result.reason ?? "unknown"}`);
+          }
+          return jsonContent({
+            ok: true,
+            id,
+            updated_fields: result.updated_fields,
+            meta: {
+              id: result.meta!.id,
+              title: result.meta!.title,
+              theme: result.meta!.theme,
+              tags: result.meta!.tags,
+              is_final: result.meta!.is_final,
+              updated: result.meta!.updated,
+            },
+          });
         }
 
         case "append_entry": {

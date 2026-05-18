@@ -5,6 +5,8 @@ import { search } from "./commands/search";
 import { statsCmd } from "./commands/stats";
 import { serve } from "./commands/serve";
 import { finalizeCmd } from "./commands/finalize";
+import { editCmd } from "./commands/edit";
+import { replaceCmd } from "./commands/replace";
 import { openCmd } from "./commands/open";
 import { cleanupCmd } from "./commands/cleanup";
 import { reindexCmd } from "./commands/reindex";
@@ -69,6 +71,8 @@ function help(): number {
   out(`  ${c.cyan("append <id>")}       Append entry to a live note (--content @file, --tags, --refs, --importance, --source-ref, --occurred-at)`);
   out(`  ${c.cyan("tail <id>")}         Stream live entries from /n/:id/stream — needs folio serve (--json)`);
   out(`  ${c.cyan("finalize <id>")}     Mark note as final (skip auto-cleanup); for live notes compiles entries into body`);
+  out(`  ${c.cyan("edit <id>")}         Update note metadata (--title, --theme, --tags "a,b,c", --final, --unfinal). Body stays immutable.`);
+  out(`  ${c.cyan("replace <id>")}      Supersede a note with a new body (--html @path, --title, --theme, --tags). Old URL preserved + hidden from listings.`);
   out(`  ${c.cyan("delete <id>")}       Soft-delete a note (moves to ~/Folio/.trash/, recoverable 7d, propagates to cloud) — flag: --yes`);
   out(`  ${c.cyan("open <id|slug>")}    Open note in default browser (via viewer)`);
   out(`  ${c.cyan("stats")}             Show counts + analytics`);
@@ -176,6 +180,21 @@ export async function main(argv = process.argv): Promise<number> {
         });
       case "finalize":
         return await finalizeCmd(positional[0] ?? "");
+      case "edit":
+        return await editCmd(positional[0] ?? "", {
+          title: flagStr(flags.title),
+          theme: flagStr(flags.theme),
+          tags: flagStr(flags.tags),
+          final: flagBool(flags.final),
+          unfinal: flagBool(flags.unfinal),
+        });
+      case "replace":
+        return await replaceCmd(positional[0] ?? "", {
+          html: flagStr(flags.html),
+          title: flagStr(flags.title),
+          theme: flagStr(flags.theme),
+          tags: flagStr(flags.tags),
+        });
       case "delete":
       case "rm":
         return await deleteCmd({

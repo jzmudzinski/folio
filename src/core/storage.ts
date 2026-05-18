@@ -8,6 +8,7 @@ import { sanitize } from "./sanitize";
 import { extractText } from "./text";
 import { renderNote } from "./templates";
 import { getTheme } from "./themes";
+import { extractBodyHtml } from "./sync";
 import type { CreateNoteInput, NoteMeta, SearchHit, NoteType, RenderProfile } from "./types";
 
 function isoNow(): string {
@@ -174,6 +175,7 @@ export async function createNote(input: CreateNoteInput): Promise<NoteMeta> {
     origin_device_id,
     owner_device_id,
     inline_render,
+    superseded_by: null,
   };
 }
 
@@ -208,6 +210,11 @@ export interface ListOptions {
   is_final?: boolean;
   limit?: number;
   offset?: number;
+  /** v0.22: include notes that have been replaced via the `replace` primitive.
+   *  Default false — most listing surfaces (the home page, /tag, /p, thread
+   *  views) want only the head version. Set true for an "all versions" view
+   *  or for cloud sync (which must mirror both heads and superseded rows). */
+  include_superseded?: boolean;
 }
 
 export function listNotes(opts: ListOptions = {}): NoteMeta[] {
@@ -231,6 +238,9 @@ export function listNotes(opts: ListOptions = {}): NoteMeta[] {
     where.push("notes.is_final = ?");
     params.push(opts.is_final ? 1 : 0);
   }
+  if (!opts.include_superseded) {
+    where.push("notes.superseded_by IS NULL");
+  }
   const limit = opts.limit ?? 50;
   const offset = opts.offset ?? 0;
   const sql = `SELECT notes.* FROM notes ${joinClause} WHERE ${where.join(" AND ")} ORDER BY notes.created DESC LIMIT ? OFFSET ?`;
@@ -244,6 +254,7 @@ export interface SearchOptions {
   query: string;
   limit?: number;
   type?: NoteType;
+  include_superseded?: boolean;
 }
 
 export function searchNotes(opts: SearchOptions): SearchHit[] {
@@ -261,6 +272,7 @@ export function searchNotes(opts: SearchOptions): SearchHit[] {
     JOIN notes ON notes.id = notes_fts.id
     WHERE notes_fts MATCH ?
       AND notes.status = 'active'
+      ${opts.include_superseded ? "" : "AND notes.superseded_by IS NULL"}
       ${opts.type ? "AND notes.type = ?" : ""}
     ORDER BY score
     LIMIT ?
@@ -340,6 +352,279 @@ export function deleteNote(id: string): { ok: boolean; reason?: "not-found" } {
 
   logEvent("note_deleted", { reason: "manual", thread_id: note.thread_id }, id, note.thread_id);
   return { ok: true };
+}
+
+/**
+ * Editable metadata fields for an existing note (v0.22+). Body stays
+ * immutable — that's ADR-014. The fields here are presentation-level only:
+ * title (rendered into <title> + <h1>-adjacent metadata), tags (rendered
+ * into <meta name="folio:tags">), theme (drives the <link rel="stylesheet">
+ * + theme.css resolution), is_final (the keep-from-cleanup flag).
+ *
+ * Why these and not body: each of these is something the user could see
+ * during a typical "polish" pass without rewriting the content. Editing
+ * title/tags/theme doesn't violate the "capability URL trust" contract —
+ * a recipient seeing /n/<id> still sees the same prose, just possibly with
+ * a different chrome/title.
+ */
+export interface UpdateMetadataInput {
+  id: string;
+  title?: string;
+  tags?: string[];
+  theme?: string;
+  is_final?: boolean;
+}
+
+export interface UpdateMetadataResult {
+  ok: boolean;
+  reason?: "not-found" | "no-change" | "unknown-theme";
+  updated_fields?: Array<"title" | "tags" | "theme" | "is_final">;
+  meta?: NoteMeta;
+}
+
+/**
+ * Update title/tags/theme/is_final on an existing note. Body is preserved
+ * verbatim (extracted from the on-disk HTML, then re-injected through
+ * renderNote with the new metadata). HTML file is rewritten atomically.
+ *
+ * `is_final` flip routes through the existing finalize/unfinalize paths
+ * when relevant (live notes get their entries compiled into body, iteration
+ * notes get round freezing) — those are not cheap metadata edits and we
+ * want to keep one canonical place for that logic.
+ *
+ * Returns `{ok:false, reason}` for missing note, unknown theme, or a fully
+ * no-op call. Otherwise `{ok:true, updated_fields, meta}` with the fresh
+ * meta row reflecting the change.
+ */
+export async function updateNoteMetadata(input: UpdateMetadataInput): Promise<UpdateMetadataResult> {
+  const note = getNoteMeta(input.id);
+  if (!note) return { ok: false, reason: "not-found" };
+
+  const wantsTitle = typeof input.title === "string" && input.title.trim() !== "" && input.title !== note.title;
+  const wantsTags = Array.isArray(input.tags) && !sameStringSet(input.tags, note.tags);
+  const wantsTheme = typeof input.theme === "string" && input.theme !== note.theme;
+  const wantsFinal = typeof input.is_final === "boolean" && input.is_final !== note.is_final;
+
+  if (!wantsTitle && !wantsTags && !wantsTheme && !wantsFinal) {
+    return { ok: false, reason: "no-change" };
+  }
+
+  // is_final flip uses the finalize/unfinalize machinery — handle it first
+  // so the rest of the update operates on the post-finalize meta state
+  // (live → compiled-into-body, iteration → rounds frozen).
+  if (wantsFinal) {
+    if (input.is_final) finalize(input.id);
+    else await unfinalize(input.id);
+  }
+
+  // Re-read meta after the finalize/unfinalize side effect.
+  const fresh = getNoteMeta(input.id)!;
+  const newTitle = wantsTitle ? input.title!.trim() : fresh.title;
+  const newTags = wantsTags ? (input.tags as string[]).map((t) => String(t).trim()).filter(Boolean) : fresh.tags;
+  const newTheme = wantsTheme ? input.theme! : fresh.theme;
+
+  if (wantsTheme) {
+    const themeObj = await getTheme(newTheme);
+    if (!themeObj) return { ok: false, reason: "unknown-theme" };
+  }
+
+  const absPath = join(folioRoot(), fresh.path);
+  const fullHtml = readFileSync(absPath, "utf-8");
+  const body = extractBodyHtml(fullHtml);
+  const updated = isoNow();
+  const themeObj = (await getTheme(newTheme))!;
+
+  const regenerated = renderNote({
+    id: fresh.id,
+    type: fresh.type,
+    title: newTitle,
+    body_html: body,
+    theme: newTheme,
+    theme_css: themeObj.css,
+    theme_profile: fresh.theme_profile,
+    tags: newTags,
+    thread_id: fresh.thread_id,
+    created: fresh.created,
+    updated,
+    is_final: fresh.is_final,
+  });
+
+  const tmpPath = `${absPath}.tmp`;
+  writeFileSync(tmpPath, regenerated, "utf-8");
+  renameSync(tmpPath, absPath);
+
+  const stats = extractText(body);
+  const d = db();
+  d.transaction(() => {
+    d.run(
+      "UPDATE notes SET title = ?, theme = ?, updated = ?, word_count = ?, summary = ? WHERE id = ?",
+      [newTitle, newTheme, updated, stats.word_count, stats.summary, fresh.id],
+    );
+    if (wantsTags) {
+      d.run("DELETE FROM tags WHERE note_id = ?", [fresh.id]);
+      for (const tag of newTags) {
+        d.run("INSERT OR IGNORE INTO tags (note_id, tag) VALUES (?, ?)", [fresh.id, tag]);
+      }
+    }
+    d.run(
+      "UPDATE notes_fts SET title = ?, headings = ?, body = ?, tags = ? WHERE id = ?",
+      [
+        plNormalize(newTitle),
+        plNormalize(stats.headings),
+        plNormalize(stats.body),
+        plNormalize(newTags.join(" ")),
+        fresh.id,
+      ],
+    );
+  })();
+
+  const changed: Array<"title" | "tags" | "theme" | "is_final"> = [];
+  if (wantsTitle) changed.push("title");
+  if (wantsTags) changed.push("tags");
+  if (wantsTheme) changed.push("theme");
+  if (wantsFinal) changed.push("is_final");
+
+  logEvent(
+    "note_metadata_updated",
+    {
+      thread_id: fresh.thread_id,
+      changed,
+      from: { title: note.title, theme: note.theme, tags: note.tags, is_final: note.is_final },
+      to: { title: newTitle, theme: newTheme, tags: newTags, is_final: fresh.is_final },
+    },
+    fresh.id,
+    fresh.thread_id,
+  );
+
+  return { ok: true, updated_fields: changed, meta: getNoteMeta(fresh.id)! };
+}
+
+function sameStringSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort();
+  const sb = [...b].sort();
+  for (let i = 0; i < sa.length; i++) if (sa[i] !== sb[i]) return false;
+  return true;
+}
+
+/**
+ * Replace a note's body in-place — except not really (per ADR-014, body
+ * files stay immutable). The actual mechanic:
+ *   1. createNote() a new note in the same thread with the new body. The
+ *      new note gets its own ULID, its own .html file, its own capability
+ *      URL. Inherits type / theme / tags / title from the old note unless
+ *      overridden.
+ *   2. UPDATE the OLD note's `superseded_by` to point at the new id. The
+ *      old .html file stays on disk verbatim — any /n/<old-id> link
+ *      already shared keeps showing the old content.
+ *   3. The viewer hides superseded notes from thread listings, tag pages,
+ *      search results, and the main list. Visiting the old URL directly
+ *      shows a "this version was replaced by [new title]" banner.
+ *
+ * Use this when the user says "fix this" / "polish it" / "different
+ * version" for the kinds of notes where the old draft is noise (snippet,
+ * comparison, research). Don't use for iteration / technical notes where
+ * variant history is part of the value — for those, the create-new-in-same-
+ * thread pattern is still the right answer.
+ */
+export interface ReplaceNoteInput {
+  /** Note id to supersede. */
+  old_id: string;
+  /** New body HTML. Sanitized exactly like createNote — and inherits the
+   *  theme's permissive/strict choice from the resolved theme. */
+  body_html: string;
+  /** Override title. Default: inherit from old note. */
+  title?: string;
+  /** Override tags. Default: inherit from old note. */
+  tags?: string[];
+  /** Override theme. Default: inherit from old note. */
+  theme?: string;
+}
+
+export interface ReplaceNoteResult {
+  ok: boolean;
+  reason?: "not-found" | "already-superseded";
+  new_meta?: NoteMeta;
+  old_id?: string;
+}
+
+export async function replaceNote(input: ReplaceNoteInput): Promise<ReplaceNoteResult> {
+  const old = getNoteMeta(input.old_id);
+  if (!old) return { ok: false, reason: "not-found" };
+  if (old.superseded_by != null) {
+    return { ok: false, reason: "already-superseded" };
+  }
+
+  // createNote handles sanitize, file write, db insert, FTS index. We
+  // inherit by default so callers don't have to re-pass every field.
+  const newMeta = await createNote({
+    type: old.type,
+    title: input.title ?? old.title,
+    body_html: input.body_html,
+    theme: input.theme ?? old.theme,
+    theme_profile: old.theme_profile,
+    thread_id: old.thread_id,
+    tags: input.tags ?? old.tags,
+  });
+
+  // Mark old as superseded. Atomic — old.html stays on disk untouched
+  // (immutable contract holds), only the metadata row gains the pointer.
+  db().run(
+    "UPDATE notes SET superseded_by = ?, updated = ? WHERE id = ?",
+    [newMeta.id, isoNow(), input.old_id],
+  );
+
+  logEvent(
+    "note_superseded",
+    {
+      thread_id: old.thread_id,
+      type: old.type,
+      replaced_with: newMeta.id,
+      old_title: old.title,
+      new_title: newMeta.title,
+    },
+    input.old_id,
+    old.thread_id,
+  );
+
+  return { ok: true, new_meta: newMeta, old_id: input.old_id };
+}
+
+/**
+ * Walk the supersede chain forward from a note until we reach a head
+ * (superseded_by IS NULL) or the chain breaks. Used by the viewer when
+ * showing the "this was replaced by..." banner on an old URL — we want
+ * to point at the CURRENT head, not an intermediate that's also been
+ * superseded.
+ */
+export function resolveHeadOfChain(id: string, maxHops = 10): NoteMeta | null {
+  let cur: NoteMeta | null = getNoteMeta(id);
+  let hops = 0;
+  while (cur && cur.superseded_by && hops < maxHops) {
+    const next: NoteMeta | null = getNoteMeta(cur.superseded_by);
+    if (!next) break;
+    cur = next;
+    hops += 1;
+  }
+  return cur;
+}
+
+/**
+ * Reverse finalize: re-arm auto-cleanup countdown on a note. Used by both
+ * the MCP `unfinalize` tool and `updateNoteMetadata` when is_final flips
+ * from true to false. Idempotent — calling on an already-non-final note
+ * is a no-op that returns false.
+ */
+export async function unfinalize(id: string): Promise<boolean> {
+  const note = getNoteMeta(id);
+  if (!note || !note.is_final) return false;
+  const cfg = await loadConfig();
+  db().run(
+    "UPDATE notes SET is_final = 0, expires_at = datetime(?, '+' || ? || ' days'), updated = ? WHERE id = ?",
+    [note.created, cfg.default_lifespan_days, isoNow(), id],
+  );
+  logEvent("note_unfinalized", { thread_id: note.thread_id, via: "storage" }, id, note.thread_id);
+  return true;
 }
 
 export function finalize(id: string): boolean {
@@ -685,11 +970,15 @@ export async function cleanup(opts: { dry_run?: boolean; trash_grace_days?: numb
 }
 
 export function listThreads(query?: string, limit = 200): { thread_id: string; count: number; latest: string; final_count: number }[] {
+  // v0.22: thread index counts/latest reflect only head notes (superseded
+  // versions hide from the listing — a 3-note thread that's been collapsed
+  // via `replace` shows as a 1-note thread, which is what the user expects).
   if (!query?.trim()) {
     return db()
       .query<{ thread_id: string; count: number; latest: string; final_count: number }, [number]>(
         `SELECT thread_id, COUNT(*) AS count, MAX(created) AS latest, SUM(is_final) AS final_count
-         FROM notes WHERE status = 'active' GROUP BY thread_id ORDER BY latest DESC LIMIT ?`
+         FROM notes WHERE status = 'active' AND superseded_by IS NULL
+         GROUP BY thread_id ORDER BY latest DESC LIMIT ?`
       )
       .all(limit);
   }
@@ -701,7 +990,7 @@ export function listThreads(query?: string, limit = 200): { thread_id: string; c
     return db()
       .query<{ thread_id: string; count: number; latest: string; final_count: number }, [string, number]>(
         `SELECT thread_id, COUNT(*) AS count, MAX(created) AS latest, SUM(is_final) AS final_count
-         FROM notes WHERE status = 'active' AND lower(thread_id) LIKE ?
+         FROM notes WHERE status = 'active' AND superseded_by IS NULL AND lower(thread_id) LIKE ?
          GROUP BY thread_id ORDER BY latest DESC LIMIT ?`
       )
       .all(slugLike, limit);
@@ -718,9 +1007,10 @@ export function listThreads(query?: string, limit = 200): { thread_id: string; c
               MAX(n.created) AS latest,
               SUM(n.is_final) AS final_count
        FROM notes n
-       WHERE n.status = 'active'
+       WHERE n.status = 'active' AND n.superseded_by IS NULL
          AND (lower(n.thread_id) LIKE ? OR n.thread_id IN (
-             SELECT DISTINCT n2.thread_id FROM notes n2 JOIN matched_ids m ON m.id = n2.id WHERE n2.status = 'active'
+             SELECT DISTINCT n2.thread_id FROM notes n2 JOIN matched_ids m ON m.id = n2.id
+                WHERE n2.status = 'active' AND n2.superseded_by IS NULL
          ))
        GROUP BY n.thread_id
        ORDER BY latest DESC
@@ -772,7 +1062,7 @@ export function listNotesByTag(tag: string, limit = 200): NoteMeta[] {
     .query<Record<string, any>, [string, number]>(
       `SELECT n.* FROM notes n
          JOIN tags t ON t.note_id = n.id
-        WHERE n.status = 'active' AND t.tag = ?
+        WHERE n.status = 'active' AND n.superseded_by IS NULL AND t.tag = ?
         ORDER BY n.created DESC
         LIMIT ?`
     )
@@ -884,6 +1174,7 @@ function rowToMeta(row: Record<string, any>): NoteMeta {
     origin_device_id: row.origin_device_id ?? null,
     owner_device_id: row.owner_device_id ?? null,
     inline_render: row.inline_render === 1,
+    superseded_by: row.superseded_by ?? null,
   };
 }
 

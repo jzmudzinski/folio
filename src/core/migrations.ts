@@ -127,6 +127,23 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    from: "4",
+    to: "5",
+    description:
+      "Add superseded_by column to notes (v0.22 `replace` primitive). " +
+      "When a note is replaced via replaceNote(), the old note's " +
+      "superseded_by is set to the new note's id. The old .html file is " +
+      "preserved verbatim — capability URLs stay valid — but listings, " +
+      "thread views, and search hide superseded notes by default. " +
+      "Null = head version. Backfill is a no-op (existing notes are all " +
+      "heads since `replace` is new in this release).",
+    up: (db) => {
+      if (!hasColumn(db, "notes", "superseded_by")) {
+        db.exec("ALTER TABLE notes ADD COLUMN superseded_by TEXT");
+      }
+    },
+  },
 ];
 
 /**

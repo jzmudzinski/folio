@@ -2,6 +2,23 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.22.3 — 2026-05-18
+
+**Iteration gallery responsiveness.** Six dense mockups in a single round forced the user into 3×2 thumbnails too small to compare side-by-side. v0.22.3 adds a 1c/2c/3c density toolbar with auto-default picked from variant count + content size, per-note localStorage persistence, graduated viewport breakpoints, and adaptive card aspect ratio.
+
+### Added
+- **Density toolbar** (`▭ / ▭▭ / ▭▭▭`) in `.iter-gallery__head`. Click switches columns; choice persists in localStorage under `folio-iter-density:<note-id>` so re-opening the same note resumes the user's preferred view.
+- **Auto-default density** computed server-side per round: `>=4 variants AND avg content_html >=6kB → 1-col` (full-width, 16/9 preview, min 340px tall); `>=4 OR >=6kB → 2-col` (4/3 preview); else `3-col` (compact 3/2, current default).
+- **Graduated viewport breakpoints**: 3-col gracefully drops to 2 at ≤960px; everything collapses to 1 col at ≤640px (was the only breakpoint pre-v0.22.3).
+- **Adaptive card aspect ratio** tied to density via `data-cols` attribute on `.iter-gallery__grid`: 3-col keeps `3/2`, 2-col goes `4/3`, 1-col goes `16/9` with `min-height: 340px` so heavy mockups have real room.
+
+### Tests
+- `tests/iteration-viewer.test.ts` (+4 tests, 17 total) — density toolbar HTML present, auto-density picks 3 for compact / 2 for many-but-light / 1 for many+heavy variants, bootstrap script wires localStorage persistence.
+- Full suite: 555 tests across 51 files, all passing (was 551).
+
+### Why
+User generated 6 navigation-direction mockups; gallery rendered them at 280×186 each — too small to read the wireframes. The fix is layout-only (no protocol or schema changes); existing notes auto-pick a sane default and the user can override.
+
 ## v0.22.2 — 2026-05-18
 
 **Inline metadata editing replaces the popover; SKILL clarified.** The v0.22.1 popover was a stopgap — modeled on Share, full form with Save button, page reload. It worked but felt heavy for what is mostly typo fixes and tag adjustments. v0.22.2 swaps it for direct manipulation in the sidebar and clarifies the mutation contract for agents.

@@ -70,6 +70,116 @@ test("sanitize preserves a realistic plain-theme body_html (<style> + classes)",
   expect(r.html).toContain('class="grid"');
 });
 
+test("sanitize permissive mode keeps inline formatting tags that default mode strips", async () => {
+  // Reported by an agent generating a custom widget on the plain theme:
+  // <b id="x"> was disappearing entirely (not just losing the id), breaking
+  // a script that did getElementById('x'). Permissive mode is the contract
+  // for plain: agent owns the visual identity, sanitizer steps aside.
+  const { sanitize } = await import("../src/core/sanitize");
+  const body = `<p>Here is <b id="hl">a bold</b> and <i>italic</i> and <u>underline</u> and <s>strike</s> and <q>quoted</q>.</p>`;
+  const strict = sanitize(body);
+  const permissive = sanitize(body, { mode: "permissive" });
+  // Default mode drops <b>/<i>/<u>/<s>/<q> entirely
+  expect(strict.html).not.toContain("<b");
+  expect(strict.html).not.toContain("<i>");
+  expect(strict.html).not.toContain("<u>");
+  expect(strict.html).not.toContain("<s>");
+  expect(strict.html).not.toContain("<q>");
+  // Permissive keeps them + the id
+  expect(permissive.html).toContain('<b id="hl">');
+  expect(permissive.html).toContain("<i>");
+  expect(permissive.html).toContain("<u>");
+  expect(permissive.html).toContain("<s>");
+  expect(permissive.html).toContain("<q>");
+});
+
+test("sanitize permissive mode strips on*-handlers and javascript: URLs", async () => {
+  // The price of permissive: we must actively scrub the escape vectors that
+  // the default allowlist's narrow surface ruled out by construction.
+  const { sanitize } = await import("../src/core/sanitize");
+  const body = `<a href="javascript:alert(1)" onclick="alert(2)">click</a>
+    <img src="javascript:evil()" onerror="alert(3)">
+    <div onmouseover="alert(4)" data-keep="yes">hi</div>`;
+  const r = sanitize(body, { mode: "permissive" });
+  expect(r.html).not.toContain("javascript:");
+  expect(r.html).not.toMatch(/onclick=/i);
+  expect(r.html).not.toMatch(/onerror=/i);
+  expect(r.html).not.toMatch(/onmouseover=/i);
+  // But data-* + the tags + safe attrs survive
+  expect(r.html).toContain('data-keep="yes"');
+  expect(r.html).toContain("<a");
+  expect(r.html).toContain("<img");
+});
+
+test("sanitize permissive mode strips side-effecting head-y tags", async () => {
+  // The dangerous ones: <meta http-equiv="refresh"> navigates the iframe,
+  // <link rel="stylesheet" href="..."> pulls external CSS, <base href="..."
+  // rewrites every relative URL. Drop them with their content. <head> /
+  // <html> / <body> wrappers stay (inert in the sandbox); we don't try to
+  // unwrap-keep-children because exclusiveFilter drops the subtree.
+  const { sanitize } = await import("../src/core/sanitize");
+  const body = `<meta http-equiv="refresh" content="0;url=evil">
+    <link rel="stylesheet" href="https://evil.test/x.css">
+    <base href="https://evil.test/">
+    <noscript><img src="https://evil.test/track.gif"></noscript>
+    <p>real content</p>`;
+  const r = sanitize(body, { mode: "permissive" });
+  expect(r.html).not.toMatch(/<meta\b/i);
+  expect(r.html).not.toMatch(/<link\b/i);
+  expect(r.html).not.toMatch(/<base\b/i);
+  expect(r.html).not.toMatch(/<noscript\b/i);
+  expect(r.html).not.toContain("evil.test");
+  expect(r.html).toContain("<p>real content</p>");
+});
+
+test("sanitize permissive mode still enforces iframe sandbox (strips allow-same-origin)", async () => {
+  // A nested iframe with allow-same-origin could escape the outer null-origin
+  // sandbox. This guarantee must hold in every mode.
+  const { sanitize } = await import("../src/core/sanitize");
+  const body = `<iframe src="https://example.test/" sandbox="allow-scripts allow-same-origin allow-top-navigation"></iframe>`;
+  const r = sanitize(body, { mode: "permissive" });
+  expect(r.html).toContain("<iframe");
+  expect(r.html).not.toContain("allow-same-origin");
+  expect(r.html).toContain("allow-scripts");
+});
+
+test("createNote with theme='plain' applies permissive sanitization (round-trip)", async () => {
+  // The integration point: storage.createNote() detects theme === 'plain' and
+  // passes mode: 'permissive' to sanitize. Verify a <b id="..."> survives end
+  // to end through file write + read.
+  const { createNote, getNoteMeta, readNoteHtml } = await import("../src/core/storage");
+  const note = await createNote({
+    type: "snippet",
+    title: "Plain b-tag round-trip",
+    theme: "plain",
+    thread_id: "plain-b-tag",
+    body_html: `<p>Counter: <b id="counter">0</b>.</p>
+      <script>document.getElementById('counter').textContent = '42';</script>`,
+  });
+  const meta = getNoteMeta(note.id);
+  expect(meta?.theme).toBe("plain");
+  const html = readNoteHtml(meta!);
+  expect(html).toContain('<b id="counter">');
+  expect(html).toContain("<script>");
+});
+
+test("createNote with a non-plain theme keeps the strict allowlist (<b> is dropped)", async () => {
+  // Regression guard: don't accidentally widen sanitization for every theme.
+  const { createNote, getNoteMeta, readNoteHtml } = await import("../src/core/storage");
+  const note = await createNote({
+    type: "snippet",
+    title: "Linen b-tag drop",
+    theme: "linen",
+    thread_id: "linen-b-tag",
+    body_html: `<p>Here is <b>a bold</b> word.</p>`,
+  });
+  const meta = getNoteMeta(note.id);
+  expect(meta?.theme).toBe("linen");
+  const html = readNoteHtml(meta!);
+  expect(html).not.toContain("<b>");
+  expect(html).toContain("a bold");
+});
+
 test("createNote with theme='plain' + custom <style> block round-trips through storage", async () => {
   const { createNote, getNoteMeta, readNoteHtml } = await import("../src/core/storage");
   const note = await createNote({

@@ -2,6 +2,39 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.24.0 — 2026-05-18
+
+**Project workspace as a dashboard, not a list.** Phase 0 + Phase 1 step 1 of the [Folio-as-project-workspace plan](http://127.0.0.1:4810/n/01KRY7WZEV499TDWXGJH57JH4A). Introduces a `slot:<name>` tag convention for canonical living docs (roadmap / todo / changelog / release-notes / vision / hub / presentation / gantt) and rebuilds `/p/<slug>` to surface them as first-class cards above the existing thread list.
+
+### Added
+
+#### Phase 0 — SKILL convention
+- **`slot:<name>` tag convention** documented in `skills/folio/SKILL.md` under "Project tag" section. Standard slot names: `roadmap`, `todo`, `changelog`, `release-notes`, `vision`, `hub`, `presentation`, `gantt`. Each slot has a recommended note type + mutation pattern (replace-on-revise for canonical docs, append-only feed for changelogs, live + state:* for todos). Workflow examples + anti-pattern (don't make "Roadmap v2" with a duplicate slot tag — `replace` the existing head instead).
+
+#### Phase 1 — `getProjectDashboard()` + rich `/p/<slug>`
+- **`getProjectDashboard(slug, opts?)`** in `src/core/storage.ts`. Returns `{ slug, slots, pendingIterations, recentActivity, threadGroups, totalNotes, slotWarnings }`. Pure SQL — one query per facet, bounded by limits.
+  - **Slots**: every active head note carrying both `project:<slug>` AND a `slot:*` tag. Grouped by slot name; head = most-recently-updated. Collisions tracked in `slotWarnings`. Each `SlotEntry` exposes `head: NoteMeta` + `excerpt: string` (first ~280 chars of plain text from the body).
+  - **`pendingIterations`**: non-finalized iteration notes tagged with the project — "round waiting on a pick".
+  - **`recentActivity`**: last 20 events from threads in this project, within 14 days (both configurable).
+  - **`STANDARD_SLOTS` constant** + `StandardSlot` type for the recommended slot names.
+- **`pageProject(dashboard)` rebuilt** in `src/viewer/render.ts`. New sections, top→bottom: **Canonical docs** (slot cards with icon + title + excerpt + meta + optional `+N dupes` warning) → **Pending picks** (iteration-flag cards in orange) → **Recent activity** (thin event timeline with icon + linked description + ago) → **All threads** (existing card grid, condensed). Signature changed from `(slug, groups, totalNotes)` to `(dashboard: ProjectDashboard)`.
+
+### Changed
+- `pageProject()` is no longer a flat thread list — it's a dashboard. The thread cards still appear below as the last section. Empty projects show the same "tag a note with `project:<slug>`" prompt as before.
+- `GET /p/<slug>` calls `getProjectDashboard()` instead of `listProjectThreads()` directly (the latter is still exported and used elsewhere).
+
+### Tests
+- `tests/project-dashboard.test.ts` (+14 tests) — empty project shape, slot detection, slot ordering (STANDARD_SLOTS first / unknowns alpha), duplicate-slot warning + head-by-updated tiebreaker, excerpt strips HTML and caps at 280 chars, slot detection skips superseded notes, pending iterations (and the finalize→clear flow), activity scoped to project threads only, activity limit honored, viewer renders slot cards + pending cards + activity timeline + empty state + dupe warning badge.
+- Full suite: 586 tests across 53 files, all passing (was 572).
+
+### Migration notes
+- No schema change. `tags`, `notes`, and `events` tables carry everything `getProjectDashboard()` reads.
+- Existing projects don't need to retag — they just won't surface slot cards until the user (or agent) starts using `slot:<name>` tags. The thread list below is identical to v0.20+.
+- For first-time setup of a project: `create` the roadmap with `tags: ["project:<slug>", "slot:roadmap"]`; `create` the todo with `live: true, inline: true, tags: ["project:<slug>", "slot:todo"]`. Subsequent updates use `replace` for the roadmap, `append_entry` for the todo.
+
+### Why
+[Living docs research note](http://127.0.0.1:4810/n/01KRY7WZEV499TDWXGJH57JH4A) audited what's needed for Folio to host a whole project end-to-end. 7 of 11 artifact types already have a sensible primitive; the gap was project workspace surfacing canonical docs. Phase 0 (SKILL convention) + Phase 1 step 1 (rich `/p/`) close it without new primitives. Phase 1 steps 2-3 (kanban for live todos, presentation mode) follow in v0.25-v0.26.
+
 ## v0.23.0 — 2026-05-18
 
 **Continue where you left off — homepage rail.** Coming back to Folio used to mean scrolling a flat created-DESC list of 94 notes to find the project you actually worked on last. v0.23.0 adds a soft-orange band above the list with up to 5 cards for the threads you've actively touched in the last 7 days, ordered by `recency × frequency`. Click a card and you're back in the project workspace (or directly in the pending iteration round). Zero new user actions; the score is computed from the events table that's been running since v0.7.

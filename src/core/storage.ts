@@ -1252,6 +1252,230 @@ export function listProjectThreads(projectSlug: string, limit = 500): {
   return { groups, totalNotes: notes.length };
 }
 
+/**
+ * v0.24 — project workspace dashboard data.
+ *
+ * Wraps listProjectThreads with three additional facets the rich
+ * `/p/<slug>` view renders as cards above the thread list:
+ *
+ *   - `slots`: canonical living documents per the slot:<name> tag
+ *     convention. One head note per slot (most recent wins on collision;
+ *     `slot_warnings` reports the duplicates so the user can clean up).
+ *     Each slot exposes the head NoteMeta + a body excerpt for preview.
+ *
+ *   - `pendingIterations`: iteration notes tagged with this project that
+ *     are not finalized — i.e. there's a round waiting on a pick. The
+ *     dashboard card invites the user to click → resolve.
+ *
+ *   - `recentActivity`: last N events scoped to this project's threads
+ *     in the configurable window (default 14 days). One row per event,
+ *     newest first. Used for the "what's been happening" timeline.
+ *
+ *   - `threadGroups`: the existing listProjectThreads data, returned so
+ *     the renderer can show "all threads" below the dashboard cards
+ *     without doing a second SQL pass.
+ *
+ * All queries are bounded: at most one INSERT-equivalent SELECT per
+ * slot, plus a single events scan limited by the window+limit.
+ */
+export const STANDARD_SLOTS = [
+  "roadmap",
+  "todo",
+  "changelog",
+  "release-notes",
+  "vision",
+  "hub",
+  "presentation",
+  "gantt",
+] as const;
+export type StandardSlot = typeof STANDARD_SLOTS[number];
+
+export interface SlotEntry {
+  name: string;            // slot name without the "slot:" prefix
+  head: NoteMeta;          // current head note for this slot in this project
+  excerpt: string;         // first ~280 chars of plain text, for the card preview
+  duplicates: number;      // how many additional candidates carried the same slot tag (collision count)
+}
+
+export interface ProjectActivityEvent {
+  kind: string;
+  ts: string;
+  note_id: string | null;
+  thread_id: string | null;
+  data: Record<string, unknown> | null;
+}
+
+export interface ProjectDashboard {
+  slug: string;
+  slots: SlotEntry[];                // ordered by STANDARD_SLOTS list, then any unknown slots alpha-sorted
+  pendingIterations: NoteMeta[];     // non-finalized iteration notes
+  recentActivity: ProjectActivityEvent[];
+  threadGroups: ProjectThreadGroup[];
+  totalNotes: number;
+  slotWarnings: Array<{ slot: string; count: number }>;  // slots with >1 head note (cleanup hint)
+}
+
+export function getProjectDashboard(projectSlug: string, opts?: {
+  activityDays?: number;
+  activityLimit?: number;
+}): ProjectDashboard {
+  const activityDays = Math.max(1, Math.min(60, opts?.activityDays ?? 14));
+  const activityLimit = Math.max(1, Math.min(100, opts?.activityLimit ?? 20));
+  const projectTag = `project:${projectSlug}`;
+  const d = db();
+
+  // ── slot detection ────────────────────────────────────────────────────
+  // Pull every note that carries BOTH project:<slug> AND a slot:* tag.
+  // Group by slot name, head = most-recently-updated non-superseded one.
+  type SlotRow = { note_id: string; slot_tag: string };
+  const slotRows = d
+    .query<SlotRow, [string]>(
+      `SELECT DISTINCT t1.note_id, t1.tag AS slot_tag
+       FROM tags t1
+       JOIN tags t2 ON t2.note_id = t1.note_id
+       JOIN notes n ON n.id = t1.note_id
+       WHERE t1.tag LIKE 'slot:%'
+         AND t2.tag = ?
+         AND n.status = 'active'
+         AND n.superseded_by IS NULL`,
+    )
+    .all(projectTag);
+
+  const slotCandidates = new Map<string, NoteMeta[]>();
+  for (const row of slotRows) {
+    const meta = getNoteMeta(row.note_id);
+    if (!meta) continue;
+    const slotName = row.slot_tag.slice("slot:".length);
+    const arr = slotCandidates.get(slotName) ?? [];
+    arr.push(meta);
+    slotCandidates.set(slotName, arr);
+  }
+
+  const slots: SlotEntry[] = [];
+  const slotWarnings: Array<{ slot: string; count: number }> = [];
+  // Pick head per slot: newest by updated, breaking ties on created.
+  for (const [name, candidates] of slotCandidates.entries()) {
+    candidates.sort((a, b) => {
+      const tCmp = b.updated.localeCompare(a.updated);
+      return tCmp !== 0 ? tCmp : b.created.localeCompare(a.created);
+    });
+    const head = candidates[0]!;
+    if (candidates.length > 1) {
+      slotWarnings.push({ slot: name, count: candidates.length - 1 });
+    }
+    slots.push({ name, head, excerpt: slotExcerpt(head), duplicates: candidates.length - 1 });
+  }
+  // Order: STANDARD_SLOTS first (in declared order), then any non-standard slots alpha-sorted.
+  slots.sort((a, b) => {
+    const ai = STANDARD_SLOTS.indexOf(a.name as StandardSlot);
+    const bi = STANDARD_SLOTS.indexOf(b.name as StandardSlot);
+    if (ai >= 0 && bi >= 0) return ai - bi;
+    if (ai >= 0) return -1;
+    if (bi >= 0) return 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  // ── pending iterations ────────────────────────────────────────────────
+  const pendingIterRows = d
+    .query<Record<string, any>, [string]>(
+      `SELECT n.* FROM notes n
+       JOIN tags t ON t.note_id = n.id
+       WHERE n.type = 'iteration'
+         AND n.is_final = 0
+         AND n.status = 'active'
+         AND n.superseded_by IS NULL
+         AND t.tag = ?
+       ORDER BY n.updated DESC`,
+    )
+    .all(projectTag);
+  const pendingIterations = pendingIterRows.map(rowToMeta);
+
+  // ── recent activity ───────────────────────────────────────────────────
+  // Scope events to threads that have at least one note carrying the
+  // project tag. We pull the set of thread_ids first (small) then filter
+  // events by IN that set — cheaper than a join.
+  const projectThreadIds = d
+    .query<{ thread_id: string }, [string]>(
+      `SELECT DISTINCT n.thread_id FROM notes n
+       JOIN tags t ON t.note_id = n.id
+       WHERE t.tag = ? AND n.status = 'active'`,
+    )
+    .all(projectTag)
+    .map((r) => r.thread_id);
+
+  let recentActivity: ProjectActivityEvent[] = [];
+  if (projectThreadIds.length > 0) {
+    const placeholders = projectThreadIds.map(() => "?").join(",");
+    const eventRows = d
+      .query<{ kind: string; ts: string; note_id: string | null; thread_id: string | null; data: string | null }, any[]>(
+        `SELECT kind, ts, note_id, thread_id, data
+         FROM events
+         WHERE thread_id IN (${placeholders})
+           AND ts > datetime('now', '-' || ? || ' days')
+         ORDER BY ts DESC
+         LIMIT ?`,
+      )
+      .all(...projectThreadIds, activityDays, activityLimit);
+    recentActivity = eventRows.map((r) => ({
+      kind: r.kind,
+      ts: r.ts,
+      note_id: r.note_id,
+      thread_id: r.thread_id,
+      data: r.data ? safeParseJson(r.data) : null,
+    }));
+  }
+
+  // ── thread groups (reuse existing helper) ─────────────────────────────
+  const { groups, totalNotes } = listProjectThreads(projectSlug);
+
+  return {
+    slug: projectSlug,
+    slots,
+    pendingIterations,
+    recentActivity,
+    threadGroups: groups,
+    totalNotes,
+    slotWarnings,
+  };
+}
+
+/**
+ * Pull a short plain-text excerpt from a note's HTML body for slot
+ * preview cards. Reads the on-disk file via readNoteHtml so we get the
+ * sanitized rendered body, strips tags, collapses whitespace, caps at
+ * ~280 chars. Cheap enough to call once per slot per dashboard load.
+ */
+function slotExcerpt(meta: NoteMeta, maxChars = 280): string {
+  try {
+    const html = readNoteHtml(meta);
+    // Pull the article body, strip tags + scripts/styles, collapse whitespace.
+    const m = html.match(/<article[^>]*data-folio-content[^>]*>([\s\S]*?)<\/article>/);
+    const inner = m && m[1] ? m[1] : html;
+    const stripped = inner
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/\s+/g, " ")
+      .trim();
+    if (stripped.length <= maxChars) return stripped;
+    // Cut on a word boundary.
+    const cut = stripped.slice(0, maxChars);
+    const lastSpace = cut.lastIndexOf(" ");
+    return (lastSpace > 200 ? cut.slice(0, lastSpace) : cut).trim() + "…";
+  } catch {
+    return "";
+  }
+}
+
+function safeParseJson(s: string): Record<string, unknown> | null {
+  try { return JSON.parse(s) as Record<string, unknown>; } catch { return null; }
+}
+
 export function stats(): Record<string, any> {
   const d = db();
   return {

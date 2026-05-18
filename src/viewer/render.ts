@@ -1,6 +1,6 @@
 import type { NoteMeta, SearchHit } from "../core/types";
 import { db } from "../core/db";
-import { resolveHeadOfChain, listPopularTags, type ContinueRailItem } from "../core/storage";
+import { resolveHeadOfChain, listPopularTags, type ContinueRailItem, type ProjectDashboard } from "../core/storage";
 import { listThemes } from "../core/themes";
 import { panelIframeSrcdoc, LIVE_CHROME_JS } from "./live-panel";
 import { ENTRIES_CSS } from "./entries-css";
@@ -1083,9 +1083,24 @@ function listSidebarItem(n: NoteMeta, currentId: string | undefined, from: strin
 
 import type { ProjectThreadGroup } from "../core/storage";
 
-export function pageProject(slug: string, groups: ProjectThreadGroup[], totalNotes: number): string {
-  const latestCreated = groups[0]?.latestCreated ?? "";
-  const totalFinal = groups.reduce((acc, g) => acc + g.finalCount, 0);
+/**
+ * v0.24 — Project workspace as a dashboard, not a flat list.
+ *
+ * Sections, top → bottom:
+ *   1. Slot cards (canonical living docs: roadmap / todo / changelog / …)
+ *      Each card shows slot name, head note title, excerpt, and click → /n/<head-id>
+ *   2. Pending iterations (any non-finalized iteration note in the project)
+ *      Each opens the gallery view; "round X · N variants · pick one"
+ *   3. Recent activity (last 14d of events scoped to this project's threads)
+ *      Thin timeline — kind icon + title + ago
+ *   4. All threads (existing card grid, slightly condensed)
+ *
+ * Empty project: keeps the v0.20 "tag a note with project:<slug>" prompt.
+ */
+export function pageProject(dashboard: ProjectDashboard): string {
+  const { slug, slots, pendingIterations, recentActivity, threadGroups, totalNotes, slotWarnings } = dashboard;
+  const latestCreated = threadGroups[0]?.latestCreated ?? "";
+  const totalFinal = threadGroups.reduce((acc, g) => acc + g.finalCount, 0);
 
   const cardCss = `<style>
     .proj-page { max-width: 1100px; margin: 0 auto; padding: 20px 28px 60px; }
@@ -1102,7 +1117,45 @@ export function pageProject(slug: string, groups: ProjectThreadGroup[], totalNot
     .proj-empty p { font-family: var(--vserif); font-style: italic; font-size: 17px; line-height: 1.5; margin: 0 0 14px; }
     .proj-empty code { font-family: var(--vmono); background: var(--vbg-2); padding: 2px 6px; border-radius: 3px; }
 
-    .proj-threads { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 20px; }
+    /* Section header — used by Slots / Pending / Activity / Threads */
+    .proj-section { margin: 32px 0 14px; display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
+    .proj-section h2 { font-family: var(--vmono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--vmuted); font-weight: 600; margin: 0; }
+    .proj-section .lbl-cnt { color: var(--vmuted-2); margin-left: 6px; }
+    .proj-section .hint { font-family: var(--vserif); font-style: italic; font-size: 12.5px; color: var(--vmuted-2); }
+
+    /* Slot cards */
+    .proj-slots { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+    .proj-slot { background: var(--vpanel); border: 1px solid var(--vline); border-radius: 12px; padding: 16px 18px; transition: border-color .15s, transform .15s; text-decoration: none; color: inherit; display: flex; flex-direction: column; gap: 8px; position: relative; }
+    .proj-slot:hover { border-color: var(--vorange); transform: translateY(-2px); }
+    .proj-slot__name { font-family: var(--vmono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vorange); font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .proj-slot__name .slot-icon { font-size: 13px; line-height: 1; }
+    .proj-slot__title { font-family: var(--vhead); font-size: 17px; font-weight: 500; letter-spacing: -0.01em; color: var(--vink); margin: 0; line-height: 1.3; }
+    .proj-slot__excerpt { font-family: var(--vserif); font-style: italic; font-size: 13.5px; color: var(--vmuted); line-height: 1.5; margin: 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    .proj-slot__meta { font-family: var(--vmono); font-size: 10px; color: var(--vmuted-2); margin-top: auto; padding-top: 6px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .proj-slot__meta .live { color: #2f9050; }
+    .proj-slot__meta .type { color: var(--vink-2); }
+    .proj-slot__warn { background: rgba(201,142,45,0.12); color: #b07a1f; font-family: var(--vmono); font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; padding: 1px 6px; border-radius: 4px; margin-left: auto; }
+
+    /* Pending iterations strip */
+    .proj-pending { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+    .proj-pending-card { background: var(--vpanel); border: 1.5px solid var(--vorange); border-radius: 10px; padding: 14px 16px; text-decoration: none; color: inherit; display: flex; flex-direction: column; gap: 6px; transition: transform .12s, box-shadow .12s; box-shadow: 0 2px 8px rgba(255,90,31,0.06); }
+    .proj-pending-card:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(255,90,31,0.14); }
+    .proj-pending-card__flag { font-family: var(--vmono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--vorange); font-weight: 700; }
+    .proj-pending-card__title { font-family: var(--vhead); font-size: 15px; font-weight: 500; letter-spacing: -0.01em; color: var(--vink); }
+    .proj-pending-card__sub { font-family: var(--vmono); font-size: 10.5px; color: var(--vmuted); }
+
+    /* Activity timeline */
+    .proj-activity { background: var(--vbg-2); border-radius: 10px; padding: 8px 14px; }
+    .proj-act-row { display: grid; grid-template-columns: 26px 1fr auto; gap: 12px; align-items: baseline; padding: 7px 4px; font-size: 12.5px; border-bottom: 1px solid var(--vline-2); }
+    .proj-act-row:last-child { border-bottom: 0; }
+    .proj-act-row .icon { font-family: var(--vmono); font-size: 12px; color: var(--vorange); }
+    .proj-act-row .desc { color: var(--vink-2); }
+    .proj-act-row .desc a { color: inherit; border-bottom: 1px dashed var(--vline); }
+    .proj-act-row .desc a:hover { color: var(--vorange); border-bottom-color: currentColor; }
+    .proj-act-row .when { font-family: var(--vmono); font-size: 10.5px; color: var(--vmuted-2); }
+
+    /* Existing thread cards, condensed */
+    .proj-threads { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 8px; }
     .proj-thread { background: var(--vpanel); border: 1px solid var(--vline); border-radius: 12px; padding: 18px 20px; transition: border-color .12s, transform .12s; text-decoration: none; color: inherit; display: flex; flex-direction: column; gap: 10px; }
     .proj-thread:hover { border-color: var(--vorange); transform: translateY(-2px); }
     .proj-thread__head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
@@ -1115,19 +1168,105 @@ export function pageProject(slug: string, groups: ProjectThreadGroup[], totalNot
     .proj-thread__final { font-family: var(--vmono); font-size: 10px; color: var(--vorange); margin-top: 4px; }
   </style>`;
 
+  // Slot icons — emoji-free, monospace glyphs the linen theme already uses
+  const slotIcon = (name: string): string => {
+    switch (name) {
+      case "roadmap": return "→";
+      case "todo": return "☐";
+      case "changelog": return "▤";
+      case "release-notes": return "★";
+      case "vision": return "◇";
+      case "hub": return "◎";
+      case "presentation": return "▰";
+      case "gantt": return "≣";
+      default: return "·";
+    }
+  };
+
   const headerInner = `<span class="proj-ns">project:</span>${esc(slug)}`;
   const meta = totalNotes > 0
-    ? `${groups.length} ${groups.length === 1 ? "thread" : "threads"} · ${totalNotes} ${totalNotes === 1 ? "note" : "notes"} · latest ${ago(latestCreated)}${totalFinal > 0 ? ` · <span class="final">★ ${totalFinal} final</span>` : ""}`
+    ? `${threadGroups.length} ${threadGroups.length === 1 ? "thread" : "threads"} · ${totalNotes} ${totalNotes === 1 ? "note" : "notes"} · latest ${ago(latestCreated)}${totalFinal > 0 ? ` · <span class="final">★ ${totalFinal} final</span>` : ""}`
     : "";
 
-  let inner: string;
-  if (groups.length === 0) {
-    inner = `<div class="proj-empty">
+  // ── Slots section ─────────────────────────────────────────────────────
+  const slotsHtml = slots.length === 0
+    ? ""
+    : `<div class="proj-section"><h2>Canonical docs <span class="lbl-cnt">· ${slots.length}</span></h2><span class="hint">slot:&lt;name&gt; tag → one head doc per slot</span></div>
+       <div class="proj-slots">${
+         slots.map((s) => {
+           const liveLbl = s.head.live ? `<span class="live">● live</span>` : "";
+           const warnLbl = s.duplicates > 0 ? `<span class="proj-slot__warn">+${s.duplicates} dupe${s.duplicates === 1 ? "" : "s"}</span>` : "";
+           return `<a class="proj-slot" href="/n/${esc(s.head.id)}?from=project:${encodeURIComponent(slug)}">
+             <div class="proj-slot__name"><span class="slot-icon">${slotIcon(s.name)}</span>slot:${esc(s.name)}${warnLbl}</div>
+             <h3 class="proj-slot__title">${esc(s.head.title)}</h3>
+             ${s.excerpt ? `<p class="proj-slot__excerpt">${esc(s.excerpt)}</p>` : ""}
+             <div class="proj-slot__meta">
+               <span class="type">${esc(s.head.type)}</span>
+               <span>${ago(s.head.updated)}</span>
+               ${liveLbl}
+               ${s.head.is_final ? '<span style="color:var(--vorange)">★ final</span>' : ""}
+             </div>
+           </a>`;
+         }).join("")
+       }</div>`;
+
+  // ── Pending iterations ────────────────────────────────────────────────
+  const pendingHtml = pendingIterations.length === 0
+    ? ""
+    : `<div class="proj-section"><h2>Pending picks <span class="lbl-cnt">· ${pendingIterations.length}</span></h2><span class="hint">iteration rounds waiting for your click</span></div>
+       <div class="proj-pending">${
+         pendingIterations.map((n) => `<a class="proj-pending-card" href="/n/${esc(n.id)}?from=project:${encodeURIComponent(slug)}">
+           <span class="proj-pending-card__flag">↻ iteration · pending pick</span>
+           <span class="proj-pending-card__title">${esc(n.title)}</span>
+           <span class="proj-pending-card__sub">thread ${esc(n.thread_id)} · ${ago(n.updated)}</span>
+         </a>`).join("")
+       }</div>`;
+
+  // ── Recent activity timeline ──────────────────────────────────────────
+  const actIcon = (kind: string): string => {
+    if (kind === "note_created") return "+";
+    if (kind === "note_viewed") return "○";
+    if (kind === "note_finalized") return "★";
+    if (kind === "note_metadata_updated") return "✎";
+    if (kind === "note_superseded") return "↻";
+    if (kind === "live_entry_appended") return "▶";
+    if (kind === "note_deleted") return "✕";
+    if (kind === "note_unfinalized") return "↶";
+    return "·";
+  };
+  const actDesc = (e: ProjectActivityEvent): string => {
+    const noteLink = e.note_id ? `<a href="/n/${esc(e.note_id)}?from=project:${encodeURIComponent(slug)}">note</a>` : "note";
+    const threadLink = e.thread_id ? `<a href="/t/${esc(e.thread_id)}">${esc(e.thread_id)}</a>` : "";
+    if (e.kind === "note_created") return `created ${noteLink} in ${threadLink}`;
+    if (e.kind === "note_viewed") return `viewed ${noteLink}`;
+    if (e.kind === "note_finalized") return `finalized ${noteLink}`;
+    if (e.kind === "live_entry_appended") return `appended to live ${noteLink}`;
+    if (e.kind === "note_metadata_updated") return `edited metadata on ${noteLink}`;
+    if (e.kind === "note_superseded") return `${noteLink} replaced`;
+    if (e.kind === "note_deleted") return `deleted ${noteLink}`;
+    if (e.kind === "note_unfinalized") return `unfinalized ${noteLink}`;
+    return `${esc(e.kind)} on ${noteLink}`;
+  };
+  const activityHtml = recentActivity.length === 0
+    ? ""
+    : `<div class="proj-section"><h2>Recent activity <span class="lbl-cnt">· ${recentActivity.length}</span></h2><span class="hint">last 14 days</span></div>
+       <div class="proj-activity">${
+         recentActivity.map((e) => `<div class="proj-act-row">
+           <span class="icon">${actIcon(e.kind)}</span>
+           <span class="desc">${actDesc(e)}</span>
+           <span class="when">${ago(e.ts)}</span>
+         </div>`).join("")
+       }</div>`;
+
+  // ── All threads (existing) ────────────────────────────────────────────
+  let threadsHtml: string;
+  if (threadGroups.length === 0) {
+    threadsHtml = `<div class="proj-empty">
       <p>No threads tagged <code>project:${esc(slug)}</code> yet.</p>
       <p style="font-size: 14px; line-height: 1.55;">When you ask an agent to write something for this project, ask it to <strong>tag the note <code>project:${esc(slug)}</code></strong> — it'll show up here grouped by thread.</p>
     </div>`;
   } else {
-    const cards = groups.map((g) => {
+    const cards = threadGroups.map((g) => {
       const latest = g.notes[0]!;
       const title = latest.title;
       return `<a class="proj-thread" href="/t/${esc(g.thread_id)}">
@@ -1143,13 +1282,14 @@ export function pageProject(slug: string, groups: ProjectThreadGroup[], totalNot
         ${g.finalCount > 0 ? `<div class="proj-thread__final">★ ${g.finalCount} final</div>` : ""}
       </a>`;
     }).join("");
-    inner = `<div class="proj-threads">${cards}</div>`;
+    threadsHtml = `<div class="proj-section"><h2>All threads <span class="lbl-cnt">· ${threadGroups.length}</span></h2></div>
+       <div class="proj-threads">${cards}</div>`;
   }
 
   // Sidebar: group notes by thread, list under thread-name section heading.
-  const sideHtml = groups.length === 0
+  const sideHtml = threadGroups.length === 0
     ? ""
-    : groups.map((g) => {
+    : threadGroups.map((g) => {
         const items = g.notes.map((n) => listSidebarItem(n, undefined, `project:${slug}`)).join("");
         return `<div class="list-section">${esc(g.thread_id)} · ${g.noteCount}</div>${items}`;
       }).join("");
@@ -1158,7 +1298,7 @@ export function pageProject(slug: string, groups: ProjectThreadGroup[], totalNot
 <aside class="list-side">
   <a href="/" class="back">← Back to list</a>
   <h2><span class="ns">project:</span>${esc(slug)}</h2>
-  <div class="list-meta">${groups.length} ${groups.length === 1 ? "thread" : "threads"} · ${totalNotes} ${totalNotes === 1 ? "note" : "notes"}${totalFinal > 0 ? ` · ★ ${totalFinal} final` : ""}</div>
+  <div class="list-meta">${threadGroups.length} ${threadGroups.length === 1 ? "thread" : "threads"} · ${totalNotes} ${totalNotes === 1 ? "note" : "notes"}${totalFinal > 0 ? ` · ★ ${totalFinal} final` : ""}${slots.length > 0 ? ` · ${slots.length} slot${slots.length === 1 ? "" : "s"}` : ""}${pendingIterations.length > 0 ? ` · ${pendingIterations.length} pending` : ""}</div>
   <div class="list-items">${sideHtml}</div>
 </aside>`;
 
@@ -1168,10 +1308,13 @@ export function pageProject(slug: string, groups: ProjectThreadGroup[], totalNot
     <div class="proj-head">
       <div class="proj-eyebrow"><a href="/">← Notes</a> · <a href="/tag/${esc(`project:${slug}`)}">flat tag view</a></div>
       <h1 class="proj-title">${headerInner}</h1>
-      <p class="proj-sub">Project workspace — one card per thread, tagged with <code>project:${esc(slug)}</code>.</p>
+      <p class="proj-sub">Project workspace — canonical docs, pending decisions, recent activity, every thread.</p>
       ${meta ? `<div class="proj-meta">${meta}</div>` : ""}
     </div>
-    ${inner}
+    ${slotsHtml}
+    ${pendingHtml}
+    ${activityHtml}
+    ${threadsHtml}
   </div>
 </main>`;
 

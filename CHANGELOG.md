@@ -2,6 +2,41 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.22.2 — 2026-05-18
+
+**Inline metadata editing replaces the popover; SKILL clarified.** The v0.22.1 popover was a stopgap — modeled on Share, full form with Save button, page reload. It worked but felt heavy for what is mostly typo fixes and tag adjustments. v0.22.2 swaps it for direct manipulation in the sidebar and clarifies the mutation contract for agents.
+
+### Added (inline UI)
+- **Click-to-edit title.** The sidebar H1 gets `class="editable-title" data-note-id` + `tabindex="0"`. Click or focus → `contenteditable=true`; Enter saves; Esc cancels; blur saves. Empty/whitespace title is rejected with a toast. Saving uses the existing `POST /api/notes/:id/metadata`.
+- **Tag chips with × remove + autocomplete add.** Each existing tag renders as `<span class="tag-chip">` with a tiny `×` remove button. Clicking × auto-saves the smaller list. A trailing `+ add tag` input filters from a server-embedded `popularTags` list (`listPopularTags(100, 1)` baked at render time — no extra `/api/tags` round-trip per keystroke); Up/Down navigate suggestions, Enter commits. Typing a value that doesn't match any existing tag offers a `+ create "<value>"` affordance.
+- **Theme dropdown "Save as default" link.** The inline `<select class="theme-switch">` keeps its preview-on-change behavior (still uses the `?theme=X` URL param for the iframe), but now a `✓ Save as default` link appears next to it whenever the dropdown value differs from the saved theme. Click persists via the metadata endpoint and reloads.
+- **`window.__folioToast(msg, isError)` global** — small toast helper used by all three inline editors for save errors / "Title cannot be empty" / etc. Auto-dismisses after 1.8s.
+
+### Removed
+- The `✎ Edit metadata` button in `.side-aux`.
+- `editMetadataPopoverHtml()`, `editMetadataPopoverJs()`, and the `.edit-pop*` CSS block — all replaced by `inlineMetadataEditorJs()` (single concentrated handler for title + tags + toast; theme save link is wired alongside the existing preview logic in `noteScript`).
+
+### SKILL restructured per Anthropic's [Skill best practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)
+- **SKILL.md trimmed 597 → 240 lines** (under the 500-line soft cap). Long sections moved out to `skills/folio/reference/*.md`:
+  - `live-notes.md` (~104 lines) — render modes, tool surface, chain-of-entries, tag conventions
+  - `iteration-notes.md` (~109 lines) — propose_round/wait_for_pick workflow, variant content_html, SVG-for-logos skeleton
+  - `themes.md` (~32 lines) — full theme picker table
+  - `assets.md` (~120 lines) — attach_asset, relative-URL rule, generating images (SVG vs raster vs external)
+- **References one level deep from SKILL.md** — no chained `a → b → c` lookups, matching the best-practices "Avoid deeply nested references" guidance.
+- **Reference files >100 lines carry their own ToC** at the top.
+- **Frontmatter description tightened** to third-person, what+when, with mutation contract spelled out. New form: *"Creates visually-rich HTML knowledge artifacts in Folio (folio-mcp). Use when… Body changes flow through the `replace` MCP tool (agent-only); metadata… via `update_metadata`."* (~580 chars, under the 1024 limit).
+- **New section "Mutation surfaces"** with a 3-row table (body / metadata / live entries) and a decision tree mapping user phrases to the right tool. Explicitly names the user-facing inline editors so the agent doesn't intrude on jobs the user can do faster.
+- **Mandatory-loop step 7 rewritten** — three-branch rule (body → `replace`; metadata → `update_metadata` or hand off to inline editor; different artifact → `create` with same thread). The previous "do NOT edit the old one — ADR-014 append-only" wording was a v0.21 promise under v0.22.
+- **Anti-pattern bullet** updated: "Refusing to edit because Folio is append-only" is now the anti-pattern, with supported paths spelled out.
+
+### Tests
+- `tests/viewer-edit-metadata.test.ts` rewritten (+5 tests, 13 total) — `editable-title` h1 with data-note-id, `tag-editor` with chip+×+add+suggest, `theme-save` link present and hidden by default, `inlineMetadataEditorJs` embeds popularTags + handles `ArrowDown` navigation + posts to the metadata endpoint, regression guard that the v0.22.1 popover is gone (`id="edit-trigger"`, `id="edit-pop"` not in output). Endpoint cases (happy path, theme rewrites HTML link, no-change, unknown-theme, bad id) unchanged from v0.22.1.
+- Full suite: 551 tests across 51 files, all passing (was 546).
+
+### Not changed
+- Endpoint `POST /api/notes/:id/metadata` unchanged — it's the substrate; the UI on top swapped.
+- Body editing in the viewer remains intentionally absent. No textarea, no rich-text editor, no contenteditable on the article. Body changes flow through the agent via `replace`. This is what the SKILL now spells out.
+
 ## v0.22.1 — 2026-05-18
 
 **Edit metadata popover in the viewer.** v0.22.0 shipped the `updateNoteMetadata()` storage function + `update_metadata` MCP tool + `folio edit` CLI but no in-browser UI — users could only edit metadata from the agent or the terminal. v0.22.1 fills the gap with a popover modeled on the Share popover.

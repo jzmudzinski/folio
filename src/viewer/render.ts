@@ -1,6 +1,6 @@
 import type { NoteMeta, SearchHit } from "../core/types";
 import { db } from "../core/db";
-import { resolveHeadOfChain } from "../core/storage";
+import { resolveHeadOfChain, listPopularTags } from "../core/storage";
 import { listThemes } from "../core/themes";
 import { panelIframeSrcdoc, LIVE_CHROME_JS } from "./live-panel";
 import { ENTRIES_CSS } from "./entries-css";
@@ -337,6 +337,41 @@ body.list-page { overflow: hidden; }
 .side-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .side-tags .tg { font-family: var(--vmono); font-size: 10.5px; padding: 3px 8px; border-radius: 4px; background: var(--vbg-2); color: var(--vmuted); border: 1px solid var(--vline-2); transition: color .12s, border-color .12s, background .12s; max-width: 100%; overflow-wrap: anywhere; word-break: break-word; }
 .side-tags a.tg:hover { color: var(--vorange); border-color: var(--vorange); background: var(--vpanel); }
+
+/* v0.22.2 — inline metadata editors (replaces the Edit popover).
+   Direct-manipulation pattern: click title to rename, × on a tag chip
+   to remove, type in the trailing input to add new (with autocomplete).
+   Each commit auto-saves via POST /api/notes/:id/metadata. */
+.editable-title { cursor: text; padding: 2px 6px; margin-left: -6px; border-radius: 4px; transition: background .12s, box-shadow .12s; }
+.editable-title:hover { background: var(--vbg-2); box-shadow: inset 0 0 0 1px var(--vline); }
+.editable-title:focus { background: var(--vbg-2); box-shadow: inset 0 0 0 2px var(--vorange); outline: none; }
+.editable-title.is-saving { opacity: 0.6; cursor: wait; }
+
+.tag-editor { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; position: relative; }
+.tag-editor .tag-chip { display: inline-flex; align-items: center; gap: 4px; font-family: var(--vmono); font-size: 10.5px; padding: 3px 4px 3px 8px; border-radius: 4px; background: var(--vbg-2); color: var(--vmuted); border: 1px solid var(--vline-2); max-width: 100%; }
+.tag-editor .tag-chip a.tg { color: inherit; padding: 0; background: transparent; border: 0; }
+.tag-editor .tag-chip a.tg:hover { color: var(--vorange); }
+.tag-editor .tag-chip button.tag-remove { background: transparent; border: 0; color: var(--vmuted-2); cursor: pointer; font-size: 12px; padding: 0 2px; line-height: 1; transition: color .12s; font-family: inherit; }
+.tag-editor .tag-chip button.tag-remove:hover { color: #c8412a; }
+.tag-editor .tag-add-wrap { position: relative; }
+.tag-editor .tag-add-input { font-family: var(--vmono); font-size: 10.5px; padding: 3px 8px; border: 1px dashed var(--vline); border-radius: 4px; background: transparent; color: inherit; min-width: 88px; max-width: 140px; }
+.tag-editor .tag-add-input::placeholder { color: var(--vmuted-2); }
+.tag-editor .tag-add-input:focus { outline: none; border-color: var(--vorange); border-style: solid; }
+.tag-editor .tag-suggest { position: absolute; top: 100%; left: 0; margin-top: 3px; background: var(--vpanel); border: 1px solid var(--vline); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,0.12); min-width: 160px; max-width: 240px; max-height: 220px; overflow-y: auto; z-index: 50; padding: 4px; }
+.tag-editor .tag-suggest[hidden] { display: none; }
+.tag-editor .tag-suggest-item { display: block; width: 100%; text-align: left; padding: 4px 8px; font-family: var(--vmono); font-size: 11px; color: var(--vmuted); background: transparent; border: 0; border-radius: 3px; cursor: pointer; }
+.tag-editor .tag-suggest-item:hover, .tag-editor .tag-suggest-item.is-active { background: var(--vbg-2); color: var(--vink-2); }
+.tag-editor .tag-suggest-item.is-create { color: var(--vorange); }
+.tag-editor .tag-suggest-item .count { color: var(--vmuted-2); margin-left: 6px; }
+
+.theme-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.theme-save { font-family: var(--vmono); font-size: 10.5px; color: var(--vorange); cursor: pointer; padding: 3px 0; }
+.theme-save[hidden] { display: none; }
+.theme-save:hover { text-decoration: underline; }
+
+.meta-toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(8px); padding: 8px 14px; background: #0a0a0a; color: #f5f3ee; border-radius: 6px; font-family: var(--vmono); font-size: 11.5px; opacity: 0; transition: opacity .15s, transform .15s; pointer-events: none; z-index: 200; box-shadow: 0 6px 18px rgba(0,0,0,0.25); }
+.meta-toast.is-shown { opacity: 1; transform: translateX(-50%) translateY(0); }
+.meta-toast.is-error { background: #c8412a; }
 .side-aux { margin-top: auto; padding-top: 18px; border-top: 1px solid var(--vline); display: flex; flex-direction: column; gap: 4px; }
 .side-aux a, .side-aux button { font-family: var(--vmono); font-size: 11px; color: var(--vmuted); letter-spacing: 0.06em; padding: 4px 0; transition: color .12s; background: transparent; border: 0; text-align: left; cursor: pointer; }
 .side-aux a:hover, .side-aux button:hover { color: var(--vorange); }
@@ -1207,33 +1242,6 @@ const SHARE_POPOVER_CSS = `<style>
 .share-pop__manage .cnt { background: var(--vorange); color: #fff; font-size: 9px; padding: 1px 7px; border-radius: 9px; font-weight: 600; }
 .share-pop__manage .arrow { color: var(--vorange); font-weight: 600; }
 .share-pop__manage[hidden] { display: none; }
-
-/* v0.22 — Edit metadata popover. Same shape as share-pop (fixed-position,
-   arrow on left edge pointing at the trigger in .side-aux). Form layout
-   inherits the share-pop__form pattern. Wider (320px vs 280px) because the
-   tag input + theme dropdown want a bit more room. */
-.edit-pop { position: fixed; top: 54px; left: 380px; width: 320px; background: var(--vpanel); border: 1px solid var(--vline); border-radius: 10px; box-shadow: 0 12px 36px rgba(0,0,0,0.16); z-index: 100; overflow: hidden; opacity: 0; visibility: hidden; transform: translateX(-4px); transition: opacity .14s, transform .14s, visibility .14s; }
-.edit-pop.is-open { opacity: 1; visibility: visible; transform: translateX(0); }
-.edit-pop::before { content: ''; position: absolute; top: var(--edit-pop-arrow-top, 18px); left: -6px; width: 10px; height: 10px; background: var(--vpanel); border-left: 1px solid var(--vline); border-bottom: 1px solid var(--vline); transform: rotate(45deg); }
-.edit-pop__head { padding: 14px 18px 8px; display: flex; align-items: center; justify-content: space-between; }
-.edit-pop__title { font-family: var(--vmono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vmuted); font-weight: 600; }
-.edit-pop__hint { font-family: var(--vmono); font-size: 9.5px; color: var(--vmuted-2); }
-.edit-pop__form { padding: 0 18px 14px; display: flex; flex-direction: column; gap: 9px; }
-.edit-pop__row { display: flex; flex-direction: column; gap: 3px; }
-.edit-pop__row label { font-family: var(--vmono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--vmuted); }
-.edit-pop__row input, .edit-pop__row select { padding: 7px 10px; border: 1px solid var(--vline); border-radius: 5px; background: var(--vbg); color: inherit; font-family: var(--vmono); font-size: 12.5px; }
-.edit-pop__row input:focus, .edit-pop__row select:focus { outline: none; border-color: var(--vorange); }
-.edit-pop__row .hint { font-family: var(--vmono); font-size: 9.5px; color: var(--vmuted-2); margin-top: 2px; }
-.edit-pop__check { display: flex; align-items: center; gap: 8px; font-family: var(--vmono); font-size: 11.5px; color: var(--vink-2); cursor: pointer; user-select: none; padding: 4px 0; }
-.edit-pop__check input { margin: 0; cursor: pointer; }
-.edit-pop__actions { display: flex; gap: 8px; margin-top: 4px; }
-.edit-pop__cancel { flex: 1; background: transparent; color: var(--vmuted); border: 1px solid var(--vline); padding: 9px; border-radius: 6px; font-family: 'Familjen Grotesk', sans-serif; font-weight: 500; font-size: 12.5px; cursor: pointer; letter-spacing: 0.05em; text-transform: uppercase; }
-.edit-pop__cancel:hover { color: var(--vink); border-color: var(--vink); }
-.edit-pop__save { flex: 2; background: var(--vorange); color: #fff; border: 0; padding: 9px; border-radius: 6px; font-family: 'Familjen Grotesk', sans-serif; font-weight: 600; font-size: 12.5px; cursor: pointer; letter-spacing: 0.05em; text-transform: uppercase; }
-.edit-pop__save:hover { background: #e64a0e; }
-.edit-pop__save:disabled { opacity: 0.55; cursor: wait; }
-.edit-pop__error { padding: 10px 18px; border-top: 1px solid var(--vline); color: #c8412a; font-size: 12px; line-height: 1.5; display: none; }
-.edit-pop__error.is-shown { display: block; }
 </style>`;
 
 function sharePopoverHtml(noteId: string): string {
@@ -1432,175 +1440,234 @@ function sharePopoverJs(noteId: string): string {
 }
 
 /**
- * v0.22: Edit metadata popover — title / tags / theme / is_final.
+ * v0.22.2 — inline metadata editor (replaces the popover from v0.22.1).
+ * Wires three direct-manipulation surfaces in the sidebar:
+ *   • `.editable-title` — click the H1 → contenteditable, Enter saves,
+ *     Esc cancels, blur saves. Empty/whitespace value is rejected.
+ *   • `.tag-editor` — × on each chip removes (auto-saves); the trailing
+ *     input adds a new tag on Enter or on click of an autocomplete
+ *     suggestion. Autocomplete shows existing popular tags filtered by
+ *     prefix, plus a "+ create [text]" affordance when the typed value
+ *     doesn't match any. Up/Down navigate, Enter commits, Esc dismisses.
+ *   • Theme dropdown's "Save as default" link is handled inside the
+ *     existing noteScript above (it shares state with the preview).
  *
- * Modeled directly after sharePopoverHtml: same `aside` shell, same arrow
- * positioning, opens on click of the trigger in .side-aux. Form submits
- * to POST /api/notes/:id/metadata; on success the page reloads so the new
- * title in the side h1 + new tag list + new theme.css <link> render
- * naturally without a chunk of imperative DOM patching.
+ * All saves POST to /api/notes/:id/metadata. On success we reload the
+ * page so the sidebar h1, the body iframe's <title>/<h1>, the tag chips,
+ * and the active theme link all converge to the new state.
+ *
+ * `popularTags` is embedded at render time (top 100 most-used tags in
+ * this Folio). Cheap enough to inline; avoids a /api/tags round-trip on
+ * every keystroke.
  */
-function editMetadataPopoverHtml(note: NoteMeta): string {
-  const themes = listThemes();
-  const themeOptions = themes
-    .map((t) => `<option value="${esc(t.name)}"${t.name === note.theme ? " selected" : ""}>${esc(t.name)}</option>`)
-    .join("");
-  return `<aside class="edit-pop" id="edit-pop" role="dialog" aria-label="Edit metadata" data-note-id="${esc(note.id)}">
-  <div class="edit-pop__head">
-    <div class="edit-pop__title">Edit metadata</div>
-    <div class="edit-pop__hint">body stays immutable</div>
-  </div>
-  <form class="edit-pop__form" id="edit-form">
-    <div class="edit-pop__row">
-      <label for="edit-title">Title</label>
-      <input id="edit-title" name="title" type="text" value="${esc(note.title)}" autocomplete="off" spellcheck="false">
-    </div>
-    <div class="edit-pop__row">
-      <label for="edit-tags">Tags</label>
-      <input id="edit-tags" name="tags" type="text" value="${esc(note.tags.join(", "))}" placeholder="a, b, c" autocomplete="off" spellcheck="false">
-      <span class="hint">comma-separated · empty = clear all</span>
-    </div>
-    <div class="edit-pop__row">
-      <label for="edit-theme">Theme</label>
-      <select id="edit-theme" name="theme">${themeOptions}</select>
-    </div>
-    <label class="edit-pop__check">
-      <input type="checkbox" id="edit-final" name="is_final"${note.is_final ? " checked" : ""}>
-      <span>Final · skip auto-cleanup</span>
-    </label>
-    <div class="edit-pop__actions">
-      <button class="edit-pop__cancel" type="button" id="edit-cancel">Cancel</button>
-      <button class="edit-pop__save" type="submit" id="edit-save">Save</button>
-    </div>
-  </form>
-  <div class="edit-pop__error" id="edit-error"></div>
-</aside>`;
-}
-
-function editMetadataPopoverJs(noteId: string): string {
-  // The trigger is `#edit-trigger` in .side-aux. Same positioning + open/close
-  // pattern as the share popover. On Save: POST the changed fields (skip
-  // fields that match the inputs' initial values to avoid spurious
-  // updates), surface no-change as a benign hint, reload on success.
+function inlineMetadataEditorJs(noteId: string): string {
+  const popular = listPopularTags(100, 1).map((t) => ({ tag: t.tag, count: t.count }));
   return `(function () {
   var noteId = ${JSON.stringify(noteId)};
-  var trigger = document.getElementById('edit-trigger');
-  var pop = document.getElementById('edit-pop');
-  if (!trigger || !pop) return;
-  var form = document.getElementById('edit-form');
-  var titleEl = document.getElementById('edit-title');
-  var tagsEl = document.getElementById('edit-tags');
-  var themeEl = document.getElementById('edit-theme');
-  var finalEl = document.getElementById('edit-final');
-  var saveBtn = document.getElementById('edit-save');
-  var cancelBtn = document.getElementById('edit-cancel');
-  var errorBox = document.getElementById('edit-error');
+  var popularTags = ${JSON.stringify(popular)};
 
-  // Snapshot the initial input values to diff against on save. Avoids
-  // posting a no-change patch when the user opens the popover and clicks
-  // Save without touching anything.
-  var initial = {
-    title: titleEl.value,
-    tags: tagsEl.value,
-    theme: themeEl.value,
-    is_final: finalEl.checked,
-  };
-
-  function positionNearTrigger() {
-    var rect = trigger.getBoundingClientRect();
-    var popHeight = pop.offsetHeight || 340;
-    var viewportH = window.innerHeight;
-    var margin = 12;
-    var top = rect.top - 4;
-    if (top + popHeight > viewportH - margin) top = Math.max(margin, viewportH - popHeight - margin);
-    pop.style.top = top + 'px';
-    pop.style.left = (rect.right + 14) + 'px';
-    var arrowTop = Math.max(8, Math.min(popHeight - 14, rect.top + rect.height / 2 - top - 5));
-    pop.style.setProperty('--edit-pop-arrow-top', arrowTop + 'px');
-  }
-  function open() {
-    positionNearTrigger();
-    pop.classList.add('is-open');
-    setTimeout(function () {
-      positionNearTrigger();
-      if (titleEl) titleEl.focus();
-    }, 60);
-  }
-  function close() {
-    pop.classList.remove('is-open');
-    errorBox.classList.remove('is-shown');
-    // Restore the inputs to initial values so reopening shows the saved state.
-    titleEl.value = initial.title;
-    tagsEl.value = initial.tags;
-    themeEl.value = initial.theme;
-    finalEl.checked = initial.is_final;
-  }
-  function showError(msg) {
-    errorBox.textContent = msg;
-    errorBox.classList.add('is-shown');
-  }
-
-  trigger.addEventListener('click', function (e) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (pop.classList.contains('is-open')) close(); else open();
-  });
-  cancelBtn.addEventListener('click', function (e) {
-    e.preventDefault();
-    close();
-  });
-  document.addEventListener('click', function (e) {
-    if (!pop.classList.contains('is-open')) return;
-    if (pop.contains(e.target) || trigger.contains(e.target)) return;
-    close();
-  });
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && pop.classList.contains('is-open')) close();
-  });
-
-  form.addEventListener('submit', function (e) {
-    e.preventDefault();
-    errorBox.classList.remove('is-shown');
-    var body = {};
-    if (titleEl.value !== initial.title) body.title = titleEl.value;
-    if (tagsEl.value !== initial.tags) {
-      body.tags = tagsEl.value.split(',').map(function(t){ return t.trim(); }).filter(Boolean);
+  // ── Tiny toast helper used by all surfaces ────────────────────────────
+  var toastEl = null;
+  function toast(msg, isErr) {
+    if (!toastEl) {
+      toastEl = document.createElement('div');
+      toastEl.className = 'meta-toast';
+      document.body.appendChild(toastEl);
     }
-    if (themeEl.value !== initial.theme) body.theme = themeEl.value;
-    if (finalEl.checked !== initial.is_final) body.is_final = finalEl.checked;
-    if (Object.keys(body).length === 0) {
-      showError('No changes to save.');
-      return;
-    }
-    saveBtn.disabled = true;
-    var prevLabel = saveBtn.textContent;
-    saveBtn.textContent = 'Saving…';
-    fetch('/api/notes/' + encodeURIComponent(noteId) + '/metadata', {
+    toastEl.textContent = msg;
+    toastEl.classList.toggle('is-error', !!isErr);
+    toastEl.classList.add('is-shown');
+    clearTimeout(toastEl.__t);
+    toastEl.__t = setTimeout(function () { toastEl.classList.remove('is-shown'); }, 1800);
+  }
+  window.__folioToast = toast;
+
+  function saveMetadata(patch, onOk, onErr) {
+    return fetch('/api/notes/' + encodeURIComponent(noteId) + '/metadata', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify(patch),
     }).then(function (r) {
-      return r.json().then(function (d) { return { ok: r.ok, status: r.status, data: d }; });
+      return r.json().then(function (d) { return { httpOk: r.ok, status: r.status, data: d }; });
     }).then(function (resp) {
-      saveBtn.disabled = false;
-      saveBtn.textContent = prevLabel;
-      if (!resp.ok || !resp.data.ok) {
-        var reason = (resp.data && resp.data.reason) || ('HTTP ' + resp.status);
-        if (reason === 'unknown-theme') showError('Unknown theme: ' + (body.theme || ''));
-        else if (reason === 'no-change') showError('No changes to save.');
-        else showError(reason);
+      if (resp.httpOk && resp.data.ok) { onOk && onOk(resp.data); }
+      else { onErr && onErr(resp.data || { reason: 'HTTP ' + resp.status }); }
+    }).catch(function (err) {
+      onErr && onErr({ reason: (err && err.message) || 'network' });
+    });
+  }
+
+  // ── Inline title editor ───────────────────────────────────────────────
+  var titleEl = document.querySelector('.editable-title');
+  if (titleEl) {
+    var originalTitle = titleEl.textContent.trim();
+    var armed = false;
+    function enterEdit() {
+      if (armed) return;
+      armed = true;
+      titleEl.setAttribute('contenteditable', 'true');
+      titleEl.focus();
+      // Place cursor at end.
+      try {
+        var range = document.createRange();
+        range.selectNodeContents(titleEl);
+        range.collapse(false);
+        var sel = window.getSelection();
+        if (sel) { sel.removeAllRanges(); sel.addRange(range); }
+      } catch (_e) {}
+    }
+    function commit() {
+      if (!armed) return;
+      var v = titleEl.textContent.trim();
+      titleEl.removeAttribute('contenteditable');
+      armed = false;
+      if (!v) {
+        titleEl.textContent = originalTitle;
+        toast('Title cannot be empty', true);
         return;
       }
-      // Reload so the new title / tag chips / theme link in the parent
-      // chrome show the persisted state. Body iframe gets its own refresh
-      // for free since the wrapper HTML was regenerated server-side.
-      window.location.reload();
-    }).catch(function (err) {
-      saveBtn.disabled = false;
-      saveBtn.textContent = prevLabel;
-      showError(err && err.message ? err.message : 'Network error.');
+      if (v === originalTitle) {
+        titleEl.textContent = originalTitle;
+        return;
+      }
+      titleEl.classList.add('is-saving');
+      saveMetadata({ title: v }, function (data) {
+        window.location.reload();
+      }, function (err) {
+        titleEl.classList.remove('is-saving');
+        titleEl.textContent = originalTitle;
+        toast('Save failed: ' + (err.reason || 'unknown'), true);
+      });
+    }
+    function cancel() {
+      if (!armed) return;
+      titleEl.textContent = originalTitle;
+      titleEl.removeAttribute('contenteditable');
+      armed = false;
+    }
+    titleEl.addEventListener('click', enterEdit);
+    titleEl.addEventListener('focus', enterEdit);
+    titleEl.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); titleEl.blur(); }
+      else if (e.key === 'Escape') { e.preventDefault(); cancel(); titleEl.blur(); }
     });
-  });
+    titleEl.addEventListener('blur', commit);
+  }
+
+  // ── Tag editor ────────────────────────────────────────────────────────
+  var tagEditor = document.querySelector('.tag-editor');
+  if (tagEditor) {
+    function currentTags() {
+      return Array.prototype.slice.call(tagEditor.querySelectorAll('.tag-chip[data-tag]'))
+        .map(function (c) { return c.getAttribute('data-tag'); });
+    }
+    function persistTags(tags) {
+      saveMetadata({ tags: tags }, function () {
+        window.location.reload();
+      }, function (err) {
+        toast('Save failed: ' + (err.reason || 'unknown'), true);
+      });
+    }
+    // Remove × button on existing chips.
+    tagEditor.addEventListener('click', function (e) {
+      var btn = e.target && e.target.closest && e.target.closest('.tag-remove');
+      if (!btn) return;
+      e.preventDefault();
+      var tag = btn.getAttribute('data-tag');
+      var keep = currentTags().filter(function (t) { return t !== tag; });
+      persistTags(keep);
+    });
+
+    var addInput = tagEditor.querySelector('.tag-add-input');
+    var suggestBox = tagEditor.querySelector('.tag-suggest');
+    var activeIdx = -1;
+
+    function getSuggestions(q) {
+      var existing = new Set(currentTags());
+      var lower = q.trim().toLowerCase();
+      var matches = popularTags.filter(function (p) {
+        if (existing.has(p.tag)) return false;
+        if (!lower) return true;
+        return p.tag.toLowerCase().indexOf(lower) !== -1;
+      }).slice(0, 8);
+      // Add a "+ create" entry if the query is non-empty and doesn't exactly
+      // match an existing popular tag (or any of the already-present tags).
+      var exact = matches.some(function (m) { return m.tag.toLowerCase() === lower; });
+      if (lower && !exact && !existing.has(lower)) {
+        matches.unshift({ tag: lower, count: -1, create: true });
+      }
+      return matches;
+    }
+    function renderSuggestions(items) {
+      if (items.length === 0) { suggestBox.hidden = true; suggestBox.innerHTML = ''; activeIdx = -1; return; }
+      suggestBox.innerHTML = items.map(function (it, i) {
+        if (it.create) {
+          return '<button type="button" class="tag-suggest-item is-create" data-tag="' + escapeAttr(it.tag) + '">+ create &ldquo;' + escapeText(it.tag) + '&rdquo;</button>';
+        }
+        return '<button type="button" class="tag-suggest-item" data-tag="' + escapeAttr(it.tag) + '">' + escapeText(it.tag) + '<span class="count">' + it.count + '</span></button>';
+      }).join('');
+      suggestBox.hidden = false;
+      activeIdx = 0;
+      highlightActive();
+    }
+    function highlightActive() {
+      var btns = suggestBox.querySelectorAll('.tag-suggest-item');
+      btns.forEach(function (b, i) {
+        b.classList.toggle('is-active', i === activeIdx);
+      });
+    }
+    function addTag(tag) {
+      var keep = currentTags();
+      if (keep.indexOf(tag) !== -1) return;
+      keep.push(tag);
+      persistTags(keep);
+    }
+    function escapeAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    function escapeText(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    if (addInput && suggestBox) {
+      addInput.addEventListener('focus', function () {
+        renderSuggestions(getSuggestions(addInput.value));
+      });
+      addInput.addEventListener('input', function () {
+        renderSuggestions(getSuggestions(addInput.value));
+      });
+      addInput.addEventListener('keydown', function (e) {
+        var items = suggestBox.querySelectorAll('.tag-suggest-item');
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          if (items.length === 0) return;
+          activeIdx = (activeIdx + 1) % items.length;
+          highlightActive();
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (items.length === 0) return;
+          activeIdx = (activeIdx - 1 + items.length) % items.length;
+          highlightActive();
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          var chosen = items[activeIdx] || items[0];
+          if (chosen) addTag(chosen.getAttribute('data-tag'));
+          else if (addInput.value.trim()) addTag(addInput.value.trim().toLowerCase());
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          suggestBox.hidden = true;
+          addInput.blur();
+        }
+      });
+      suggestBox.addEventListener('mousedown', function (e) {
+        var btn = e.target && e.target.closest && e.target.closest('.tag-suggest-item');
+        if (!btn) return;
+        e.preventDefault();
+        addTag(btn.getAttribute('data-tag'));
+      });
+      document.addEventListener('click', function (e) {
+        if (suggestBox.hidden) return;
+        if (tagEditor.contains(e.target)) return;
+        suggestBox.hidden = true;
+      });
+    }
+  }
 })();`;
 }
 
@@ -1711,17 +1778,26 @@ export function pageNote(note: NoteMeta, _themeName: string, context?: NoteListC
          </button>
        </form>`;
 
-  const tagsHtml = note.tags.length > 0
-    ? `<dt>Tags</dt><dd><div class="side-tags">${note.tags.map((t) => `<a class="tg" href="/tag/${encodeURIComponent(t)}">${esc(t)}</a>`).join("")}</div></dd>`
-    : "";
+  // Tag editor — always present (zero-tags case shows just the +add input).
+  // Each chip carries a tag-remove button; autocomplete suggestions come
+  // from listPopularTags embedded in the inline editor script below.
+  const tagChips = note.tags.map((t) =>
+    `<span class="tag-chip" data-tag="${esc(t)}"><a class="tg" href="/tag/${encodeURIComponent(t)}">${esc(t)}</a><button type="button" class="tag-remove" data-tag="${esc(t)}" aria-label="Remove ${esc(t)}">×</button></span>`
+  ).join("");
+  const tagsHtml = `<dt>Tags</dt>
+      <dd>
+        <div class="tag-editor" data-note-id="${esc(note.id)}">
+          ${tagChips}<div class="tag-add-wrap"><input class="tag-add-input" type="text" placeholder="+ add tag" autocomplete="off" spellcheck="false" maxlength="200"><div class="tag-suggest" hidden></div></div>
+        </div>
+      </dd>`;
 
   const tocHtml = `<nav class="toc" id="folio-toc" hidden><div class="toc-lbl">In this document</div><ol class="toc-list"></ol></nav>`;
 
   const themes = listThemes();
   const themeOptions = themes
-    .map((t) => `<option value="${esc(t.name)}"${t.name === note.theme ? " selected" : ""}>${esc(t.name)}${t.name === note.theme ? " · saved" : ""}</option>`)
+    .map((t) => `<option value="${esc(t.name)}"${t.name === note.theme ? " selected" : ""}>${esc(t.name)}</option>`)
     .join("");
-  const themeDd = `<dd><select class="theme-switch" data-noteid="${note.id}" data-original="${esc(note.theme)}">${themeOptions}</select></dd>`;
+  const themeDd = `<dd class="theme-row"><select class="theme-switch" data-noteid="${esc(note.id)}" data-original="${esc(note.theme)}">${themeOptions}</select><a href="#" class="theme-save" data-note-id="${esc(note.id)}" hidden>✓ Save as default</a></dd>`;
 
   // Parent-side viewer chrome. The note lives in a null-origin iframe (since
   // v0.3+) so we cannot reach .contentDocument; instead the note's bootstrap
@@ -1735,13 +1811,37 @@ export function pageNote(note: NoteMeta, _themeName: string, context?: NoteListC
     var tocList = toc ? toc.querySelector('.toc-list') : null;
     var tocItems = []; // [{ id, li }]
 
-    // Theme preview switcher — purely parent-side, no iframe content access
+    // Theme preview switcher + "Save as default" link (v0.22.2). The
+    // dropdown still does preview-only on change (?theme=X URL param);
+    // the link next to it appears whenever the dropdown value diverges
+    // from the saved theme and persists via POST when clicked.
+    var saveThemeLink = document.querySelector('.theme-save');
     if (sel && iframe) {
       sel.addEventListener('change', function(){
         var t = sel.value;
         var orig = sel.dataset.original;
         iframe.src = '/raw/' + sel.dataset.noteid + (t !== orig ? '?theme=' + encodeURIComponent(t) : '');
+        if (saveThemeLink) saveThemeLink.hidden = (t === orig);
       });
+      if (saveThemeLink) {
+        saveThemeLink.addEventListener('click', function(e){
+          e.preventDefault();
+          var noteId = saveThemeLink.dataset.noteId;
+          var t = sel.value;
+          fetch('/api/notes/' + encodeURIComponent(noteId) + '/metadata', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ theme: t })
+          }).then(function(r){ return r.json().then(function(d){ return { ok: r.ok && d.ok, status: r.status, data: d }; }); })
+            .then(function(resp){
+              if (resp.ok) window.location.reload();
+              else if (window.__folioToast) window.__folioToast('Save failed: ' + (resp.data.reason || resp.status), true);
+            })
+            .catch(function(err){
+              if (window.__folioToast) window.__folioToast('Network error', true);
+            });
+        });
+      }
     }
 
     function buildToc(items){
@@ -2057,7 +2157,6 @@ export function pageNote(note: NoteMeta, _themeName: string, context?: NoteListC
   }
   const shellClass = isLive && !isInlineLive ? "note-shell has-live" : "note-shell";
   const sharePop = sharePopoverHtml(note.id);
-  const editPop = editMetadataPopoverHtml(note);
 
   return shell(note.title, `${topbar()}
 ${SHARE_POPOVER_CSS}
@@ -2066,7 +2165,7 @@ ${SHARE_POPOVER_CSS}
   <aside class="note-side">
     <a href="${fromHref}" class="back">${fromLabel}</a>
     <span class="type-pill ${note.type}">${note.type}</span>
-    <h1>${esc(note.title)}</h1>
+    <h1 class="editable-title" data-note-id="${esc(note.id)}" tabindex="0" title="Click to edit">${esc(note.title)}</h1>
     ${actionCard}
     ${prevNextHtml}
     ${tocHtml}
@@ -2081,7 +2180,6 @@ ${SHARE_POPOVER_CSS}
       ${tagsHtml}
     </dl>
     <nav class="side-aux">
-      <button class="side-action" id="edit-trigger" type="button" data-note-id="${esc(note.id)}" title="Edit title / tags / theme / final">✎ Edit metadata</button>
       <button class="side-action" data-copy="plain" data-label="⎘ Copy plain text">⎘ Copy plain text</button>
       <button class="side-action" data-copy="markdown" data-label="⎘ Copy as markdown">⎘ Copy as markdown</button>
       <a href="/raw/${note.id}" target="_blank">↗ View raw HTML</a>
@@ -2109,10 +2207,9 @@ ${SHARE_POPOVER_CSS}
   </main>${livePanelHtml}
 </div>
 ${sharePop}
-${editPop}
 ${noteScript}${liveScript}
 <script>${sharePopoverJs(note.id)}</script>
-<script>${editMetadataPopoverJs(note.id)}</script>`, { bodyClass: "note-page" });
+<script>${inlineMetadataEditorJs(note.id)}</script>`, { bodyClass: "note-page" });
 }
 
 // ───────────────────────────────────────────────────────────────────────

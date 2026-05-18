@@ -1,6 +1,6 @@
 ---
 name: folio
-description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp). Use when the user asks for research, comparison, deep dive, technical doc, ADR, spec, "make me a note", "compare X and Y", "TL;DR this URL", or any output that would benefit from rich visual layout (tables, scorecards, diagrams, color-coded findings). Also proactively after producing long structured responses — propose saving to Folio. Append-only model: never edits; new version = new note in the same thread folder.
+description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp). Use when the user asks for research, comparison, deep dive, technical doc, ADR, spec, "make me a note", "compare X and Y", "TL;DR this URL", or any output that would benefit from rich visual layout (tables, scorecards, diagrams, color-coded findings). Also proactively after producing long structured responses — propose saving to Folio. Body editing: agent-only via the MCP `replace` tool (or new note in the same thread); metadata (title/tags/theme/is_final) is editable inline in the viewer OR via `update_metadata`.
 ---
 
 # Folio Skill
@@ -93,9 +93,19 @@ description: Create visually-rich HTML knowledge artifacts via Folio (folio-mcp)
     
     <Tags: tag1, tag2>  ← optional, when non-obvious
 
-7.  REMEMBER the `id` in session context — when the user asks for an iteration
-    ("different version", "polish this"), reuse the same `thread_id` for
-    the new note (do NOT edit the old one — ADR-014 append-only).
+7.  REMEMBER the `id` in session context — when the user later asks for
+    an iteration ("different version", "polish this", "fix this typo"),
+    the rule is:
+      • Body change of any size → call `replace({old_id, body_html, …})`.
+        Old note's .html stays on disk; the new note becomes the head.
+        Listings hide the old. Same `thread_id` is inherited automatically.
+      • Pure metadata change (title typo, retag, theme swap, finalize) →
+        the user is most likely editing inline in the viewer. If they
+        explicitly ask YOU to retag/rename/etc., call `update_metadata`.
+      • A genuinely DIFFERENT thought / new artifact in the same topic →
+        `create({...})` with the same `thread_id` as before.
+    Never tell the user "Folio is append-only, I can't edit" — body
+    `replace` and metadata `update_metadata` are the supported paths.
 ```
 
 ---
@@ -392,6 +402,41 @@ create({
 
 Tell the user where it'll land: include the project URL in the response when relevant — `MEDIA:<note-url>` plus *"see all project threads at `/p/<slug>`"*.
 
+---
+
+## Mutation surfaces (v0.22+)
+
+There are exactly **three** places a note can change after creation. Knowing which path applies prevents the "I'd create a new note but it's append-only" anti-pattern and the "let me edit the title for you" agent intrusion on a job the user can do faster themselves.
+
+| Surface | Who drives it | Tool / UI | Effect |
+|---|---|---|---|
+| Body HTML | **Agent only** | `replace({old_id, body_html, …})` MCP tool | Creates a new note (new ULID, new URL) in same thread, marks old as `superseded_by:<new>`. Old `.html` stays on disk verbatim. Listings hide superseded. |
+| Metadata (title / tags / theme / is_final) | Agent OR user | Agent: `update_metadata({id, …})`. User: inline editors in the viewer sidebar (click h1 to rename, × on chips to remove tags, +add input with autocomplete, theme dropdown + "Save as default" link). | Same `.html` regenerated atomically with new metadata; body bytes untouched. |
+| Live note entries | Agent only | `append_entry({note_id, content_html, tags, refs})` | Append-only feed; "edits" are follow-up entries with `refs:[X] tags:[state:done]`. |
+
+### Decision tree for agents
+
+```
+User says…                                      → Agent does…
+─────────────────────────────────────────────────────────────────
+"fix this typo in the body"                     → replace(old_id, …)
+"polish this", "redo this", "different version" → replace(old_id, …) for snippet/comparison/research
+                                                  create(thread_id: same) for iteration/technical (variants are the point)
+"rename this to X"                              → update_metadata({id, title:"X"})
+                                                  (or just say "you can click the title in the viewer to rename inline")
+"add tag X" / "retag this with…"                → update_metadata({id, tags:[…]})
+                                                  (or "click the × on a chip / type in the +add input")
+"switch theme to folio"                         → update_metadata({id, theme:"folio"})
+"mark this as final"                            → finalize({id})  (or update_metadata({id, is_final:true}))
+"this isn't final after all"                    → unfinalize({id})
+```
+
+### What's NOT a mutation surface
+
+- There is **no body textarea in the viewer**, deliberately. Users don't hand-edit body HTML in a browser — they ask the agent. This is what makes "Folio for agents" a coherent product: the visual layer (themes, navigation, sharing) is for humans; the content layer is for agents.
+- There is **no `delete` MCP tool for the body content of an existing note**. The closest thing is full-note delete (`folio delete <id>` CLI / trash; soft, recoverable for 7 days).
+- ADR-014 still binds *for the bytes of a published `.html` file* — capability URL trust is intact. `replace` is not a rewrite; it's a new note with a pointer.
+
 **Don't split project work across systems.** Folio threads + a single `project:<slug>` tag cover the same shape as "one folder per project in Obsidian / Notion". Adding a project plan in Folio and the rest of the project elsewhere fractures the user's context.
 
 ---
@@ -515,7 +560,7 @@ Only if the image actually lives at a stable public HTTPS URL the agent KNOWS ex
 - ❌ **Generating body without consulting the stylebook** → notes look inconsistent
 - ❌ **Missing metadata** (tags) — hurts retrieval
 - ❌ **Writing inline-styled HTML like it's 2005** — use the classes from theme.css
-- ❌ **Editing**: if the user asks "fix this" → create a NEW note in the same thread (append-only, ADR-014)
+- ❌ **Refusing to edit "because Folio is append-only".** That was the v0.21 reality. As of v0.22 the supported paths are: body change → `replace({old_id, body_html, …})` (old .html stays on disk, listings hide it, new note becomes the head); metadata change → `update_metadata({id, title?/tags?/theme?/is_final?})`. The user can also edit metadata inline directly in the viewer — they don't need the agent for that. The body, however, is agent-only: there is no body textarea in the viewer; users say "fix this" and you handle it via `replace`.
 - ❌ **Marking `is_final: true` on your own** — that's the user's call (from the viewer / CLI / explicit request)
 - ❌ **Inlining base64 binaries in `body_html`** — bloats the note, breaks copy-as-markdown, no FTS lift. Use `attach_asset` then reference the returned URL.
 - ❌ **Hallucinating image URLs you didn't actually attach.** If you didn't call `attach_asset` and didn't generate inline SVG, there's no image. Don't write `<img src="https://example.local/cool-logo.png">` and hope it works. See "Generating images from scratch" below.

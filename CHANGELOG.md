@@ -2,6 +2,21 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.21.3 — 2026-05-18
+
+**`plain` theme gets a permissive sanitizer.** The plain theme's contract is "the agent owns the visual identity for this note." But the strict allowlist was still stripping safe HTML5 tags like `<b>`, `<i>`, `<u>`, `<s>`, `<q>` along with their `id`s — breaking agent-built widgets that did `getElementById('counter')` against a `<b id="counter">` placeholder. v0.21.3 plumbs a new `mode: "permissive"` option through `sanitize()` that `createNote()` opts into automatically whenever `theme === "plain"`. Other themes are unchanged.
+
+### Changed
+- **`sanitize(html, { mode: "permissive" })`** allows every HTML5 tag and attribute, but still scrubs the escape vectors that don't come for free from the iframe sandbox + CSP: on*-handlers stripped from every element, `javascript:` rejected in any URL attribute (`href`/`src`/`action`/`formaction`/`xlink:href`/`background`/`poster`/`data`/`ping`/`cite`/`manifest`/`longdesc`), iframe `sandbox` normalized (allow-same-origin always removed, default flags injected when absent). Side-effecting head-y tags — `<meta http-equiv="refresh">`, `<link rel="stylesheet" href>`, `<base href>`, `<noscript>`, `<title>` — are dropped with their content via `exclusiveFilter`. `<head>`/`<html>`/`<body>` wrappers pass through (inert under the sandbox). Existing case-preserving parser flag (`lowerCaseAttributeNames: false`, `lowerCaseTags: false`) reused so SVG case-sensitive attrs survive.
+- **`createNote()` in `src/core/storage.ts`** detects `theme === "plain"` and passes `mode: "permissive"` to `sanitize()`. Every other theme keeps the strict default allowlist — including the `data-*` wildcard, SVG attr maps, iframe transformTags, and form-control surface that prior releases shipped. Live-note `append_entry` keeps the default mode (entries land on whatever theme the note declares, but the entry body is short HTML the strict mode handles fine).
+
+### Tests
+- `tests/plain-theme.test.ts` (+6 tests, 10 total) — permissive keeps `<b id="...">`/`<i>`/`<u>`/`<s>`/`<q>` while default strips them; permissive strips `on*`-handlers and `javascript:` URLs from `<a href>`/`<img src>`/`<div onmouseover>`; permissive drops `<meta>`/`<link>`/`<base>`/`<noscript>` and their contents; iframe sandbox still has `allow-same-origin` removed even in permissive mode; createNote with `theme: "plain"` lets a `<b id="counter">` round-trip end to end; createNote with `theme: "linen"` still strips `<b>` (regression guard against accidentally widening default mode).
+- Full suite: 511 tests across 48 files, all passing.
+
+### Why
+An agent generating an interactive force-directed knowledge graph on the plain theme hit `Cannot set properties of null (setting 'textContent')` because the `<b id="kg-stats-edges">` placeholder it referenced was sanitized away. The plain theme's prompt addendum already promises "Plain has none [of the standard themes' opinions]" — the sanitizer was the last surviving opinion. v0.21.3 makes the contract consistent.
+
 ## v0.21.2 — 2026-05-17
 
 Two viewer chrome polish changes following up on v0.21.1.

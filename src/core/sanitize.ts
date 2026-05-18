@@ -5,6 +5,26 @@ export interface SanitizeResult {
   drops: number;
 }
 
+export interface SanitizeOptions {
+  /**
+   * `"default"` — the strict allowlist (HTML5 subset, named SVG attrs, no `<b>`/`<meta>`/etc.).
+   *
+   * `"permissive"` — opt-in for the `plain` theme. Allows all HTML5 tags and attributes
+   * EXCEPT the ones that could escape the outer null-origin iframe sandbox: on*-handlers
+   * are stripped from every element, `javascript:` is stripped from any URL attribute,
+   * iframe `sandbox` is still normalized (allow-same-origin always removed). Side-effect-
+   * carrying head-y tags — `<meta>`, `<link>`, `<base>`, `<noscript>`, `<title>` — are
+   * dropped along with their content. `<head>`/`<html>`/`<body>` wrappers pass through
+   * as inert tags (the iframe sandbox + CSP neutralize them).
+   *
+   * Defense in depth: even in permissive mode, the rendered note loads in a sandboxed
+   * null-origin iframe with CSP `connect-src 'none' form-action 'none' script-src
+   * 'unsafe-inline' https:` — so an agent shipping rogue HTML in plain theme still
+   * cannot reach the parent window, cookies, /api/*, or any network endpoint.
+   */
+  mode?: "default" | "permissive";
+}
+
 // Sanitization is applied to AGENT body only — not the template wrapper.
 // So no <html/head/body/style/title/meta> here; those come from _base.html.eta.
 //
@@ -234,7 +254,77 @@ function normalizeIframeSandbox(input?: string): string {
   return flags.length > 0 ? flags.join(" ") : DEFAULT_IFRAME_SANDBOX;
 }
 
-export function sanitize(html: string): SanitizeResult {
+// Attributes that name a URL and could carry a javascript: scheme. Stripped in
+// permissive mode when their value parses as javascript: (case + whitespace
+// tolerant). Other schemes (http/https/data/mailto/tel) pass through; the
+// CSP + sandbox still constrain what those can do.
+const URL_ATTRS = new Set([
+  "href", "src", "action", "formaction", "xlink:href", "background", "poster",
+  "data", "ping", "cite", "manifest", "longdesc",
+]);
+const JS_URL = /^\s*javascript:/i;
+
+function scrubAttribs(attribs: Record<string, string>): Record<string, string> {
+  const cleaned: Record<string, string> = {};
+  for (const [k, v] of Object.entries(attribs)) {
+    const lk = k.toLowerCase();
+    if (lk.startsWith("on")) continue; // on*-handlers
+    if (URL_ATTRS.has(lk) && typeof v === "string" && JS_URL.test(v)) continue;
+    cleaned[k] = v;
+  }
+  return cleaned;
+}
+
+// Tags that carry side-effects we never want, regardless of theme:
+//   - <meta http-equiv="refresh">  can navigate the iframe
+//   - <link rel="stylesheet" href="..."> pulls an external resource
+//   - <base href="..."> rewrites every relative URL in the document
+//   - <noscript>'s contents render in JS-off browsers
+//   - <title> in body is meaningless
+// We drop the element AND its subtree via exclusiveFilter.
+// <head>/<html>/<body> wrappers are left alone — they're inert tags in the
+// sandboxed iframe; trying to drop just-the-wrapper-not-the-children is more
+// awkward than letting them through.
+const DROP_WITH_CONTENT = new Set([
+  "meta", "link", "base", "noscript", "title",
+]);
+
+function permissiveSanitize(html: string): SanitizeResult {
+  const before = html.length;
+  const out = sanitizeHtml(html, {
+    allowedTags: false,
+    allowedAttributes: false,
+    allowVulnerableTags: true,
+    parser: { lowerCaseAttributeNames: false, lowerCaseTags: false } as any,
+    allowedSchemes: ["http", "https", "mailto", "tel", "data"],
+    allowedSchemesByTag: {
+      img: ["http", "https", "data"],
+      iframe: ["http", "https"],
+      script: ["https"],
+    },
+    transformTags: {
+      // Wildcard: strip on*-handlers + javascript: URLs from every element.
+      // sanitize-html lets a specific transformTag (e.g. iframe below) take
+      // precedence over '*', so iframe gets its own sandbox-enforcing handler.
+      "*": (tagName: string, attribs: Record<string, string>) => ({
+        tagName,
+        attribs: scrubAttribs(attribs),
+      }),
+      iframe: (_tag: string, attribs: Record<string, string>) => {
+        const cleaned = scrubAttribs(attribs);
+        cleaned.sandbox = normalizeIframeSandbox(attribs.sandbox);
+        cleaned.referrerpolicy = cleaned.referrerpolicy ?? "no-referrer";
+        return { tagName: "iframe", attribs: cleaned };
+      },
+    },
+    disallowedTagsMode: "discard",
+    exclusiveFilter: (frame) => DROP_WITH_CONTENT.has(frame.tag),
+  });
+  return { html: out, drops: Math.max(0, before - out.length) };
+}
+
+export function sanitize(html: string, opts?: SanitizeOptions): SanitizeResult {
+  if (opts?.mode === "permissive") return permissiveSanitize(html);
   const before = html.length;
   const out = sanitizeHtml(html, {
     allowedTags: ALLOWED_TAGS,

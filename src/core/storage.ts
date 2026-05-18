@@ -50,8 +50,13 @@ export async function createNote(input: CreateNoteInput): Promise<NoteMeta> {
     bodyHtmlIn += `\n<section data-folio-live-feed></section>`;
   }
 
-  // Sanitize body
-  const { html: cleanBody, drops } = sanitize(bodyHtmlIn);
+  // Sanitize body. The `plain` theme opts agents into full-HTML control —
+  // permissive mode allows tags like <b>/<i>/<u> and all attributes that the
+  // strict default list would strip, but still scrubs on*-handlers,
+  // javascript: URLs, and head-y tags. The iframe sandbox + CSP remain the
+  // real isolation boundary, same as for every other theme.
+  const sanitizeMode = theme === "plain" ? "permissive" : "default";
+  const { html: cleanBody, drops } = sanitize(bodyHtmlIn, { mode: sanitizeMode });
 
   // Extract text for FTS + analytics
   const stats = extractText(cleanBody);

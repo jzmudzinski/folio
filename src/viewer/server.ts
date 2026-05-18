@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig, folioRoot, bundledThemesDir, themesDir, viewerPublicBaseUrl, threadAssetsDir, isSafeAssetFilename } from "../core/config";
-import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, deleteNote, listThreads, listPopularTags, listNotesByTag, listProjectThreads, updateNoteMetadata, listContinueRail, logNoteView } from "../core/storage";
+import { listNotes, searchNotes, getNoteMeta, readNoteHtml, stats, finalize, deleteNote, listThreads, listPopularTags, listNotesByTag, listProjectThreads, getProjectDashboard, updateNoteMetadata, listContinueRail, logNoteView } from "../core/storage";
 import { db } from "../core/db";
 import { pageList, pageSearch, pageThread, pageThreads, pageNote, pageStats, pageError, pageTag, pageCloud, pageShares, pageProject } from "./render";
 import { injectBootstrap } from "./note-bootstrap";
@@ -188,8 +188,8 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
         if (req.method === "GET" && path.startsWith("/p/")) {
           const slug = decodeURIComponent(path.slice(3));
           if (!slug) return Response.redirect("/", 302);
-          const { groups, totalNotes } = listProjectThreads(slug);
-          return htmlResp(pageProject(slug, groups, totalNotes));
+          const dashboard = getProjectDashboard(slug);
+          return htmlResp(pageProject(dashboard));
         }
 
         // GET /api/p/:slug — JSON variant for tooling

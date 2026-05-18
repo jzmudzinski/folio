@@ -199,6 +199,49 @@ create({ type: "research", title: …, thread_id: "onboarding",
 
 Response: `MEDIA:<url>` + *"see all project threads at `/p/<slug>`"*.
 
+### Slot tag — `slot:<name>` marks canonical docs (v0.24+)
+
+A project usually has a handful of **canonical living documents** — one roadmap, one todo list, one changelog. Without a convention, the agent has to search by title every time the user says "update the roadmap"; the viewer can't surface them as first-class cards in `/p/<slug>`.
+
+Pair `project:<slug>` with `slot:<name>` on the note that IS the project's roadmap / todo / changelog / etc. The viewer's project workspace reads slot tags and renders them as pinned cards above the thread list. Agents see them in the dashboard payload too — "what's the latest roadmap?" → search `slot:roadmap project:<slug>`, take head.
+
+**Standard slot names:**
+
+| Slot | Type usually | Mutation pattern | What it is |
+|---|---|---|---|
+| `slot:roadmap` | `technical` | `replace` on each revision | Where the project is going (next N weeks) |
+| `slot:todo` | live, `inline: true` | `append_entry` + `state:*` tags | Open work items, drift through states |
+| `slot:changelog` | live, `inline: true` | `append_entry` only | What shipped / what changed (append-only feed) |
+| `slot:release-notes` | `technical` | `replace` per release | Customer-facing release writeup |
+| `slot:vision` | `research` or `technical` | `replace` rarely | Why this project exists (north star) |
+| `slot:hub` | `technical`, `theme: "plain"` | `replace` as needed | User-curated project dashboard (assembled by hand) |
+| `slot:presentation` | `theme: "plain"` slide deck | `replace` per audience | Whatever you'd show in a meeting |
+| `slot:gantt` | `technical`, `theme: "plain"` | `replace` per re-plan | Date-anchored timeline (until v0.27 timeline primitive ships) |
+
+Exactly **one head note per slot per project**. If two exist, the viewer picks the most recently updated one and surfaces a warning — fix by superseding the older via `replace`, or just deleting it.
+
+**Workflow examples:**
+
+```
+# First-time roadmap setup
+create({ type: "technical", title: "NotiBox-Jetson roadmap", thread_id: "notibox-jetson-roadmap",
+         tags: ["project:notibox-jetson", "slot:roadmap"], … })
+
+# User: "update the roadmap with what we agreed today"
+search({ q: "slot:roadmap project:notibox-jetson", limit: 1 })  → find current head
+replace({ old_id: <head>, body_html: <new full roadmap>, … })   → new head, old superseded
+
+# User: "add 'wire up cam-2' to todo"
+search({ q: "slot:todo project:notibox-jetson", limit: 1 })     → find the live todo note
+append_entry({ note_id: <id>, content_html: "<p>Wire up cam-2</p>",
+              tags: ["project:notibox-jetson", "state:open"] })
+
+# User: "what's left to do on NotiBox?"
+search({ q: "slot:todo project:notibox-jetson" }) → list_entries({ note_id, tag: "state:open" })
+```
+
+**Anti-pattern:** ❌ creating a new note titled "Roadmap v2" with `slot:roadmap` instead of `replace`-ing the existing one. Two slot:roadmap heads in one project is a fight; `replace` is the canonical update path for canonical docs.
+
 ---
 
 ## Anti-patterns

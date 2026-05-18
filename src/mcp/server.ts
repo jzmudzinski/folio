@@ -31,7 +31,7 @@ import { listThemes, getTheme } from "../core/themes";
 import { db, logEvent } from "../core/db";
 import type { NoteType, RenderProfile } from "../core/types";
 
-const ALLOWED_TYPES: NoteType[] = ["research", "comparison", "technical", "journal", "snippet", "iteration"];
+const ALLOWED_TYPES: NoteType[] = ["research", "comparison", "technical", "journal", "snippet", "iteration", "presentation"];
 const ALLOWED_PROFILES: RenderProfile[] = ["hosted", "standalone"];
 
 const tools: Tool[] = [

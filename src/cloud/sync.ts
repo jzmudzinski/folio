@@ -37,6 +37,11 @@ export interface PushNote {
   live?: 0 | 1;
   owner_device_id?: string | null;
   inline_render?: 0 | 1;
+  /** v0.29: user-pinned-to-top. Optional so older clients pushing without
+   *  it default to 0. */
+  is_pinned?: 0 | 1;
+  /** v0.29: ISO timestamp the user toggled is_pinned on. Null when unpinned. */
+  pinned_at?: string | null;
   tags?: string[];
   summary?: string | null;
   word_count?: number;
@@ -107,6 +112,8 @@ export interface PullNote {
   owner_device_id: string | null;
   origin_device_id: string;
   inline_render: 0 | 1;
+  is_pinned: 0 | 1;
+  pinned_at: string | null;
   tags: string[];
   summary: string | null;
   word_count: number;
@@ -175,8 +182,9 @@ export function handlePush(payload: PushPayload, device: Device, db: Database = 
           uuid, user_id, slug, thread_id, title, type, theme, theme_profile,
           body_html, plain_text, created_at, updated_at, expires_at,
           is_final, live, owner_device_id, origin_device_id, inline_render,
+          is_pinned, pinned_at,
           word_count, summary, server_seq
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(uuid) DO UPDATE SET
           slug = excluded.slug,
           thread_id = excluded.thread_id,
@@ -192,6 +200,8 @@ export function handlePush(payload: PushPayload, device: Device, db: Database = 
           live = excluded.live,
           owner_device_id = excluded.owner_device_id,
           inline_render = excluded.inline_render,
+          is_pinned = excluded.is_pinned,
+          pinned_at = excluded.pinned_at,
           word_count = excluded.word_count,
           summary = excluded.summary,
           server_seq = excluded.server_seq`,
@@ -214,6 +224,8 @@ export function handlePush(payload: PushPayload, device: Device, db: Database = 
           n.owner_device_id ?? null,
           originDeviceId,
           n.inline_render ?? 0,
+          n.is_pinned ?? 0,
+          n.pinned_at ?? null,
           n.word_count ?? 0,
           n.summary ?? null,
           seq,
@@ -362,6 +374,8 @@ export function handlePull(since: number, device: Device, db: Database = cloudDb
         owner_device_id: string | null;
         origin_device_id: string;
         inline_render: number;
+        is_pinned: number;
+        pinned_at: string | null;
         word_count: number;
         summary: string | null;
         server_seq: number;
@@ -371,6 +385,7 @@ export function handlePull(since: number, device: Device, db: Database = cloudDb
       `SELECT uuid, slug, thread_id, title, type, theme, theme_profile,
               body_html, plain_text, created_at, updated_at, expires_at,
               is_final, live, owner_device_id, origin_device_id, inline_render,
+              is_pinned, pinned_at,
               word_count, summary, server_seq
          FROM notes WHERE user_id = ? AND server_seq > ? ORDER BY server_seq ASC`
     )
@@ -478,6 +493,8 @@ export function handlePull(since: number, device: Device, db: Database = cloudDb
       owner_device_id: n.owner_device_id,
       origin_device_id: n.origin_device_id,
       inline_render: (n.inline_render as 0 | 1),
+      is_pinned: (n.is_pinned as 0 | 1),
+      pinned_at: n.pinned_at,
       tags: tagsByNote.get(n.uuid) ?? [],
       summary: n.summary,
       word_count: n.word_count,

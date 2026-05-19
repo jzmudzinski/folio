@@ -64,7 +64,16 @@ CREATE TABLE IF NOT EXISTS notes (
   -- WHERE superseded_by IS NULL so the thread view stays clean after a
   -- replace. The old .html file stays on disk for capability-URL stability.
   -- Migration v4→v5 adds the column to pre-existing dbs.
-  superseded_by TEXT
+  superseded_by TEXT,
+  -- v0.29 user-pinned notes: 1 = pinned to top of the default listing,
+  -- 0 = not pinned. pinned_at is the ISO timestamp the user toggled it on
+  -- so multiple pinned notes sort by *when they were pinned* (freshly
+  -- pinned floats above long-pinned). NULL when is_pinned=0. Distinct
+  -- from is_final (★ archive, no auto-cleanup) and from view:pinned
+  -- (entry-level tag on live notes). Migration v5→v6 adds these to
+  -- pre-existing dbs.
+  is_pinned INTEGER NOT NULL DEFAULT 0,
+  pinned_at TEXT
 );
 CREATE INDEX IF NOT EXISTS notes_by_type ON notes(type, created DESC);
 CREATE INDEX IF NOT EXISTS notes_by_thread ON notes(thread_id, created DESC);
@@ -80,6 +89,10 @@ CREATE INDEX IF NOT EXISTS notes_by_origin ON notes(origin_device_id);
 -- heads). Greenfield gets the column from CREATE TABLE; pre-existing dbs
 -- get it from the v4→v5 migration which runs before this CREATE INDEX.
 CREATE INDEX IF NOT EXISTS notes_by_superseded ON notes(superseded_by) WHERE superseded_by IS NOT NULL;
+-- v0.29: partial index for the default-listing sort. Almost no notes are
+-- pinned, so the index stays tiny and the "float pinned to top" sort is
+-- O(pinned) instead of a full table scan + ORDER BY.
+CREATE INDEX IF NOT EXISTS notes_by_pinned ON notes(pinned_at DESC) WHERE is_pinned = 1;
 
 CREATE TABLE IF NOT EXISTS tags (
   note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,

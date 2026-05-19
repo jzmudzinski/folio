@@ -176,6 +176,8 @@ export async function createNote(input: CreateNoteInput): Promise<NoteMeta> {
     owner_device_id,
     inline_render,
     superseded_by: null,
+    is_pinned: false,
+    pinned_at: null,
   };
 }
 
@@ -208,6 +210,11 @@ export interface ListOptions {
   thread_id?: string;
   tag?: string;
   is_final?: boolean;
+  /** v0.29: when true, return only pinned notes. When false/undefined,
+   *  pinned float to the top of the result (see ORDER BY below). The
+   *  "pinned only" filter is what the 📌 chip in the viewer's filter
+   *  bar binds to. */
+  is_pinned?: boolean;
   limit?: number;
   offset?: number;
   /** v0.22: include notes that have been replaced via the `replace` primitive.
@@ -238,12 +245,23 @@ export function listNotes(opts: ListOptions = {}): NoteMeta[] {
     where.push("notes.is_final = ?");
     params.push(opts.is_final ? 1 : 0);
   }
+  if (opts.is_pinned !== undefined) {
+    where.push("notes.is_pinned = ?");
+    params.push(opts.is_pinned ? 1 : 0);
+  }
   if (!opts.include_superseded) {
     where.push("notes.superseded_by IS NULL");
   }
   const limit = opts.limit ?? 50;
   const offset = opts.offset ?? 0;
-  const sql = `SELECT notes.* FROM notes ${joinClause} WHERE ${where.join(" AND ")} ORDER BY notes.created DESC LIMIT ? OFFSET ?`;
+  // v0.29: float pinned to the top. Among pinned, newest-pinned first
+  // (pinned_at DESC); among unpinned, newest first (created DESC).
+  // Skip the pinned bias when we're scoping to a single thread — the
+  // thread view is a chronological history and shouldn't reorder.
+  const orderBy = opts.thread_id
+    ? "notes.created DESC"
+    : "notes.is_pinned DESC, notes.pinned_at DESC, notes.created DESC";
+  const sql = `SELECT notes.* FROM notes ${joinClause} WHERE ${where.join(" AND ")} ORDER BY ${orderBy} LIMIT ? OFFSET ?`;
   const rows = db()
     .query<Record<string, any>, any[]>(sql)
     .all(...params, limit, offset);
@@ -373,12 +391,17 @@ export interface UpdateMetadataInput {
   tags?: string[];
   theme?: string;
   is_final?: boolean;
+  /** v0.29: toggle pinned-to-top. true sets is_pinned=1 + pinned_at=now();
+   *  false sets is_pinned=0 + pinned_at=NULL. No body rewrite needed —
+   *  pin state isn't rendered into the .html file (it's only a listing/UI
+   *  signal), so this never touches disk. */
+  is_pinned?: boolean;
 }
 
 export interface UpdateMetadataResult {
   ok: boolean;
   reason?: "not-found" | "no-change" | "unknown-theme";
-  updated_fields?: Array<"title" | "tags" | "theme" | "is_final">;
+  updated_fields?: Array<"title" | "tags" | "theme" | "is_final" | "is_pinned">;
   meta?: NoteMeta;
 }
 
@@ -404,9 +427,35 @@ export async function updateNoteMetadata(input: UpdateMetadataInput): Promise<Up
   const wantsTags = Array.isArray(input.tags) && !sameStringSet(input.tags, note.tags);
   const wantsTheme = typeof input.theme === "string" && input.theme !== note.theme;
   const wantsFinal = typeof input.is_final === "boolean" && input.is_final !== note.is_final;
+  const wantsPinned = typeof input.is_pinned === "boolean" && input.is_pinned !== note.is_pinned;
 
-  if (!wantsTitle && !wantsTags && !wantsTheme && !wantsFinal) {
+  if (!wantsTitle && !wantsTags && !wantsTheme && !wantsFinal && !wantsPinned) {
     return { ok: false, reason: "no-change" };
+  }
+
+  // Pin flip is cheap: just an UPDATE on is_pinned + pinned_at. No body
+  // rewrite (pin state isn't rendered into the .html), no finalize
+  // machinery. Handle it before the rest so the post-update meta reflects
+  // the pin state. Pin-only updates skip the file rewrite path entirely.
+  if (wantsPinned) {
+    const pinnedAt = input.is_pinned ? isoNow() : null;
+    db().run(
+      "UPDATE notes SET is_pinned = ?, pinned_at = ?, updated = ? WHERE id = ?",
+      [input.is_pinned ? 1 : 0, pinnedAt, isoNow(), input.id],
+    );
+  }
+
+  // Pin-only fast path: nothing else to do — no file rewrite, no FTS
+  // update, no tag rewrite. Log + return.
+  if (wantsPinned && !wantsTitle && !wantsTags && !wantsTheme && !wantsFinal) {
+    const fresh = getNoteMeta(input.id)!;
+    logEvent(
+      "note_metadata_updated",
+      { thread_id: fresh.thread_id, changed: ["is_pinned"], from: { is_pinned: note.is_pinned }, to: { is_pinned: fresh.is_pinned } },
+      fresh.id,
+      fresh.thread_id,
+    );
+    return { ok: true, updated_fields: ["is_pinned"], meta: fresh };
   }
 
   // is_final flip uses the finalize/unfinalize machinery — handle it first
@@ -478,25 +527,27 @@ export async function updateNoteMetadata(input: UpdateMetadataInput): Promise<Up
     );
   })();
 
-  const changed: Array<"title" | "tags" | "theme" | "is_final"> = [];
+  const changed: Array<"title" | "tags" | "theme" | "is_final" | "is_pinned"> = [];
   if (wantsTitle) changed.push("title");
   if (wantsTags) changed.push("tags");
   if (wantsTheme) changed.push("theme");
   if (wantsFinal) changed.push("is_final");
+  if (wantsPinned) changed.push("is_pinned");
 
+  const finalMeta = getNoteMeta(fresh.id)!;
   logEvent(
     "note_metadata_updated",
     {
       thread_id: fresh.thread_id,
       changed,
-      from: { title: note.title, theme: note.theme, tags: note.tags, is_final: note.is_final },
-      to: { title: newTitle, theme: newTheme, tags: newTags, is_final: fresh.is_final },
+      from: { title: note.title, theme: note.theme, tags: note.tags, is_final: note.is_final, is_pinned: note.is_pinned },
+      to: { title: newTitle, theme: newTheme, tags: newTags, is_final: fresh.is_final, is_pinned: finalMeta.is_pinned },
     },
     fresh.id,
     fresh.thread_id,
   );
 
-  return { ok: true, updated_fields: changed, meta: getNoteMeta(fresh.id)! };
+  return { ok: true, updated_fields: changed, meta: finalMeta };
 }
 
 function sameStringSet(a: string[], b: string[]): boolean {
@@ -569,10 +620,23 @@ export async function replaceNote(input: ReplaceNoteInput): Promise<ReplaceNoteR
 
   // Mark old as superseded. Atomic — old.html stays on disk untouched
   // (immutable contract holds), only the metadata row gains the pointer.
-  db().run(
-    "UPDATE notes SET superseded_by = ?, updated = ? WHERE id = ?",
-    [newMeta.id, isoNow(), input.old_id],
-  );
+  // Carry the pin forward: if the old note was pinned, the new head
+  // inherits is_pinned + pinned_at, and the old row loses the pin (so it
+  // doesn't double-count in the 📌 filter — superseded rows are hidden
+  // anyway but this keeps the data consistent).
+  const d = db();
+  d.transaction(() => {
+    d.run(
+      "UPDATE notes SET superseded_by = ?, updated = ?, is_pinned = 0, pinned_at = NULL WHERE id = ?",
+      [newMeta.id, isoNow(), input.old_id],
+    );
+    if (old.is_pinned) {
+      d.run(
+        "UPDATE notes SET is_pinned = 1, pinned_at = ? WHERE id = ?",
+        [old.pinned_at ?? isoNow(), newMeta.id],
+      );
+    }
+  })();
 
   logEvent(
     "note_superseded",
@@ -1606,6 +1670,8 @@ function rowToMeta(row: Record<string, any>): NoteMeta {
     owner_device_id: row.owner_device_id ?? null,
     inline_render: row.inline_render === 1,
     superseded_by: row.superseded_by ?? null,
+    is_pinned: row.is_pinned === 1,
+    pinned_at: row.pinned_at ?? null,
   };
 }
 

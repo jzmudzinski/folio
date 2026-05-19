@@ -132,6 +132,11 @@ CREATE TABLE IF NOT EXISTS notes (
   owner_device_id TEXT,          -- non-null for live notes only (W2 owner-locked)
   origin_device_id TEXT NOT NULL,
   inline_render INTEGER NOT NULL DEFAULT 0, -- v0.17: entries spliced into body_html at /raw/ render
+  -- v0.29 user-pinned notes (parallel to local notes.is_pinned/pinned_at).
+  -- Synced so a pin on device A shows up on device B. Pre-existing rows
+  -- default to unpinned; idempotent ALTER below handles upgrades.
+  is_pinned INTEGER NOT NULL DEFAULT 0,
+  pinned_at TEXT,
   word_count INTEGER NOT NULL DEFAULT 0,
   summary TEXT,
   server_seq INTEGER NOT NULL,   -- monotonic per-row, used for pull cursor
@@ -397,6 +402,15 @@ function ensureMultiUserSchema(db: Database): void {
   const notesCols = db.query<{ name: string }, []>("PRAGMA table_info(notes)").all();
   if (notesCols.length > 0 && !notesCols.some((c) => c.name === "inline_render")) {
     db.exec("ALTER TABLE notes ADD COLUMN inline_render INTEGER NOT NULL DEFAULT 0");
+  }
+  // v0.29: notes.is_pinned + pinned_at. Same idempotent-ALTER pattern as
+  // inline_render above — runs unconditionally so any cloud DB picks up
+  // the columns on next boot. Pre-existing rows default to unpinned.
+  if (notesCols.length > 0 && !notesCols.some((c) => c.name === "is_pinned")) {
+    db.exec("ALTER TABLE notes ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0");
+  }
+  if (notesCols.length > 0 && !notesCols.some((c) => c.name === "pinned_at")) {
+    db.exec("ALTER TABLE notes ADD COLUMN pinned_at TEXT");
   }
 }
 

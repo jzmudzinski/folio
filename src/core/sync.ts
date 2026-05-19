@@ -320,6 +320,8 @@ interface PushNotePayload {
   live: 0 | 1;
   owner_device_id: string | null;
   inline_render: 0 | 1;
+  is_pinned: 0 | 1;
+  pinned_at: string | null;
   tags: string[];
   summary: string | null;
   word_count: number;
@@ -377,6 +379,10 @@ interface PullNote {
   owner_device_id: string | null;
   origin_device_id: string;
   inline_render?: 0 | 1;
+  /** v0.29: optional — older cloud builds don't send these. Default to
+   *  unpinned on the consumer side. */
+  is_pinned?: 0 | 1;
+  pinned_at?: string | null;
   tags: string[];
   summary: string | null;
   word_count: number;
@@ -467,12 +473,14 @@ export async function pushNotes(state: SyncState, selfDeviceId: string): Promise
         origin_device_id: string | null;
         owner_device_id: string | null;
         inline_render: number;
+        is_pinned: number;
+        pinned_at: string | null;
       },
       [string, string]
     >(
       `SELECT id, slug, path, title, type, theme, theme_profile, thread_id,
               is_final, live, created, updated, expires_at, word_count, summary,
-              origin_device_id, owner_device_id, inline_render
+              origin_device_id, owner_device_id, inline_render, is_pinned, pinned_at
          FROM notes
         WHERE status = 'active'
           AND (origin_device_id IS NULL OR origin_device_id = ?)
@@ -532,6 +540,8 @@ export async function pushNotes(state: SyncState, selfDeviceId: string): Promise
       live: (r.live ? 1 : 0) as 0 | 1,
       owner_device_id: r.owner_device_id,
       inline_render: (r.inline_render ? 1 : 0) as 0 | 1,
+      is_pinned: (r.is_pinned ? 1 : 0) as 0 | 1,
+      pinned_at: r.pinned_at,
       tags,
       summary: r.summary,
       word_count: r.word_count,
@@ -804,8 +814,9 @@ async function applyPulledNote(n: PullNote): Promise<void> {
       `INSERT INTO notes (
          id, slug, path, title, type, theme, theme_profile, thread_id,
          is_final, created, updated, expires_at, word_count, summary, status,
-         live, last_entry_at, origin_device_id, owner_device_id, inline_render
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, ?, ?, ?)
+         live, last_entry_at, origin_device_id, owner_device_id, inline_render,
+         is_pinned, pinned_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          slug = excluded.slug,
          path = excluded.path,
@@ -822,7 +833,9 @@ async function applyPulledNote(n: PullNote): Promise<void> {
          live = excluded.live,
          origin_device_id = excluded.origin_device_id,
          owner_device_id = excluded.owner_device_id,
-         inline_render = excluded.inline_render`,
+         inline_render = excluded.inline_render,
+         is_pinned = excluded.is_pinned,
+         pinned_at = excluded.pinned_at`,
       [
         n.uuid,
         slug,
@@ -842,6 +855,8 @@ async function applyPulledNote(n: PullNote): Promise<void> {
         n.origin_device_id,
         n.owner_device_id,
         (n.inline_render ?? 0) ? 1 : 0,
+        (n.is_pinned ?? 0) ? 1 : 0,
+        n.pinned_at ?? null,
       ]
     );
     // Tag set replace.

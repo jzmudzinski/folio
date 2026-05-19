@@ -47,6 +47,15 @@ export interface Note {
    *  anyone who already shared it), but listings, thread views, and
    *  search hide superseded notes by default. */
   superseded_by: string | null;
+  /** v0.29: when true, the note floats to the top of the default listing.
+   *  Distinct from `is_final` (★ archive, no auto-cleanup) and from
+   *  `view:pinned` (entry-level tag on live notes — that's about
+   *  entries inside a feed). Pure user-facing favorite/bookmark. */
+  is_pinned: boolean;
+  /** v0.29: ISO timestamp the user toggled `is_pinned` on. Null when
+   *  `is_pinned=false`. Used to order multiple pinned notes — freshly
+   *  pinned floats above long-pinned. Cleared on unpin. */
+  pinned_at: string | null;
 }
 
 export interface NoteMeta {
@@ -71,6 +80,8 @@ export interface NoteMeta {
   owner_device_id: string | null;
   inline_render: boolean;
   superseded_by: string | null;
+  is_pinned: boolean;
+  pinned_at: string | null;
 }
 
 export interface CreateNoteInput {

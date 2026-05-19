@@ -144,6 +144,27 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    from: "5",
+    to: "6",
+    description:
+      "Add is_pinned + pinned_at columns to notes (v0.29 user-pinned notes). " +
+      "is_pinned floats a note to the top of the default listing; pinned_at " +
+      "is the ISO timestamp when the user toggled it on, so multiple pinned " +
+      "notes sort by *when they were pinned* (not by their creation date) — " +
+      "freshly pinned floats above long-pinned. NULL when not pinned. " +
+      "Distinct from is_final (★ archive) and from view:pinned (entry-level " +
+      "tag on live notes). Backfill is a no-op — pre-existing notes are " +
+      "unpinned by default.",
+    up: (db) => {
+      if (!hasColumn(db, "notes", "is_pinned")) {
+        db.exec("ALTER TABLE notes ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0");
+      }
+      if (!hasColumn(db, "notes", "pinned_at")) {
+        db.exec("ALTER TABLE notes ADD COLUMN pinned_at TEXT");
+      }
+    },
+  },
 ];
 
 /**

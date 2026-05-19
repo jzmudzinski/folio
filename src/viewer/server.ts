@@ -16,16 +16,20 @@ function jsonResp(obj: unknown, status = 200): Response {
   return new Response(JSON.stringify(obj, null, 2), { status, headers: { "Content-Type": "application/json; charset=utf-8" } });
 }
 
-function countSummary(): { all: number; final: number; expiring: number; byType: Record<string, number> } {
+function countSummary(): { all: number; final: number; expiring: number; pinned: number; byType: Record<string, number> } {
   const d = db();
   const all = d.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM notes WHERE status='active'").get()?.n ?? 0;
   const final = d.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM notes WHERE is_final=1 AND status='active'").get()?.n ?? 0;
   const expiring = d.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM notes WHERE is_final=0 AND status='active' AND expires_at < datetime('now','+7 days')").get()?.n ?? 0;
+  // v0.29: superseded_by filter matches what listNotes returns, so the chip
+  // number agrees with the rendered list. Older counts (final/expiring/all)
+  // omit this filter — that's a pre-existing inconsistency, out of scope here.
+  const pinned = d.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM notes WHERE is_pinned=1 AND status='active' AND superseded_by IS NULL").get()?.n ?? 0;
   const byType: Record<string, number> = {};
   for (const r of d.query<{ type: string; n: number }, []>("SELECT type, COUNT(*) AS n FROM notes WHERE status='active' GROUP BY type").all()) {
     byType[r.type] = r.n;
   }
-  return { all, final, expiring, byType };
+  return { all, final, expiring, pinned, byType };
 }
 
 // Whitelist of asset extensions the viewer will serve from
@@ -90,10 +94,12 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
           const tag = url.searchParams.get("tag");
           const finalOnly = url.searchParams.get("final") === "1";
           const expiring = url.searchParams.get("expiring") === "1";
+          const pinnedOnly = url.searchParams.get("pinned") === "1";
           let notes = listNotes({
             type: type ?? undefined,
             tag: tag ?? undefined,
             is_final: finalOnly ? true : undefined,
+            is_pinned: pinnedOnly ? true : undefined,
             limit: 100,
           });
           if (expiring) {
@@ -102,10 +108,11 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
           const popularTags = listPopularTags(20);
           // v0.23 — continue-rail. Only fetched on the bare home view (no
           // filters); pageList itself decides whether to render it.
-          const continueRail = (!type && !tag && !finalOnly && !expiring)
+          const continueRail = (!type && !tag && !finalOnly && !expiring && !pinnedOnly)
             ? listContinueRail({ limit: 4 })
             : [];
-          return htmlResp(pageList(notes, countSummary(), type ?? undefined, finalOnly ? "final" : expiring ? "expiring" : undefined, popularTags, tag ?? undefined, continueRail));
+          const activeStatus = finalOnly ? "final" : expiring ? "expiring" : pinnedOnly ? "pinned" : undefined;
+          return htmlResp(pageList(notes, countSummary(), type ?? undefined, activeStatus, popularTags, tag ?? undefined, continueRail));
         }
 
         // GET /search?q=...
@@ -496,6 +503,7 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
           if (Array.isArray(body.tags)) patch.tags = (body.tags as unknown[]).map(String);
           if (typeof body.theme === "string") patch.theme = body.theme;
           if (typeof body.is_final === "boolean") patch.is_final = body.is_final;
+          if (typeof body.is_pinned === "boolean") patch.is_pinned = body.is_pinned;
           const result = await updateNoteMetadata(patch);
           if (!result.ok) {
             const code = result.reason === "not-found" ? 404
@@ -512,6 +520,8 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
               theme: result.meta!.theme,
               tags: result.meta!.tags,
               is_final: result.meta!.is_final,
+              is_pinned: result.meta!.is_pinned,
+              pinned_at: result.meta!.pinned_at,
               updated: result.meta!.updated,
             },
           });

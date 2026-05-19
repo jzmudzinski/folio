@@ -366,6 +366,25 @@ body.list-page { overflow: hidden; }
 .action-card:hover .ac-title .ac-star { color: var(--vbg); }
 .action-card .ac-hint { font-family: var(--vmono); font-size: 11px; color: var(--vmuted-2); margin-top: 6px; line-height: 1.45; }
 
+/* v0.29 — pin toggle. Sits just below the action-card. Compact: a single
+ * row with the 📌 glyph + label. State is reflected via .on (currently
+ * pinned). Click hits POST /api/notes/:id/metadata with {is_pinned}. */
+.pin-toggle { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 14px; margin-bottom: 18px; border: 1px solid var(--vline); border-radius: 8px; background: var(--vbg); color: var(--vink-2); cursor: pointer; font-family: var(--vmono); font-size: 11.5px; letter-spacing: 0.04em; transition: background .12s, border-color .12s, color .12s; }
+.pin-toggle:hover { background: var(--vpanel); border-color: var(--vmuted); }
+.pin-toggle .pin-glyph { font-size: 14px; opacity: 0.85; }
+.pin-toggle .pin-lbl { flex: 1; }
+.pin-toggle .pin-hint { color: var(--vmuted-2); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+.pin-toggle.on { background: var(--vorange-soft, rgba(213,124,38,0.08)); border-color: var(--vorange); color: var(--vorange); }
+.pin-toggle.on .pin-glyph { opacity: 1; }
+.pin-toggle.on:hover { background: rgba(213,124,38,0.14); }
+
+/* v0.29 — 📌 indicator on hero card eyebrow + row title prefix. Small,
+ * tinted, visually parallel to the ★ final pip — same scale, lower
+ * weight to keep "final" as the louder signal. */
+.eyebrow .pinned { color: var(--vorange); font-family: var(--vmono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; }
+.hero.pinned { border-color: var(--vorange); }
+.row.pinned .pin-mark { color: var(--vorange); font-size: 11px; margin-right: 2px; }
+
 .side-meta { display: grid; grid-template-columns: auto 1fr; gap: 12px 14px; padding: 4px 0 18px; border-bottom: 1px solid var(--vline); margin-bottom: 18px; }
 .side-meta dt { font-family: var(--vmono); font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--vmuted-2); align-self: baseline; }
 .side-meta dd { font-family: var(--vmono); font-size: 12px; color: var(--vink-2); margin: 0; align-self: baseline; min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
@@ -675,6 +694,7 @@ interface CountSummary {
   all: number;
   final: number;
   expiring: number;
+  pinned: number;
   byType: Record<string, number>;
 }
 
@@ -688,10 +708,15 @@ function buildHref(params: Record<string, string | undefined | null>): string {
 }
 
 function filterBar(activeType?: string, activeStatus?: string, counts?: CountSummary, resultsMeta?: string, activeTag?: string): string {
-  const cs = counts ?? { all: 0, final: 0, expiring: 0, byType: {} };
+  const cs = counts ?? { all: 0, final: 0, expiring: 0, pinned: 0, byType: {} };
   const on = (cond: boolean) => (cond ? " on" : "");
   // Type/status chips preserve the active tag so combined filter works
   const withTag = (extra: Record<string, string>) => buildHref({ tag: activeTag ?? null, ...extra });
+  // v0.29: 📌 Pinned chip lives next to Final/Expiring. Only show when at
+  // least one pinned exists — empty filter is dead UI noise on fresh installs.
+  const pinnedChip = cs.pinned > 0
+    ? `<a href="${withTag({ pinned: "1" })}" class="fp${on(activeStatus === "pinned")}"><span class="pin-glyph">📌</span> Pinned <span class="count">${cs.pinned}</span></a>`
+    : "";
   return `
 <div class="v-strip">
   <div class="v-strip-inner">
@@ -701,6 +726,7 @@ function filterBar(activeType?: string, activeStatus?: string, counts?: CountSum
     <a href="${withTag({ type: "technical" })}" class="fp${on(activeType === "technical")}">Technical <span class="count">${cs.byType.technical ?? 0}</span></a>
     ${cs.byType.journal ? `<a href="${withTag({ type: "journal" })}" class="fp${on(activeType === "journal")}">Journal <span class="count">${cs.byType.journal}</span></a>` : ""}
     <span class="sep"></span>
+    ${pinnedChip}
     <a href="${withTag({ final: "1" })}" class="fp${on(activeStatus === "final")}"><span class="star">★</span> Final <span class="count">${cs.final}</span></a>
     <a href="${withTag({ expiring: "1" })}" class="fp warn${on(activeStatus === "expiring")}">⏱ Expiring 7d <span class="count">${cs.expiring}</span></a>
     ${resultsMeta ? `<span class="results-meta">${esc(resultsMeta)}</span>` : ""}
@@ -738,22 +764,31 @@ function tagBar(popularTags: { tag: string; count: number }[], activeTag?: strin
 function activeFilterStrip(activeTag?: string, activeType?: string, activeStatus?: string): string {
   if (!activeTag && !activeType && !activeStatus) return "";
   const chips: string[] = [];
+  const statusToParam = (s: string | undefined): { final?: string; expiring?: string; pinned?: string } => {
+    if (s === "final") return { final: "1" };
+    if (s === "expiring") return { expiring: "1" };
+    if (s === "pinned") return { pinned: "1" };
+    return {};
+  };
   if (activeTag) {
     const { ns, value, nsClass } = parseTagNs(activeTag);
     const label = ns !== null
       ? `<span class="ns" style="color:var(--vmuted-2)">${esc(ns)}:</span>${esc(value)}`
       : esc(activeTag);
     // Remove tag, keep other filters
-    const href = buildHref({ type: activeType, final: activeStatus === "final" ? "1" : null, expiring: activeStatus === "expiring" ? "1" : null });
+    const href = buildHref({ type: activeType, ...statusToParam(activeStatus) });
     chips.push(`<a href="${href}" class="chip${nsClass ? " " + nsClass : ""}" title="Clear tag filter">🏷 ${label}<span class="x">×</span></a>`);
   }
   if (activeType) {
-    const href = buildHref({ tag: activeTag, final: activeStatus === "final" ? "1" : null, expiring: activeStatus === "expiring" ? "1" : null });
+    const href = buildHref({ tag: activeTag, ...statusToParam(activeStatus) });
     chips.push(`<a href="${href}" class="chip" title="Clear type filter">type: ${esc(activeType)}<span class="x">×</span></a>`);
   }
   if (activeStatus) {
     const href = buildHref({ tag: activeTag, type: activeType });
-    chips.push(`<a href="${href}" class="chip" title="Clear status filter">${activeStatus === "final" ? "★ final" : "⏱ expiring 7d"}<span class="x">×</span></a>`);
+    const statusLabel = activeStatus === "final" ? "★ final"
+                      : activeStatus === "expiring" ? "⏱ expiring 7d"
+                      : "📌 pinned";
+    chips.push(`<a href="${href}" class="chip" title="Clear status filter">${statusLabel}<span class="x">×</span></a>`);
   }
   return `
 <div class="v-page" style="padding-top: 12px; padding-bottom: 0;">
@@ -770,11 +805,14 @@ function heroCard(n: NoteMeta): string {
   eyebrowParts.push(n.type[0].toUpperCase() + n.type.slice(1));
   eyebrowParts.push(ago(n.created));
   const finalChip = n.is_final ? `<span class="pip"></span><span class="final">★ FINAL</span>` : "";
+  // v0.29: 📌 sits in the eyebrow next to the type — same row as the date,
+  // signals "pinned" without competing with the title.
+  const pinnedChip = n.is_pinned ? `<span class="pip"></span><span class="pinned">📌 pinned</span>` : "";
   const lead = n.summary && n.summary.length > 10 ? esc(n.summary) : "";
   return `
-<a class="hero" href="/n/${n.id}">
+<a class="hero${n.is_pinned ? " pinned" : ""}" href="/n/${n.id}">
   <div>
-    <div class="eyebrow"><span class="dot"></span><span>${eyebrowParts.join(" · ")}</span></div>
+    <div class="eyebrow"><span class="dot"></span><span>${eyebrowParts.join(" · ")}</span>${pinnedChip}</div>
     <h1>${esc(n.title)}</h1>
     ${lead ? `<p class="lead">${lead}</p>` : ""}
     <div class="meta">
@@ -802,11 +840,14 @@ function noteRow(n: NoteMeta): string {
   subParts.push(`<span class="thread">📂 ${esc(n.thread_id)}</span>`);
   if (n.theme) subParts.push(`${esc(n.theme)} theme`);
   if (n.word_count > 0) subParts.push(`${n.word_count} words`);
+  // v0.29: 📌 prefix on the title row signals pinned. Subtle — same glyph
+  // as the filter chip, so the visual link is obvious without shouting.
+  const pinPrefix = n.is_pinned ? `<span class="pin-mark" title="Pinned to top">📌</span> ` : "";
   return `
-<a class="row" href="/n/${n.id}">
+<a class="row${n.is_pinned ? " pinned" : ""}" href="/n/${n.id}">
   <span class="type ${n.type}">${n.type}</span>
   <div>
-    <span class="title">${esc(n.title)}</span>
+    <span class="title">${pinPrefix}${esc(n.title)}</span>
     <span class="title-sub">${subParts.join("  ·  ")}</span>
   </div>
   <span class="age">${ago(n.created)}</span>
@@ -2054,6 +2095,15 @@ export function pageNote(note: NoteMeta, _themeName: string, context?: NoteListC
          </button>
        </form>`;
 
+  // v0.29 — pin toggle. Lives right under the action-card. Pins float to
+  // the top of the home list; pinned_at orders multiple pinned (freshly
+  // pinned floats above long-pinned). Click → POST /metadata {is_pinned}.
+  const pinToggle = `<button type="button" class="pin-toggle${note.is_pinned ? " on" : ""}" data-note-id="${esc(note.id)}" data-pinned="${note.is_pinned ? "1" : "0"}" aria-pressed="${note.is_pinned ? "true" : "false"}">
+         <span class="pin-glyph">📌</span>
+         <span class="pin-lbl">${note.is_pinned ? "Pinned to top" : "Pin to top"}</span>
+         <span class="pin-hint">${note.is_pinned ? "click to unpin" : "click to pin"}</span>
+       </button>`;
+
   // Tag editor — always present (zero-tags case shows just the +add input).
   // Each chip carries a tag-remove button; autocomplete suggestions come
   // from listPopularTags embedded in the inline editor script below.
@@ -2118,6 +2168,54 @@ export function pageNote(note: NoteMeta, _themeName: string, context?: NoteListC
             });
         });
       }
+    }
+
+    // v0.29 — pin toggle. POST /metadata {is_pinned}, then flip the
+    // button's visual state in place (no reload — the note page itself
+    // doesn't show different content based on is_pinned, only the list
+    // does). Optimistic UI: the click instantly flips, network failure
+    // rolls back + toasts.
+    var pinBtn = document.querySelector('.pin-toggle');
+    if (pinBtn) {
+      pinBtn.addEventListener('click', function(){
+        var noteId = pinBtn.dataset.noteId;
+        var currentlyPinned = pinBtn.dataset.pinned === '1';
+        var nextPinned = !currentlyPinned;
+        // Optimistic flip
+        pinBtn.dataset.pinned = nextPinned ? '1' : '0';
+        pinBtn.setAttribute('aria-pressed', nextPinned ? 'true' : 'false');
+        pinBtn.classList.toggle('on', nextPinned);
+        var lbl = pinBtn.querySelector('.pin-lbl');
+        var hint = pinBtn.querySelector('.pin-hint');
+        if (lbl) lbl.textContent = nextPinned ? 'Pinned to top' : 'Pin to top';
+        if (hint) hint.textContent = nextPinned ? 'click to unpin' : 'click to pin';
+        fetch('/api/notes/' + encodeURIComponent(noteId) + '/metadata', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ is_pinned: nextPinned })
+        }).then(function(r){ return r.json().then(function(d){ return { ok: r.ok && d.ok, status: r.status, data: d }; }); })
+          .then(function(resp){
+            if (!resp.ok) {
+              // Rollback
+              pinBtn.dataset.pinned = currentlyPinned ? '1' : '0';
+              pinBtn.setAttribute('aria-pressed', currentlyPinned ? 'true' : 'false');
+              pinBtn.classList.toggle('on', currentlyPinned);
+              if (lbl) lbl.textContent = currentlyPinned ? 'Pinned to top' : 'Pin to top';
+              if (hint) hint.textContent = currentlyPinned ? 'click to unpin' : 'click to pin';
+              if (window.__folioToast) window.__folioToast('Pin failed: ' + (resp.data.reason || resp.status), true);
+            } else if (window.__folioToast) {
+              window.__folioToast(nextPinned ? '📌 Pinned to top' : 'Unpinned');
+            }
+          })
+          .catch(function(){
+            pinBtn.dataset.pinned = currentlyPinned ? '1' : '0';
+            pinBtn.setAttribute('aria-pressed', currentlyPinned ? 'true' : 'false');
+            pinBtn.classList.toggle('on', currentlyPinned);
+            if (lbl) lbl.textContent = currentlyPinned ? 'Pinned to top' : 'Pin to top';
+            if (hint) hint.textContent = currentlyPinned ? 'click to unpin' : 'click to pin';
+            if (window.__folioToast) window.__folioToast('Network error', true);
+          });
+      });
     }
 
     function buildToc(items){
@@ -2461,6 +2559,7 @@ ${SHARE_POPOVER_CSS}
     <span class="type-pill ${note.type}">${note.type}</span>
     <h1 class="editable-title" data-note-id="${esc(note.id)}" tabindex="0" title="Click to edit">${esc(note.title)}</h1>
     ${actionCard}
+    ${pinToggle}
     ${prevNextHtml}
     ${tocHtml}
     <dl class="side-meta">

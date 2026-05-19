@@ -2,6 +2,36 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.29.0 — 2026-05-19
+
+**User-pinned notes.** New `is_pinned` flag floats notes to the top of the default listing, plus a `📌 Pinned N` filter chip alongside `Final ★ N`. Distinct from `is_final` (archive) and `view:pinned` (entry-level tag on live notes).
+
+### Added
+
+#### Schema (v5→v6 migration)
+- **`notes.is_pinned INTEGER NOT NULL DEFAULT 0`** + **`notes.pinned_at TEXT NULL`** (`src/core/migrations.ts`). Partial index `notes_by_pinned` on `pinned_at DESC WHERE is_pinned = 1` keeps the float-to-top sort cheap. Cloud side gets the same columns via idempotent ALTER (`src/cloud/db.ts`).
+
+#### Storage + API
+- **`updateNoteMetadata({is_pinned})`** (`src/core/storage.ts`) stamps `pinned_at = now()` on true, clears it on false. Pin-only updates skip the file rewrite path entirely — no body regenerate, no FTS touch, just an UPDATE.
+- **`listNotes`** default sort is now `is_pinned DESC, pinned_at DESC, created DESC` — pinned float to the top, freshest pin above long-pinned. Skipped when `thread_id` is set so thread views stay chronological.
+- New **`is_pinned`** filter option on `ListOptions`.
+- **`replaceNote()`** carries the pin forward to the new head and clears it on the old superseded row — polishing a pinned note doesn't lose the pin.
+- **`POST /api/notes/:id/metadata`** accepts `is_pinned` in the patch body; response includes `is_pinned` + `pinned_at`.
+- **`GET /?pinned=1`** filters the home list to pinned only.
+
+#### Viewer UI
+- **📌 Pinned N filter chip** in the home filter bar (`render.ts:filterBar`), next to `★ Final` and `⏱ Expiring 7d`. Hidden when count is zero.
+- **📌 indicator** in the eyebrow of the hero card (with `pinned` border accent) and as a prefix on row entries — same orange as the chip for visual parity.
+- **Pin-to-top toggle** in the note's side panel under the "Mark as final" action card. Optimistic flip on click with rollback on API failure; toast confirms ("📌 Pinned to top" / "Unpinned").
+
+#### Sync wire (cloud + local)
+- `PushNote` / `PullNote` carry `is_pinned` + `pinned_at` (`src/core/sync.ts`, `src/cloud/sync.ts`). Cloud `ON CONFLICT` upsert + pull SELECT include both fields. Older cloud builds without these columns are tolerated via `?? 0` / `?? null` defaults on the receive side.
+- **Note:** edit-sync of existing notes is a pre-existing limitation (push uses `created > cursor`); pin-state on freshly created notes propagates correctly. Edit-sync, when it ships, will carry pin-state for free.
+
+### Tests
+- New `tests/pinned-notes.test.ts` (9 tests) covers: default unpinned, pin stamps timestamp, unpin clears it, pin-only update doesn't touch the .html file, default sort floats pinned to top with `pinned_at` ordering, thread view stays chronological, `replaceNote` carries pin forward, no-change detection.
+- `tests/migrations.test.ts` head schema_version assertion bumped to "6".
+
 ## v0.28.0 — 2026-05-19
 
 **Three UX fixes from real usage** — newest-first feeds, project dedup on the continue rail, and tags promoted to the header bar. All surface-level; no schema change.

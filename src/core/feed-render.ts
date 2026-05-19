@@ -41,10 +41,16 @@ export function renderEntryHtml(c: CompiledEntry): string {
  * Compile pinned + chronological feed sections from a set of already-compiled
  * entries. Empty sections are omitted so a fresh live note doesn't render
  * empty boxes.
+ *
+ * Render order (v0.28+): newest first within each section. compile() upstream
+ * sorts ASC so ref-driven tag mutations apply in the right order; here we
+ * reverse for display so the latest entry leads — matches the Slack / RSS /
+ * Twitter convention. A 12-month-old changelog reads top-down from current
+ * release backward; that's the right shape for a feed surface.
  */
 export function renderFeedHtml(compiled: CompiledEntry[]): string {
-  const pinned = compiled.filter((c) => c.pinned);
-  const rest = compiled.filter((c) => !c.pinned);
+  const pinned = compiled.filter((c) => c.pinned).slice().reverse();
+  const rest = compiled.filter((c) => !c.pinned).slice().reverse();
   const pinnedHtml = pinned.length > 0
     ? `<section class="entries-pinned"><h3>Pinned</h3>\n${pinned.map(renderEntryHtml).join("\n")}\n</section>`
     : "";
@@ -124,6 +130,9 @@ export const INLINE_FEED_BOOTSTRAP_JS = `
     var s = ensureSections(); if (!s) return;
     if (s.host.querySelector('[data-entry-id="' + (c.id || "").replace(/"/g, "") + '"]')) return;
     var el = renderEntry(c);
+    // v0.28 — newest-first within each section. Server-side render (initial
+    // paint) already reverses; here we prepend so live append also lands at
+    // the top of its section instead of appending below older items.
     if (c.pinned) {
       if (!s.pinned) {
         var p = document.createElement("section");
@@ -132,9 +141,14 @@ export const INLINE_FEED_BOOTSTRAP_JS = `
         s.host.insertBefore(p, s.feed);
         s.pinned = p;
       }
-      s.pinned.appendChild(el);
+      // Insert before the first existing entry (or after the <h3>).
+      var firstPinned = s.pinned.querySelector("[data-entry-id]");
+      if (firstPinned) s.pinned.insertBefore(el, firstPinned);
+      else s.pinned.appendChild(el);
     } else {
-      s.feed.appendChild(el);
+      var firstFeed = s.feed.querySelector("[data-entry-id]");
+      if (firstFeed) s.feed.insertBefore(el, firstFeed);
+      else s.feed.appendChild(el);
     }
     try { el.scrollIntoView({ behavior: "smooth", block: "nearest" }); } catch (_e) {}
   }

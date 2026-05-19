@@ -1040,11 +1040,31 @@ export function listThreads(query?: string, limit = 200): { thread_id: string; c
  * thread). The rail click target uses these — project → /p/<slug>,
  * pending iteration → /n/<latest-iteration-id>, otherwise /n/<latest>.
  */
+export type ContinueRailKind = "project" | "thread";
+
 export interface ContinueRailItem {
+  /** v0.28 — distinguishes a project aggregate (multiple threads under one
+   *  project:<slug> tag collapsed into one tile) from a standalone thread
+   *  with no project tag. The renderer picks the click target + meta line
+   *  based on kind. */
+  kind: ContinueRailKind;
+  /** For kind="thread": the actual thread_id. For kind="project": the
+   *  latest member thread_id (kept for analytics + back-compat with code
+   *  that grouped by this). */
   thread_id: string;
+  /** Latest head note id across the thread (or across all project members
+   *  for a project tile). Used as fallback link when project_slug is null
+   *  and there's no pending iteration. */
   latest_note_id: string;
+  /** Display title — head note's title for thread items, project slug for
+   *  project items. */
   title: string;
+  /** Non-null only when this tile represents a project. */
   project_slug: string | null;
+  /** v0.28 — count of threads collapsed into this tile (1 for thread
+   *  items; >=1 for project items, can be 1 if the project has only one
+   *  active thread). */
+  member_thread_count: number;
   touch_count: number;
   score: number;
   last_touch: string;
@@ -1058,6 +1078,11 @@ export function listContinueRail(opts?: { limit?: number; window_days?: number }
   const limit = Math.max(1, Math.min(20, opts?.limit ?? 5));
   const windowDays = Math.max(1, Math.min(60, opts?.window_days ?? 7));
   const d = db();
+
+  // v0.28 — over-fetch so we have enough scored threads to collapse by
+  // project before trimming to the final limit. Cap at 40 — any larger
+  // and the per-thread enrichment cost adds up.
+  const overFetch = Math.min(40, Math.max(limit, limit * 4));
 
   // Step 1 — score every thread that received a tracked event in the window.
   // INNER JOIN to notes keeps the score limited to threads with at least one
@@ -1086,12 +1111,12 @@ export function listContinueRail(opts?: { limit?: number; window_days?: number }
        ORDER BY score DESC
        LIMIT ?`,
     )
-    .all(`-${windowDays} days`, limit);
+    .all(`-${windowDays} days`, overFetch);
 
   if (scored.length === 0) return [];
 
-  // Step 2 — per-thread enrichment. One query each; total ≤ limit threads.
-  return scored.map((t): ContinueRailItem => {
+  // Step 2 — per-thread enrichment. One query each; total ≤ overFetch threads.
+  const enriched = scored.map((t): ContinueRailItem => {
     const latest = d
       .query<{ id: string; title: string }, [string]>(
         `SELECT id, title FROM notes
@@ -1117,10 +1142,12 @@ export function listContinueRail(opts?: { limit?: number; window_days?: number }
       )
       .get(t.thread_id);
     return {
+      kind: "thread",
       thread_id: t.thread_id,
       latest_note_id: latest?.id ?? "",
       title: latest?.title ?? t.thread_id,
       project_slug: projectRow ? projectRow.tag.slice("project:".length) : null,
+      member_thread_count: 1,
       touch_count: t.touches_7d,
       score: t.score,
       last_touch: t.last_touch,
@@ -1128,6 +1155,52 @@ export function listContinueRail(opts?: { limit?: number; window_days?: number }
       pending_iteration_id: pendingIter?.id ?? null,
     };
   });
+
+  // Step 3 — collapse threads sharing the same project:<slug> into one
+  // "project" tile. A project with one active thread still becomes a
+  // project tile (single visual style for project work; click routes to
+  // /p/<slug> regardless of underlying thread count). Threads without a
+  // project tag stay as standalone "thread" items.
+  const byProject = new Map<string, ContinueRailItem[]>();
+  const standalone: ContinueRailItem[] = [];
+  for (const item of enriched) {
+    if (item.project_slug) {
+      const arr = byProject.get(item.project_slug) ?? [];
+      arr.push(item);
+      byProject.set(item.project_slug, arr);
+    } else {
+      standalone.push(item);
+    }
+  }
+
+  const collapsed: ContinueRailItem[] = [];
+  for (const [slug, items] of byProject.entries()) {
+    // Sort members so we can pick the freshest underlying thread as the
+    // canonical "latest" for the tile.
+    items.sort((a, b) => b.last_touch.localeCompare(a.last_touch));
+    const top = items[0]!;
+    const totalScore = items.reduce((acc, i) => acc + i.score, 0);
+    const totalTouches = items.reduce((acc, i) => acc + i.touch_count, 0);
+    const pending = items.find((i) => i.has_pending_iteration) ?? null;
+    collapsed.push({
+      kind: "project",
+      thread_id: top.thread_id,
+      latest_note_id: top.latest_note_id,
+      title: slug,
+      project_slug: slug,
+      member_thread_count: items.length,
+      touch_count: totalTouches,
+      score: totalScore,
+      last_touch: top.last_touch,
+      has_pending_iteration: pending != null,
+      pending_iteration_id: pending?.pending_iteration_id ?? null,
+    });
+  }
+
+  // Step 4 — interleave + sort by score DESC; trim to final limit.
+  const merged = [...collapsed, ...standalone];
+  merged.sort((a, b) => b.score - a.score);
+  return merged.slice(0, limit);
 }
 
 /**

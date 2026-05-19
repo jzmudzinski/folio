@@ -103,7 +103,7 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
           // v0.23 — continue-rail. Only fetched on the bare home view (no
           // filters); pageList itself decides whether to render it.
           const continueRail = (!type && !tag && !finalOnly && !expiring)
-            ? listContinueRail({ limit: 5 })
+            ? listContinueRail({ limit: 4 })
             : [];
           return htmlResp(pageList(notes, countSummary(), type ?? undefined, finalOnly ? "final" : expiring ? "expiring" : undefined, popularTags, tag ?? undefined, continueRail));
         }

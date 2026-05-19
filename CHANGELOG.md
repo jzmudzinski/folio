@@ -2,6 +2,39 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.28.0 — 2026-05-19
+
+**Three UX fixes from real usage** — newest-first feeds, project dedup on the continue rail, and tags promoted to the header bar. All surface-level; no schema change.
+
+### Changed
+
+#### Feeds render newest-first (within each section)
+- **`renderFeedHtml()`** (`src/core/feed-render.ts`) reverses entries within both pinned and non-pinned sections before emitting HTML. `compile()` upstream still sorts ASC for correct ref application; the reverse is display-only. Matches Slack / RSS / Twitter convention.
+- **`PANEL_RENDER_JS`** (`src/viewer/live-panel.ts`) applies the same `.slice().reverse()` to compiled entries before re-rendering the panel.
+- **`INLINE_FEED_BOOTSTRAP_JS`** (`src/core/feed-render.ts`) `appendNewEntry()` now inserts before the first existing entry instead of appending, so live SSE deliveries land at the top of their section.
+
+#### Continue rail caps at 4 and collapses project threads
+- **`listContinueRail()`** over-fetches `limit × 4` (capped 40), enriches per-thread as before, then **collapses every thread sharing a `project:<slug>` tag into one tile** with aggregated `touch_count` + `score` (sum) and `last_touch` (max). Threads without a project tag stay individual.
+- New `kind: "project" | "thread"` discriminator on `ContinueRailItem`. Project tiles always click to `/p/<slug>`; thread tiles keep the prior routing (pending iteration → `/n/<iter-id>`, else `/n/<latest>`).
+- New `member_thread_count` field — `1` for thread items; ≥1 for project items (visible as `project · N threads` chip).
+- **Visual:** project tiles get `.is-project` class — soft orange gradient background, `▦` glyph in the top-right corner, slug rendered as the primary title in orange. Thread tiles look unchanged.
+- **Cap reduced from 5 → 4** in `server.ts` so cards fit on one row at typical viewer width.
+
+#### Popular tags promoted to header bar
+- New **`tagBar(popularTags, activeTag)`** helper in `src/viewer/render.ts` renders a `.v-tagbar` strip directly under the type/status filter row. Sort order: **namespaced tags first** (those carrying `:` — `project:`, `slot:`, `kind:`, `state:`, etc., they lead to organized data), **then non-namespaced**, both alphabetical within their bucket.
+- Old bottom-of-list "Tags · N popular" section removed to avoid duplication.
+- Horizontal-scroll fallback under 720px viewport via existing `.fp` flex-shrink rules.
+
+### Tests
+- `tests/v028-fixes.test.ts` (+11 tests) — feed DESC sort within pinned + rest, panel/inline reverse sentinels, project dedup + score aggregation, rail caps at 4 cards, `.is-project` tile shape, tag bar position, namespaced-first tag sort, bottom-list dedup confirmed.
+- `tests/continue-rail.test.ts` (1 updated, 1 added) — updates for the v0.28 project tile shape; new test for 3-way project collapse with member counts.
+- Full suite: 634 tests across 57 files, all passing (was 622).
+
+### Migration notes
+- No schema change. Existing notes / events / threads work unchanged.
+- Anyone with a heavily-tagged Folio will notice the homepage compresses: tag chips moved up, bottom of the list is shorter, continue rail consolidates project threads. Click targets that already pointed at `/p/<slug>` are unchanged; thread-level click-throughs to `/n/<id>` work as before for non-project items.
+- The `pending_iteration_id` priority routing now applies only to thread tiles. Project tiles always go to `/p/<slug>` first — the project dashboard surfaces "Pending picks" cards as a separate section, so it's still one extra click to the iteration. Acceptable trade for not having three "ProjectFoo" rail cards.
+
 ## v0.27.0 — 2026-05-18
 
 **Phase 1 finishing touches** — three quality-of-life wins on top of the v0.24-v0.26 project workspace push: drag-and-drop on kanban cards, slide thumbnails sidebar in presentation mode, and inline-mode kanban (todo notes with `inline: true` now also get the Feed | Kanban toggle).

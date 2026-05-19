@@ -135,7 +135,36 @@ a { color: inherit; text-decoration: none; }
 .v-tagbar { border-bottom: 1px solid var(--vline-2); background: var(--vbg); }
 .v-tagbar-inner { max-width: var(--chrome-max); margin: 0 auto; padding: 9px var(--gutter); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .v-tagbar-lbl { font-family: var(--vmono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--vmuted-2); font-weight: 600; margin-right: 4px; }
-.v-tagbar .tag-chip { padding: 3px 9px; font-size: 11px; }
+/* v0.29.1 — header tag chips reuse the side-panel pill aesthetic
+ * (.side-tags .tg). The previous override only set padding/font-size,
+ * which meant chips inherited zero visual treatment outside .tag-cloud:
+ * no background, no border, no separator → "kind:bug3" rendered as one
+ * unreadable string. This rebuilds the chip from scratch in the tagbar
+ * scope: monospace pill, muted background, line border, namespace
+ * prefix dimmed, count separated by a thin divider. Hover → orange.
+ * Active → inverted dark fill (matches .fp.on style for filter pills). */
+.v-tagbar .tag-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--vmono); font-size: 10.5px;
+  padding: 3px 8px; border-radius: 4px;
+  background: var(--vbg-2); color: var(--vink-2);
+  border: 1px solid var(--vline-2);
+  text-decoration: none;
+  transition: color .12s, border-color .12s, background .12s;
+  max-width: 100%; overflow-wrap: anywhere; word-break: break-word;
+}
+.v-tagbar .tag-chip:hover { color: var(--vorange); border-color: var(--vorange); background: var(--vpanel); }
+.v-tagbar .tag-chip.on { background: var(--vink); border-color: var(--vink); color: var(--vbg); }
+.v-tagbar .tag-chip .ns { color: var(--vmuted-2); opacity: 0.85; font-weight: 400; }
+.v-tagbar .tag-chip .val { font-weight: 600; }
+.v-tagbar .tag-chip .count {
+  font-size: 9.5px; color: var(--vmuted-2);
+  padding-left: 6px;
+  border-left: 1px solid var(--vline);
+  line-height: 1;
+}
+.v-tagbar .tag-chip.on .ns { color: var(--vamber); opacity: 0.9; }
+.v-tagbar .tag-chip.on .count { color: var(--vbg); opacity: 0.7; border-left-color: color-mix(in srgb, var(--vbg) 25%, transparent); }
 @media (max-width: 720px) {
   .v-tagbar-inner { flex-wrap: nowrap; overflow-x: auto; padding-right: 24px; }
   .v-tagbar-inner > * { flex: 0 0 auto; }

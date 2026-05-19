@@ -213,8 +213,10 @@ const PANEL_RENDER_JS = `
   function rerender(compiled) {
     lastCompiled = compiled;
     var rendered = compiled.filter(function (c) { return c.rendered; });
-    var pinned = rendered.filter(function (c) { return c.pinned; });
-    var rest = rendered.filter(function (c) { return !c.pinned; });
+    // v0.28 — newest-first within each section. compile() upstream sorts ASC
+    // for correct ref application; here we reverse for display.
+    var pinned = rendered.filter(function (c) { return c.pinned; }).slice().reverse();
+    var rest = rendered.filter(function (c) { return !c.pinned; }).slice().reverse();
     countEl.textContent = rendered.length;
     pinnedWrap.hidden = pinned.length === 0;
     pinnedEl.innerHTML = pinned.map(renderEntry).join("");

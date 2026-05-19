@@ -128,6 +128,18 @@ a { color: inherit; text-decoration: none; }
 
 .v-strip { border-bottom: 1px solid var(--vline); background: var(--vbg); }
 .v-strip-inner { max-width: var(--chrome-max); margin: 0 auto; padding: 12px var(--gutter); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+/* v0.28 — tag bar promoted to header, just below filter bar. Same vbg
+   background, slightly softer separator. Single horizontal scroll row;
+   namespaced tags (project:, slot:, kind:) lead. */
+.v-tagbar { border-bottom: 1px solid var(--vline-2); background: var(--vbg); }
+.v-tagbar-inner { max-width: var(--chrome-max); margin: 0 auto; padding: 9px var(--gutter); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.v-tagbar-lbl { font-family: var(--vmono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--vmuted-2); font-weight: 600; margin-right: 4px; }
+.v-tagbar .tag-chip { padding: 3px 9px; font-size: 11px; }
+@media (max-width: 720px) {
+  .v-tagbar-inner { flex-wrap: nowrap; overflow-x: auto; padding-right: 24px; }
+  .v-tagbar-inner > * { flex: 0 0 auto; }
+}
 .fp { padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; background: transparent; border: 1px solid var(--vline); color: var(--vmuted); font-family: var(--vbody); display: inline-flex; align-items: center; gap: 7px; transition: color .12s, background .12s, border-color .12s, transform .12s; }
 .fp:hover { color: var(--vink); border-color: var(--vink); }
 .fp:active { transform: translateY(1px); }
@@ -197,6 +209,11 @@ a { color: inherit; text-decoration: none; }
 .v-rail-card { display: flex; flex-direction: column; gap: 7px; background: var(--vpanel); border: 1px solid var(--vline); border-radius: 10px; padding: 14px 16px; color: var(--vink); text-decoration: none; transition: border-color .15s, transform .15s, box-shadow .15s; min-width: 0; }
 .v-rail-card:hover { border-color: var(--vorange); transform: translateY(-1px); box-shadow: 0 6px 16px rgba(255,90,31,0.10); }
 .v-rail-card.hot { border-color: var(--vorange); box-shadow: 0 6px 16px rgba(255,90,31,0.12); }
+.v-rail-card.is-project { background: linear-gradient(135deg, var(--vpanel), color-mix(in srgb, var(--vorange) 8%, var(--vpanel))); border-color: color-mix(in srgb, var(--vorange) 30%, var(--vline)); }
+.v-rail-card.is-project::before { content: "▦"; position: absolute; top: 8px; right: 10px; font-family: var(--vmono); font-size: 11px; color: var(--vorange); opacity: 0.55; }
+.v-rail-card.is-project { position: relative; }
+.v-rail-card.is-project .proj { letter-spacing: 0.08em; text-transform: uppercase; font-size: 9.5px; }
+.v-rail-card.is-project .ttl { font-size: 17px; font-weight: 500; letter-spacing: -0.01em; color: var(--vorange); }
 .v-rail-card .proj { font-family: var(--vmono); font-size: 10.5px; color: var(--vorange); letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .v-rail-card .ttl { font-family: var(--vhead); font-size: 14px; font-weight: 500; line-height: 1.32; color: var(--vink); letter-spacing: -0.005em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .v-rail-card .meta { font-family: var(--vmono); font-size: 10px; color: var(--vmuted); margin-top: auto; padding-top: 4px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -691,6 +708,33 @@ function filterBar(activeType?: string, activeStatus?: string, counts?: CountSum
 </div>`;
 }
 
+/**
+ * v0.28 — popular tags promoted from below the notes list to a header
+ * strip just under the filter bar. Sort order: namespaced tags first
+ * (those carrying `:`, e.g. `project:`, `slot:`, `kind:` — they lead to
+ * organized data), then non-namespaced alphabetically.
+ *
+ * Within the namespaced bucket, also sort alphabetically. The whole row
+ * is horizontally scrollable on narrow viewports.
+ */
+function tagBar(popularTags: { tag: string; count: number }[], activeTag?: string): string {
+  if (popularTags.length === 0) return "";
+  const sorted = [...popularTags].sort((a, b) => {
+    const aNs = a.tag.includes(":");
+    const bNs = b.tag.includes(":");
+    if (aNs !== bNs) return aNs ? -1 : 1;  // namespaced first
+    return a.tag.localeCompare(b.tag);     // then alpha
+  });
+  const chips = sorted.map((t) => tagChip(t, t.tag === activeTag)).join("");
+  return `
+<div class="v-tagbar">
+  <div class="v-tagbar-inner">
+    <span class="v-tagbar-lbl">tags</span>
+    ${chips}
+  </div>
+</div>`;
+}
+
 function activeFilterStrip(activeTag?: string, activeType?: string, activeStatus?: string): string {
   if (!activeTag && !activeType && !activeStatus) return "";
   const chips: string[] = [];
@@ -923,19 +967,34 @@ function renderContinueRail(items: ContinueRailItem[]): string {
     return `${Math.round(days / 7)}w ago`;
   };
   const cards = items.map((it, i) => {
-    const href = it.has_pending_iteration && it.pending_iteration_id
-      ? `/n/${it.pending_iteration_id}`
-      : it.project_slug
-        ? `/p/${encodeURIComponent(it.project_slug)}`
+    const isProject = it.kind === "project";
+    // Click target: project tiles always go to /p/<slug>; thread tiles
+    // route to pending iteration if any, else /n/<latest>.
+    const href = isProject
+      ? `/p/${encodeURIComponent(it.project_slug!)}`
+      : it.has_pending_iteration && it.pending_iteration_id
+        ? `/n/${it.pending_iteration_id}`
         : `/n/${it.latest_note_id}`;
-    const projLabel = it.project_slug ? `project:${it.project_slug}` : it.thread_id;
+    // Top label (small, monospaced, orange):
+    //   - project tile: "project · N threads" (with member count badge)
+    //   - thread w/ project tag: "project:<slug>"
+    //   - thread w/o tag: thread_id
+    const projLabel = isProject
+      ? `project · ${it.member_thread_count} ${it.member_thread_count === 1 ? "thread" : "threads"}`
+      : it.project_slug ? `project:${it.project_slug}` : it.thread_id;
+    // Title:
+    //   - project: just the slug (large, primary)
+    //   - thread: head note title
+    const title = isProject ? it.project_slug! : it.title;
     const meta = it.has_pending_iteration
       ? `<span class="iter-flag">iteration · pending pick</span>`
       : `<span>${ago(it.last_touch)}</span><span class="dot"></span><span>${it.touch_count} ${it.touch_count === 1 ? "touch" : "touches"}</span><span class="dot"></span><span>★ ${(Math.round(it.score * 10) / 10).toFixed(1)}</span>`;
-    const cls = (i === 0 ? " hot" : "") + (it.has_pending_iteration ? " iter" : "");
+    const cls = (i === 0 ? " hot" : "")
+      + (it.has_pending_iteration ? " iter" : "")
+      + (isProject ? " is-project" : "");
     return `<a href="${href}" class="v-rail-card${cls}">
       <div class="proj">${esc(projLabel)}</div>
-      <div class="ttl">${esc(it.title)}</div>
+      <div class="ttl">${esc(title)}</div>
       <div class="meta">${meta}</div>
     </a>`;
   }).join("");
@@ -977,12 +1036,9 @@ export function pageList(
     })
     .join("");
 
-  const tagsSection = popularTags.length > 0 && !activeType && !activeStatus && !activeTag
-    ? `<div class="group">
-         <div class="group-lbl">Tags <span class="count">· ${popularTags.length}</span><span class="spacer"></span><span class="accent">popular</span></div>
-         ${tagCloud(popularTags, activeTag)}
-       </div>`
-    : "";
+  // v0.28 — popular tags moved up into the header tag bar (see tagBar()
+  // injection below). Bottom-of-list tag cloud removed to avoid duplication.
+  const tagsSection = "";
 
   const emptyMsg = activeTag
     ? `No notes tagged <code>${esc(activeTag)}</code>${activeType ? ` of type <code>${esc(activeType)}</code>` : ""}.`
@@ -1000,7 +1056,7 @@ export function pageList(
     : `<main class="v-page">${railHtml}${groupsHtml}${tagsSection}</main>`;
 
   const meta = notes.length > 0 ? `${notes.length} ${notes.length === 1 ? "note" : "notes"} · latest ${ago(notes[0]!.created)}` : "";
-  return shell("Folio", `${topbar("", "notes")}${filterBar(activeType, activeStatus, counts, meta, activeTag)}${activeFilterStrip(activeTag, activeType, activeStatus)}${body}`);
+  return shell("Folio", `${topbar("", "notes")}${filterBar(activeType, activeStatus, counts, meta, activeTag)}${tagBar(popularTags, activeTag)}${activeFilterStrip(activeTag, activeType, activeStatus)}${body}`);
 }
 
 export function pageTag(tag: string, notes: NoteMeta[], popularTags: { tag: string; count: number }[] = []): string {

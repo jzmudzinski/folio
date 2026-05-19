@@ -101,10 +101,45 @@ test("listContinueRail extracts project_slug from project:<slug> tag", async () 
     thread_id: "loose", theme: "linen", tags: [],
   });
   const rail = listContinueRail();
-  const notibox = rail.find((r) => r.thread_id === "notibox-onboarding");
+  // v0.28 — project-tagged threads collapse into "project" tiles; the
+  // single notibox-onboarding thread becomes a kind="project" item keyed
+  // by project_slug. Standalone threads stay as kind="thread".
+  const notibox = rail.find((r) => r.project_slug === "notibox-jetson");
   const loose = rail.find((r) => r.thread_id === "loose");
+  expect(notibox?.kind).toBe("project");
   expect(notibox?.project_slug).toBe("notibox-jetson");
+  expect(notibox?.member_thread_count).toBe(1);
+  expect(loose?.kind).toBe("thread");
   expect(loose?.project_slug).toBeNull();
+});
+
+test("listContinueRail v0.28: multiple threads sharing project:<slug> collapse into one project tile", async () => {
+  await setup();
+  const { createNote, listContinueRail } = await import("../src/core/storage");
+  // Three threads, all tagged project:multi-thread
+  for (const tid of ["alpha", "beta", "gamma"]) {
+    await createNote({
+      type: "research", title: `note ${tid}`, body_html: "<p>x</p>",
+      thread_id: tid, theme: "linen",
+      tags: ["project:multi-thread"],
+    });
+  }
+  // One standalone thread for sanity (kind:"thread" still works)
+  await createNote({
+    type: "snippet", title: "lonely", body_html: "<p>x</p>",
+    thread_id: "lonely", theme: "linen", tags: [],
+  });
+  const rail = listContinueRail();
+  const project = rail.find((r) => r.project_slug === "multi-thread");
+  expect(project?.kind).toBe("project");
+  expect(project?.member_thread_count).toBe(3);
+  // Touch count + score should aggregate across all 3 underlying threads
+  expect(project?.touch_count).toBeGreaterThan(2);
+  // No individual thread tiles for alpha/beta/gamma
+  expect(rail.find((r) => r.thread_id === "alpha" && r.kind === "thread")).toBeUndefined();
+  expect(rail.find((r) => r.thread_id === "beta" && r.kind === "thread")).toBeUndefined();
+  // Standalone thread keeps its identity
+  expect(rail.find((r) => r.thread_id === "lonely")?.kind).toBe("thread");
 });
 
 test("listContinueRail flags pending iteration threads (non-finalized iteration note present)", async () => {
@@ -241,7 +276,12 @@ test("GET / renders the continue-rail above the notes list when rail items exist
   const html = await r.text();
   expect(html).toContain('class="v-rail"');
   expect(html).toContain("Continue where you left off");
-  expect(html).toContain("project:notibox");
+  // v0.28 — project-tagged threads collapse into a single "project" tile
+  // (visually distinct via .is-project + ▦ glyph). Top label is now
+  // "project · N thread(s)" and title is the bare slug.
+  expect(html).toContain("is-project");
+  expect(html).toContain("notibox");
+  expect(html).toContain("project · 1 thread");
 });
 
 test("GET / with a filter (?type=research) does NOT render the continue-rail", async () => {

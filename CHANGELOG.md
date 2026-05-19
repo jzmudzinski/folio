@@ -2,6 +2,14 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.29.1 — 2026-05-19
+
+**Readable header tag chips.** The popular-tag filter bar (`.v-tagbar`) had been inheriting only padding/font-size from `.tag-chip` — every other visual rule was scoped to `.tag-cloud`, so chips in the header rendered as plain unstyled text. Result: `kind:bug3 klient:acme3 project:folio5…` ran together as one unreadable string.
+
+### Fixed
+
+- **Header tag chips now reuse the side-panel `.side-tags .tg` pill aesthetic** (`src/viewer/render.ts`): monospace, muted background, line border, namespace prefix dimmed (`ns:` in muted gray), value bolded, count separated by a thin vertical divider. Hover → orange border. Active (when filtering by that tag) → inverted dark fill, namespace prefix in amber.
+
 ## v0.29.0 — 2026-05-19
 
 **User-pinned notes.** New `is_pinned` flag floats notes to the top of the default listing, plus a `📌 Pinned N` filter chip alongside `Final ★ N`. Distinct from `is_final` (archive) and `view:pinned` (entry-level tag on live notes).

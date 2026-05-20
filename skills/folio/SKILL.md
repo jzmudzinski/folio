@@ -277,6 +277,7 @@ search({ q: "slot:todo project:notibox-jetson" }) → list_entries({ note_id, ta
 - ❌ **Refusing to edit "because Folio is append-only".** v0.22+ ships `replace` (body) and `update_metadata` (metadata) — there is no "I can't edit" answer.
 - ❌ **Marking `is_final: true` on your own** — user's call, unless they explicitly asked.
 - ❌ **Inlining base64 binaries in `body_html`** — use `attach_asset` then reference the relative path.
+- ❌ **ASCII-art diagrams** (`<pre>` boxes of `| - >`) for architecture / flows / sequences. Notes render in a real browser — use a real graphic. Cheapest: **Mermaid** (declarative, CDN) for static diagrams; **D3 / Cytoscape** (data as a JS object) for interactive ones; hand-authored inline `<svg>` when offline rendering must be guaranteed. See the **Diagrams** section of [`STYLEBOOK.md`](STYLEBOOK.md).
 - ❌ **Hallucinating image URLs.** No `attach_asset` and no inline `<svg>` = no image. Don't write `<img src="https://example.local/cool-logo.png">` and hope. See [`reference/assets.md`](reference/assets.md).
 - ❌ **Using the absolute `url` from `attach_asset`** inside `body_html` — use the RELATIVE `/t/<thread>/asset/<file>` path so the image works under whatever origin (local viewer / Tailscale Funnel / capability URL / cloud).
 

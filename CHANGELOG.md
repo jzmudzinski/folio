@@ -2,6 +2,15 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.29.2 — 2026-05-20
+
+**Diagram authoring guidance for agents.** Agents were defaulting to ASCII-art `<pre>` boxes for architecture/sequence/flow diagrams. Folio notes render in a real browser — they should use real graphics. Adds an explicit ladder to the Folio skill so future notes reach for proper diagrams.
+
+### Changed (skill docs only — no code)
+
+- **`skills/folio/STYLEBOOK.md`** — new **"Diagrams — don't default to ASCII art"** section with a pick-by-need ladder: Mermaid (cheapest, declarative, CDN) for static diagrams → D3/Cytoscape (data as a JS object) for interactive → hand-authored inline `<svg>` for offline-guaranteed → ASCII only for genuinely-textual cases. Documents the verified sandbox facts: Mermaid works out of the box (`<pre>` entity-escaping is decoded by the browser in `.textContent`, which `mermaid.run()` reads — no decode boilerplate needed; the earlier assumption that it breaks was wrong), the `#40;`/`#41;` escape for parens in labels, and the CSP `connect-src 'none'` constraint (libs must render from inline data, CDN script load is fine).
+- **`skills/folio/SKILL.md`** — anti-pattern entry against ASCII-art diagrams pointing at the stylebook ladder.
+
 ## v0.29.1 — 2026-05-19
 
 **Readable header tag chips.** The popular-tag filter bar (`.v-tagbar`) had been inheriting only padding/font-size from `.tag-chip` — every other visual rule was scoped to `.tag-cloud`, so chips in the header rendered as plain unstyled text. Result: `kind:bug3 klient:acme3 project:folio5…` ran together as one unreadable string.

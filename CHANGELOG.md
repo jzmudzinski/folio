@@ -2,6 +2,18 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.29.3 — 2026-05-20
+
+**Fix: home list rendered "Yesterday" before "Today" when a pinned note was older.** Regression from v0.29.0. `listNotes` sorts `is_pinned DESC, pinned_at DESC, created DESC`, so a pinned older note floats to the front of the array; `pageList` built its date groups by `Map` insertion order, so a pinned note from yesterday seeded the "Yesterday" group first and it rendered above "Today".
+
+### Fixed
+
+- **`pageList`** (`src/viewer/render.ts`): pinned notes now render in their own **📌 Pinned** section above the date groups (and are excluded from their date group — no duplication). Date groups are sorted strictly newest-first by the freshest note in each, independent of `Map` insertion order, so a future change to the `listNotes` sort can't perturb section order again. New order: `Pinned → Today → Yesterday → This week → This month → Older`.
+
+### Tests
+
+- New `tests/home-list-order.test.ts` (3 tests): Today-before-Yesterday with a pinned yesterday note, pinned note not duplicated into its date group, plain (no-pin) date ordering.
+
 ## v0.29.2 — 2026-05-20
 
 **Diagram authoring guidance for agents.** Agents were defaulting to ASCII-art `<pre>` boxes for architecture/sequence/flow diagrams. Folio notes render in a real browser — they should use real graphics. Adds an explicit ladder to the Folio skill so future notes reach for proper diagrams.

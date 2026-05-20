@@ -1086,14 +1086,33 @@ export function pageList(
   activeTag?: string,
   continueRail: ContinueRailItem[] = [],
 ): string {
+  // v0.29.3 — pinned notes get their own section on top, ABOVE the date
+  // groups. Date-grouping only the unpinned notes fixes the bug where a
+  // pinned older note (which `listNotes` floats to the front of the array)
+  // seeded its date group — e.g. "Yesterday" — into the Map first, so it
+  // rendered before "Today". Pinned are excluded from their date group to
+  // avoid duplication.
+  const pinnedNotes = notes.filter((n) => n.is_pinned);
+  const restNotes = notes.filter((n) => !n.is_pinned);
+
   const groups = new Map<string, NoteMeta[]>();
-  for (const n of notes) {
+  for (const n of restNotes) {
     const g = dateGroup(n.created);
     const arr = groups.get(g) ?? [];
     arr.push(n);
     groups.set(g, arr);
   }
-  const groupsHtml = Array.from(groups.entries())
+  // Sort groups strictly newest-first by the freshest note in each, rather
+  // than trusting Map insertion order (which any future change to the
+  // listNotes sort could perturb again).
+  const orderedGroups = Array.from(groups.entries())
+    .sort((a, b) => b[1][0]!.created.localeCompare(a[1][0]!.created));
+
+  const pinnedHtml = pinnedNotes.length > 0
+    ? `<div class="group"><div class="group-lbl"><span class="pin-glyph">📌</span> Pinned <span class="count">· ${pinnedNotes.length}</span></div><div class="rows">${pinnedNotes.map(noteRow).join("")}</div></div>`
+    : "";
+
+  const dateGroupsHtml = orderedGroups
     .map(([label, items], idx) => {
       const accent = idx === 0 && label === "Today" ? `<span class="spacer"></span><span class="accent">fresh</span>` : "";
       const lbl = `<div class="group-lbl">${label} <span class="count">· ${items.length}</span>${accent}</div>`;
@@ -1105,6 +1124,8 @@ export function pageList(
       return `<div class="group">${lbl}<div class="rows">${items.map(noteRow).join("")}</div></div>`;
     })
     .join("");
+
+  const groupsHtml = pinnedHtml + dateGroupsHtml;
 
   // v0.28 — popular tags moved up into the header tag bar (see tagBar()
   // injection below). Bottom-of-list tag cloud removed to avoid duplication.

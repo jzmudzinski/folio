@@ -137,6 +137,55 @@ Bullet style depends on the theme (linen uses dots, brutalist red arrows, pastel
 
 theme.css formats it. No inline `style="font-family:monospace"`.
 
+## Diagrams — don't default to ASCII art
+
+A `<pre>` box of `|`, `-`, `>` characters is the **last resort**, not the default. Folio notes render in a real browser — use real graphics. Ladder, pick by need:
+
+1. **Static diagram, cheapest to author → Mermaid.** Declarative text (~10 lines for a sequence/flowchart) instead of hand-drawn coordinates. Loads from CDN; renders to SVG. Best default for architecture / sequence / flow / ER / state diagrams when you don't need interactivity.
+
+   ```html
+   <pre class="mermaid">
+   sequenceDiagram
+       participant K as Klient #40;LAN#41;
+       participant V as vendor.notibox.ai
+       K->>V: redirect ?code&state
+       V-->>K: ✓ wróć do panelu
+   </pre>
+   <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+   <script>
+   (function boot(){
+     if (typeof mermaid === 'undefined') return setTimeout(boot, 80); // CDN loads async
+     mermaid.initialize({ startOnLoad: false });
+     mermaid.run({ querySelector: '.mermaid' });   // explicit run > startOnLoad (timing-safe)
+   })();
+   </script>
+   ```
+
+   **Gotcha — special chars in labels:** bare parentheses / brackets in a participant or node label break Mermaid's parser. Use Mermaid's HTML-entity escapes: `#40;` = `(`, `#41;` = `)`. **Don't** wrap the label in `"…"` — Mermaid renders the quotes literally. `&`, `?`, and unicode (`✓`, arrows) in *message* text render fine as-is. (This is NOT a sanitizer problem — see the note below.)
+
+2. **Interactive (click / drag / zoom / step-through) → a JS lib with data as a JS object.** When the diagram should *do* something — walk steps, highlight on click, drag nodes. Feed data **as a JS object inside `<script>`** (not as text in the DOM) and let the lib build the SVG/canvas. Proven in the Folio sandbox: **D3** (`d3@7`), **Cytoscape.js** (`cytoscape@3`).
+
+   ```html
+   <div id="myviz"></div>
+   <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+   <script>
+   (function boot(){
+     if (typeof d3 === 'undefined') return setTimeout(boot, 80);
+     var data = [ /* nodes/edges/steps as a JS object */ ];
+     // …d3 builds an <svg>, binds data, wires click/keydown handlers…
+   })();
+   </script>
+   ```
+
+3. **Offline-guaranteed → hand-authored inline `<svg>`.** Both Mermaid and D3 load from a CDN, so they go blank if the note is opened with no internet (e.g. a shared capability URL on a disconnected machine). When that matters, hand-author the SVG. Theme-aware via `currentColor` / theme vars (`--vorange`, `--vink`, `--vline`). No CDN dependency.
+
+4. **ASCII in `<pre>` — avoid.** Only when the "diagram" is genuinely text (a directory tree, a tiny 2-box flow) and a real graphic would be overkill.
+
+**Sandbox facts worth knowing:**
+
+- **Entity escaping in `<pre>` is NOT a blocker for Mermaid.** The sanitizer serializes text content as valid HTML, so `->>'` shows up as `-&gt;&gt;` *in the HTML source* — but the browser decodes that back to `->>` in `.textContent`, and `mermaid.run()` reads `.textContent`. So the arrows arrive intact. (Earlier worry that Mermaid needs decode boilerplate was wrong.) Data-in-JS libs are unaffected regardless, since their data lives in `<script>`.
+- **CSP `connect-src 'none'`** blocks `fetch`/XHR/EventSource at runtime. The CDN `<script src>` loads fine (`script-src https:`), but the lib must render from **inline** data/source — it can't fetch a dataset at view time. (Mermaid and D3-with-inline-data both satisfy this.)
+
 ## Blockquote
 
 ```html

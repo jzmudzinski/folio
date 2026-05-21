@@ -675,6 +675,40 @@ export function resolveHeadOfChain(id: string, maxHops = 10): NoteMeta | null {
 }
 
 /**
+ * Return the full revision chain a note belongs to, oldest → newest (the
+ * current head is last). Walks forward to the head via resolveHeadOfChain,
+ * then walks BACKWARD — the predecessor of a note is whoever's superseded_by
+ * points at it — collecting every revision. A note that was never replaced
+ * (and is no one's replacement) yields a single-element chain: itself.
+ *
+ * This is the document's append-only log under C-minimal: each entry is an
+ * immutable note with its own .html + capability URL; `replace` appends a new
+ * head. maxHops guards against a cycle in corrupt data. Backed by the
+ * notes_by_superseded index for the reverse lookup.
+ */
+export function getRevisionChain(id: string, maxHops = 100): NoteMeta[] {
+  const head = resolveHeadOfChain(id);
+  if (!head) return [];
+  const chain: NoteMeta[] = [head];
+  let cur: NoteMeta = head;
+  let hops = 0;
+  while (hops < maxHops) {
+    const predRow = db()
+      .query<{ id: string }, [string]>(
+        `SELECT id FROM notes WHERE superseded_by = ? AND status = 'active' LIMIT 1`
+      )
+      .get(cur.id);
+    if (!predRow) break;
+    const pred = getNoteMeta(predRow.id);
+    if (!pred) break;
+    chain.push(pred);
+    cur = pred;
+    hops += 1;
+  }
+  return chain.reverse();
+}
+
+/**
  * Reverse finalize: re-arm auto-cleanup countdown on a note. Used by both
  * the MCP `unfinalize` tool and `updateNoteMetadata` when is_final flips
  * from true to false. Idempotent — calling on an already-non-final note

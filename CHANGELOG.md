@@ -2,6 +2,26 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.30.2 — 2026-05-21
+
+**Document revision history surfaced — `list_revisions` + viewer strip.** Phase 3 of the mutation-model unification. The `superseded_by` chain a document accumulates through `replace` was already an append-only log of immutable revisions — but it was invisible: old revisions are hidden everywhere and there was no way to see the version history. This surfaces it, so a document visibly behaves like a versioned log. Identity and capability-URL semantics are unchanged — each revision keeps its own immutable `/n/<id>`.
+
+### Added
+
+- **`getRevisionChain(id)`** (`src/core/storage.ts`) — returns the full chain a note belongs to, oldest → newest (head last), from any id in it. Walks to the head, then backward via the `notes_by_superseded` index. A never-replaced note yields a single-element chain (itself); `maxHops` guards corrupt data.
+- **`list_revisions` MCP tool** — returns `{ note_id, count, revisions: [{ id, version, title, created, word_count, is_head }] }`. Read-only. Lets an agent see prior versions before `replace`, or reference an older revision.
+- **Viewer revision strip** (`src/viewer/render.ts` `pageNote`) — when a note is part of a chain (length > 1), the note-side panel shows linked `v1 · v2 · …` chips, current highlighted, head marked ★. Single-revision notes (the common case) render nothing. Each chip links to that revision's own `/n/<id>`.
+
+### Tests
+
+- `tests/replace.test.ts` (+4): `getRevisionChain` single + multi-revision resolved from any id in the chain; viewer strip present for a chain (current/head marked) and absent for a single note.
+- `tests/mcp.test.ts` (+2): `list_revisions` chain shape + `is_head` flags; unknown-id error. `tests/live-mcp.test.ts`: tool count 22 → 23.
+- Full suite **666 pass**.
+
+### Known issue (pre-existing, not addressed here)
+
+- The `replace` **MCP tool** builds response URLs via `viewerLocalBaseUrl()` before `await loadConfig()`, so on a cold config cache it can throw `cfg.viewer_host`. Surfaced while testing; left for a separate fix since it's unrelated to this change and out of scope.
+
 ## v0.30.1 — 2026-05-21
 
 **Fix: `superseded_by` now syncs across devices.** Phase 2 of the mutation-model unification. Before this, a `replace` on one device never hid the old revision on another — the supersede pointer lived only in the local DB and was absent from the sync payload. And adding it to the payload alone wasn't enough: `pushNotes` selects by `created`, but `replaceNote()` bumps the old note's `updated` (not `created`), so the old note was never re-pushed. Fixed with a dedicated push pass that mirrors `pushDeletes`.

@@ -22,6 +22,7 @@ import {
   unfinalize,
   updateNoteMetadata,
   replaceNote,
+  getRevisionChain,
   listThreads,
   suggestThread,
   stats,
@@ -65,6 +66,18 @@ const tools: Tool[] = [
       properties: {
         id: { type: "string" },
         include_body: { type: "boolean", description: "Include full body_html (default true)." },
+      },
+    },
+  },
+  {
+    name: "list_revisions",
+    description:
+      "List the full revision chain a note belongs to (v0.30.2+), oldest → newest. When a document note is revised via `replace`, each prior draft stays as its own immutable note with its own capability URL — this surfaces that version history. Returns every revision with id, version number, title, created timestamp, word_count, and is_head (the current version). A note that was never replaced returns a single-element chain (itself). Use before `replace` to see prior versions, or to reference / link an older revision.",
+    inputSchema: {
+      type: "object",
+      required: ["id"],
+      properties: {
+        id: { type: "string", description: "Any note id in the chain — the head or any superseded revision." },
       },
     },
   },
@@ -422,6 +435,22 @@ export async function buildServer(): Promise<Server> {
           const articleMatch = html.match(/<article[^>]*>([\s\S]*?)<\/article>/);
           const body_html = articleMatch ? articleMatch[1].trim() : html;
           return jsonContent({ ...note, body_html });
+        }
+
+        case "list_revisions": {
+          const id = String(args.id ?? "");
+          if (!id) return errContent("Missing id");
+          const chain = getRevisionChain(id);
+          if (chain.length === 0) return errContent(`Not found: ${id}`);
+          const revisions = chain.map((m, i) => ({
+            id: m.id,
+            version: i + 1,
+            title: m.title,
+            created: m.created,
+            word_count: m.word_count,
+            is_head: m.superseded_by === null,
+          }));
+          return jsonContent({ note_id: id, count: revisions.length, revisions });
         }
 
         case "list": {

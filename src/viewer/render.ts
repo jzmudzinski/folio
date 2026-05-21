@@ -1,6 +1,6 @@
 import type { NoteMeta, SearchHit } from "../core/types";
 import { db } from "../core/db";
-import { resolveHeadOfChain, listPopularTags, type ContinueRailItem, type ProjectDashboard } from "../core/storage";
+import { resolveHeadOfChain, getRevisionChain, listPopularTags, type ContinueRailItem, type ProjectDashboard } from "../core/storage";
 import { listThemes } from "../core/themes";
 import { panelIframeSrcdoc, LIVE_CHROME_JS } from "./live-panel";
 import { renderModeOf } from "../core/note-log";
@@ -488,6 +488,14 @@ body.list-page { overflow: hidden; }
 .pn-btn:hover { border-color: var(--vorange); color: var(--vorange); }
 .pn-btn.disabled { opacity: 0.3; pointer-events: none; }
 .pn-btn .pn-label { display: block; font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--vmuted-2); margin-bottom: 2px; }
+
+.revisions { margin-bottom: 20px; }
+.rev-lbl { font-family: var(--vmono); font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--vmuted-2); margin-bottom: 7px; }
+.rev-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.rev-chip { padding: 4px 9px; border: 1px solid var(--vline); border-radius: 6px; font-family: var(--vmono); font-size: 11px; color: var(--vmuted); transition: color .12s, border-color .12s, background .12s; }
+.rev-chip:hover { border-color: var(--vorange); color: var(--vorange); }
+.rev-chip.cur { border-color: var(--vorange); color: var(--vorange); background: var(--vorange-soft); }
+.rev-chip.head { font-weight: 600; }
 
 .side-action { font-family: var(--vmono); font-size: 11px; color: var(--vmuted); letter-spacing: 0.06em; padding: 4px 0; transition: color .12s; background: transparent; border: 0; text-align: left; cursor: pointer; width: 100%; display: block; }
 .side-action:hover { color: var(--vorange); }
@@ -2083,6 +2091,24 @@ export function pageNote(note: NoteMeta, _themeName: string, context?: NoteListC
     }
   }
 
+  // v0.30.2 — revision-chain strip. When this note has been replaced at least
+  // once (chain length > 1), surface the document's version history as linked
+  // chips, current one highlighted, head marked ★. Each revision keeps its own
+  // immutable /n/<id>. Single-revision notes (the common case) render nothing.
+  const revisionChain = getRevisionChain(note.id);
+  const revisionsHtml = revisionChain.length > 1
+    ? `<nav class="revisions" aria-label="Revision history">
+        <div class="rev-lbl">Revisions · ${revisionChain.length}</div>
+        <div class="rev-chips">${revisionChain
+          .map((m, i) => {
+            const isHead = m.superseded_by === null;
+            const cls = `rev-chip${m.id === note.id ? " cur" : ""}${isHead ? " head" : ""}`;
+            return `<a class="${cls}" href="/n/${m.id}" title="${esc(m.title)}${isHead ? " · current" : ""}">v${i + 1}${isHead ? " ★" : ""}</a>`;
+          })
+          .join("")}</div>
+       </nav>`
+    : "";
+
   // Sibling notes in thread, ascending — for version label + prev/next nav
   const allSiblings = db()
     .query<{ id: string; created: string }, [string]>(
@@ -2612,6 +2638,7 @@ ${SHARE_POPOVER_CSS}
     ${actionCard}
     ${pinToggle}
     ${prevNextHtml}
+    ${revisionsHtml}
     ${tocHtml}
     <dl class="side-meta">
       <dt>Thread</dt><dd class="thread"><a href="/t/${esc(note.thread_id)}">${esc(note.thread_id)}</a></dd>

@@ -10,6 +10,7 @@ import { renderNote } from "./templates";
 import { getTheme } from "./themes";
 import { extractBodyHtml } from "./sync";
 import type { CreateNoteInput, NoteMeta, SearchHit, NoteType, RenderProfile } from "./types";
+import { strategyOf } from "./note-log";
 
 function isoNow(): string {
   return new Date().toISOString();
@@ -674,6 +675,40 @@ export function resolveHeadOfChain(id: string, maxHops = 10): NoteMeta | null {
 }
 
 /**
+ * Return the full revision chain a note belongs to, oldest → newest (the
+ * current head is last). Walks forward to the head via resolveHeadOfChain,
+ * then walks BACKWARD — the predecessor of a note is whoever's superseded_by
+ * points at it — collecting every revision. A note that was never replaced
+ * (and is no one's replacement) yields a single-element chain: itself.
+ *
+ * This is the document's append-only log under C-minimal: each entry is an
+ * immutable note with its own .html + capability URL; `replace` appends a new
+ * head. maxHops guards against a cycle in corrupt data. Backed by the
+ * notes_by_superseded index for the reverse lookup.
+ */
+export function getRevisionChain(id: string, maxHops = 100): NoteMeta[] {
+  const head = resolveHeadOfChain(id);
+  if (!head) return [];
+  const chain: NoteMeta[] = [head];
+  let cur: NoteMeta = head;
+  let hops = 0;
+  while (hops < maxHops) {
+    const predRow = db()
+      .query<{ id: string }, [string]>(
+        `SELECT id FROM notes WHERE superseded_by = ? AND status = 'active' LIMIT 1`
+      )
+      .get(cur.id);
+    if (!predRow) break;
+    const pred = getNoteMeta(predRow.id);
+    if (!pred) break;
+    chain.push(pred);
+    cur = pred;
+    hops += 1;
+  }
+  return chain.reverse();
+}
+
+/**
  * Reverse finalize: re-arm auto-cleanup countdown on a note. Used by both
  * the MCP `unfinalize` tool and `updateNoteMetadata` when is_final flips
  * from true to false. Idempotent — calling on an already-non-final note
@@ -700,9 +735,14 @@ export function finalize(id: string): boolean {
 
   const ageDays = Math.floor((Date.now() - new Date(note.created).getTime()) / 86400000);
 
-  if (note.live) {
+  // Dispatch the "compile feed → static body" step by substrate. strategyOf
+  // checks live before type (matching this function's historical order), so
+  // a live note routes to finalizeLive and a non-live iteration note to
+  // finalizeIteration. document notes need no compile step.
+  const strategy = strategyOf(note);
+  if (strategy === "feed") {
     finalizeLive(note);
-  } else if (note.type === "iteration") {
+  } else if (strategy === "iteration") {
     finalizeIteration(note);
   }
 

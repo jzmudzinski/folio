@@ -137,6 +137,10 @@ CREATE TABLE IF NOT EXISTS notes (
   -- default to unpinned; idempotent ALTER below handles upgrades.
   is_pinned INTEGER NOT NULL DEFAULT 0,
   pinned_at TEXT,
+  -- v0.30.1: supersede chain pointer (parallel to local notes.superseded_by).
+  -- Synced so a replace on device A hides the old revision on device B.
+  -- Pre-existing rows default to NULL (head); idempotent ALTER below upgrades.
+  superseded_by TEXT,
   word_count INTEGER NOT NULL DEFAULT 0,
   summary TEXT,
   server_seq INTEGER NOT NULL,   -- monotonic per-row, used for pull cursor
@@ -411,6 +415,11 @@ function ensureMultiUserSchema(db: Database): void {
   }
   if (notesCols.length > 0 && !notesCols.some((c) => c.name === "pinned_at")) {
     db.exec("ALTER TABLE notes ADD COLUMN pinned_at TEXT");
+  }
+  // v0.30.1: notes.superseded_by. Same idempotent-ALTER pattern — any cloud
+  // DB picks up the column on next boot; pre-existing rows default to NULL.
+  if (notesCols.length > 0 && !notesCols.some((c) => c.name === "superseded_by")) {
+    db.exec("ALTER TABLE notes ADD COLUMN superseded_by TEXT");
   }
 }
 

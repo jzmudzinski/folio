@@ -158,6 +158,89 @@ test("second syncOnce is a no-op (cursor advances, no echo back)", async () => {
   expect(count).toBe(1);
 });
 
+test("replace after first sync → supersede pointer propagates to cloud (pushSupersedes)", async () => {
+  const { createNote, replaceNote } = await import("../src/core/storage");
+  const { loadSyncState, syncOnce } = await import("../src/core/sync");
+  const { cloudDb } = await import("../src/cloud/db");
+
+  // Push A in a first sync so its `created` falls behind the push cursor —
+  // this is exactly the case the created-keyed pushNotes window can't catch.
+  const a = await createNote({
+    type: "snippet",
+    title: "Draft v1",
+    body_html: "<p>first</p>",
+    thread_id: "supersede",
+  });
+  const state = loadSyncState()!;
+  await syncOnce(state);
+
+  // Replace A → B. A.superseded_by is set and A.updated bumps, but A.created
+  // is unchanged, so pushNotes won't re-send A — only pushSupersedes will.
+  const res = await replaceNote({ old_id: a.id, body_html: "<p>second</p>" });
+  expect(res.ok).toBe(true);
+  const bId = res.new_meta!.id;
+
+  await syncOnce(state);
+
+  // Cloud reflects the supersede on the OLD note and a clean head on the new.
+  const oldRow = cloudDb()
+    .query<{ superseded_by: string | null }, [string]>(
+      "SELECT superseded_by FROM notes WHERE uuid = ?"
+    )
+    .get(a.id);
+  expect(oldRow!.superseded_by).toBe(bId);
+  const newRow = cloudDb()
+    .query<{ superseded_by: string | null }, [string]>(
+      "SELECT superseded_by FROM notes WHERE uuid = ?"
+    )
+    .get(bId);
+  expect(newRow!.superseded_by).toBeNull();
+});
+
+test("foreign superseded note pulled → writes superseded_by + hidden from listings", async () => {
+  const { loadSyncState, syncOnce } = await import("../src/core/sync");
+  const { cloudDb, nextSeq } = await import("../src/cloud/db");
+  const { listNotes } = await import("../src/core/storage");
+
+  const headUuid = "01HCCC00000000000000000HEAD";
+  const oldUuid = "01HCCC000000000000000000OLD";
+  // Seed a foreign head (superseded_by NULL) + a foreign old revision that
+  // points at it. server_seq order: head first so the chain resolves.
+  for (const [uuid, slug, sup] of [
+    [headUuid, "rev-2", null],
+    [oldUuid, "rev-1", headUuid],
+  ] as const) {
+    const seq = nextSeq(cloudDb());
+    cloudDb().run(
+      `INSERT INTO notes (uuid, slug, thread_id, title, type, theme, theme_profile,
+         body_html, plain_text, created_at, updated_at, expires_at,
+         is_final, live, owner_device_id, origin_device_id, superseded_by,
+         word_count, summary, server_seq)
+       VALUES (?, ?, 'rev-thread', ?, 'research', 'linen', 'hosted',
+               '<p>x</p>', '', '2026-05-13T10:00:00Z', '2026-05-13T10:00:00Z',
+               NULL, 0, 0, NULL, '01HXOTHERDEVICE000000000ZZ', ?, 0, NULL, ?)`,
+      [uuid, slug, `Rev ${slug}`, sup, seq]
+    );
+  }
+
+  const state = loadSyncState()!;
+  await syncOnce(state);
+
+  // The pulled old revision carries the supersede pointer locally.
+  const { db } = await import("../src/core/db");
+  const oldRow = db()
+    .query<{ superseded_by: string | null }, [string]>(
+      "SELECT superseded_by FROM notes WHERE id = ?"
+    )
+    .get(oldUuid);
+  expect(oldRow!.superseded_by).toBe(headUuid);
+
+  // Default listing hides the superseded revision, shows the head.
+  const listed = listNotes({ thread_id: "rev-thread" }).map((n) => n.id);
+  expect(listed).toContain(headUuid);
+  expect(listed).not.toContain(oldUuid);
+});
+
 test("slug collision: cloud has same (thread, slug) under different uuid → local renames", async () => {
   const { createNote } = await import("../src/core/storage");
   const { loadSyncState, syncOnce } = await import("../src/core/sync");

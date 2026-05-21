@@ -79,6 +79,51 @@ test("version tool returns package.json version + system info", async () => {
   expect(typeof data.default_lifespan_days).toBe("number");
 });
 
+test("list_revisions returns the chain oldest→newest with is_head flags", async () => {
+  const c = await callTool("create", {
+    type: "snippet",
+    title: "Rev v1",
+    body_html: "<p>one</p>",
+    thread_id: "rev-mcp",
+  });
+  const { id: v1 } = JSON.parse(c.content[0].text);
+  // Build the chain via storage to keep this test focused on list_revisions
+  // (the replace MCP tool has its own dedicated test below).
+  const { replaceNote } = await import("../src/core/storage");
+  const r = await replaceNote({ old_id: v1, body_html: "<p>two</p>", title: "Rev v2" });
+  const v2 = r.new_meta!.id;
+
+  const res = await callTool("list_revisions", { id: v1 });
+  expect(res.isError).toBeFalsy();
+  const data = JSON.parse(res.content[0].text);
+  expect(data.count).toBe(2);
+  expect(data.revisions.map((x: any) => x.id)).toEqual([v1, v2]);
+  expect(data.revisions[0].version).toBe(1);
+  expect(data.revisions[0].is_head).toBe(false);
+  expect(data.revisions[1].is_head).toBe(true);
+});
+
+test("list_revisions errors on an unknown id", async () => {
+  const res = await callTool("list_revisions", { id: "NOTAREALID000000000000000" });
+  expect(res.isError).toBe(true);
+});
+
+test("replace tool returns ok + valid URLs (regression: cfg must be loaded)", async () => {
+  // Before v0.30.4 the replace handler called viewerLocalBaseUrl() with no
+  // cfg → threw `cfg.viewer_host`. No test exercised the tool, so it shipped.
+  const c = await callTool("create", { type: "snippet", title: "Orig", body_html: "<p>one</p>" });
+  const { id } = JSON.parse(c.content[0].text);
+  const r = await callTool("replace", { old_id: id, body_html: "<p>two</p>", title: "Revised" });
+  expect(r.isError).toBeFalsy();
+  const data = JSON.parse(r.content[0].text);
+  expect(data.ok).toBe(true);
+  expect(data.old_id).toBe(id);
+  expect(typeof data.new_id).toBe("string");
+  expect(data.new_local_url).toMatch(/^http:\/\/.+\/n\/.+/);
+  expect(data.new_public_url).toMatch(/^https?:\/\/.+\/n\/.+/);
+  expect(data.old_local_url).toContain(`/n/${id}`);
+});
+
 test("export standalone inlines theme CSS", async () => {
   const c = await callTool("create", {
     type: "snippet",

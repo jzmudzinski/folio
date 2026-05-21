@@ -231,3 +231,54 @@ test("supersede event is logged", async () => {
   const data = JSON.parse(events[0]!.data);
   expect(data.replaced_with).toBe(r1.new_meta!.id);
 });
+
+test("getRevisionChain on a never-replaced note returns just itself", async () => {
+  const { getRevisionChain } = await import("../src/core/storage");
+  const v1 = await newNote();
+  const chain = getRevisionChain(v1.id);
+  expect(chain.map((m) => m.id)).toEqual([v1.id]);
+  expect(chain[0]!.superseded_by).toBeNull();
+});
+
+test("getRevisionChain returns the full chain oldest→newest from ANY id in it", async () => {
+  const { replaceNote, getRevisionChain } = await import("../src/core/storage");
+  const v1 = await newNote();
+  const r1 = await replaceNote({ old_id: v1.id, body_html: "<p>v2.</p>" });
+  const r2 = await replaceNote({ old_id: r1.new_meta!.id, body_html: "<p>v3.</p>" });
+  const expected = [v1.id, r1.new_meta!.id, r2.new_meta!.id];
+
+  // Querying from the root, the middle, or the head yields the same ordered chain.
+  for (const startId of expected) {
+    const chain = getRevisionChain(startId);
+    expect(chain.map((m) => m.id)).toEqual(expected);
+  }
+  // Only the last (head) has a null superseded_by.
+  const headChain = getRevisionChain(v1.id);
+  expect(headChain[headChain.length - 1]!.superseded_by).toBeNull();
+  expect(headChain[0]!.superseded_by).toBe(r1.new_meta!.id);
+});
+
+test("viewer pageNote renders the revisions strip for a chain, current + head marked", async () => {
+  const { replaceNote, getNoteMeta } = await import("../src/core/storage");
+  const { pageNote } = await import("../src/viewer/render");
+  const v1 = await newNote();
+  const r1 = await replaceNote({ old_id: v1.id, body_html: "<p>v2.</p>" });
+
+  // Viewing the OLD revision: strip present, v1 is current, v2 is head (★).
+  const oldFresh = getNoteMeta(v1.id)!;
+  const html = pageNote(oldFresh, oldFresh.theme);
+  expect(html).toContain('<nav class="revisions"');
+  expect(html).toContain("Revisions · 2");
+  expect(html).toContain(`href="/n/${v1.id}"`);
+  expect(html).toContain(`href="/n/${r1.new_meta!.id}"`);
+  // The viewed (old) revision carries the .cur marker.
+  expect(html).toMatch(new RegExp(`rev-chip cur[^"]*" href="/n/${v1.id}"`));
+});
+
+test("viewer pageNote renders NO revisions strip for a single-revision note", async () => {
+  const { getNoteMeta } = await import("../src/core/storage");
+  const { pageNote } = await import("../src/viewer/render");
+  const v1 = await newNote();
+  const html = pageNote(getNoteMeta(v1.id)!, v1.theme);
+  expect(html).not.toContain('<nav class="revisions"');
+});

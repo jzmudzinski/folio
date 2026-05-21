@@ -8,7 +8,7 @@
 
 Visual communication layer between AI agents and humans. Markdown is flat; Folio gives agents standalone HTML with theme.css so they can deliver scorecards, sidebars, color-coded findings, embedded interactive demos. Notes live as files in `~/Folio/threads/<topic>/<slug>.html`, indexed by SQLite/FTS5, served by a local Bun viewer at `http://127.0.0.1:4810`, addressable from any MCP-capable agent client via `folio-mcp` (stdio).
 
-**Pivot v3 (ADR-009):** Folio is communication, NOT a knowledge base. Append-only (ADR-014) — agents only CREATE, never UPDATE. Iterations = new sibling notes in the same thread folder.
+**Pivot v3 (ADR-009):** Folio is communication, NOT a knowledge base. **Append-only _per revision_** (ADR-014, relaxed v0.22+): a note's `.html` *body bytes* never change in place, but a note evolves by appending an immutable revision — documents via `replace` (mints a new note + sets the old one's `superseded_by`; the chain IS the document's append-log, walkable via `getRevisionChain` / the `list_revisions` tool), live + iteration notes via a `.entries.jsonl` sidecar. Metadata (title/tags/theme/is_final) edits in place via `update_metadata` (regenerates the `.html`, re-injects the same body). `finalize` compiles a live feed into a static body. The one classifier for all of this is `src/core/note-log.ts`.
 
 Strategy + ADRs are mirrored from the maintainer's Obsidian vault and intentionally not in this repo. The codebase is the source of truth — read `src/`, `themes/`, `skills/`, and tests to understand current behavior.
 
@@ -43,14 +43,16 @@ Strategy + ADRs are mirrored from the maintainer's Obsidian vault and intentiona
 │   │   ├── config.ts           Paths, FolioConfig, env overrides
 │   │   ├── db.ts               SQLite open + schema + logEvent()
 │   │   ├── storage.ts          createNote, listNotes, searchNotes,
-│   │   │                         finalize, cleanup, reindexAll, etc.
+│   │   │                         finalize, replace, getRevisionChain, etc.
+│   │   ├── note-log.ts         one classifier: strategyOf (document |
+│   │   │                         feed | iteration) + renderModeOf
 │   │   ├── sanitize.ts         body_html allowlist + iframe transformTags
 │   │   ├── slug.ts             slugify, plNormalize, plStem (FTS-side)
 │   │   ├── text.ts             HTML → plaintext extraction (HTMLRewriter)
 │   │   ├── themes.ts           loadThemes() — no cache, fs-scan per call
 │   │   ├── templates.ts        Eta wrapper — _base.html.eta + per-type
 │   │   └── types.ts            NoteMeta, CreateNoteInput, etc.
-│   ├── mcp/server.ts           15 tools + 4 base resources (+ one per thread)
+│   ├── mcp/server.ts           23 tools + 4 base resources (+ one per thread)
 │   └── viewer/
 │       ├── server.ts           Bun.serve(...) — routes for /, /search,
 │       │                         /threads, /n/:id, /raw/:id, /api/*, etc.
@@ -203,10 +205,10 @@ Parent commands sent into the iframe via `iframe.contentWindow.postMessage({ ns:
 ## Hard rules — don't break these
 
 - **`<script>` IS allowed in body_html** (since v0.3). The note runs inside a null-origin sandboxed iframe with `connect-src 'none'`, so isolation comes from the outer sandbox + CSP, not the sanitizer. Don't re-introduce a script ban — agents will start wrapping everything in iframe srcdoc again (an atavism v0.7.1 SKILL.md actively pushes back on).
-- **`finalize()` on a live note is the ONLY legitimate in-place mutation of a note's `.html` file** (since v0.9.0). It exists precisely to compile the live feed into a static body and shut off live behavior — same explicit-boundary spirit as the `is_final` flag flip. Don't generalize this pattern into other code paths; no `update_note` tool, no second sidecar, no in-place edits outside finalize.
+- **Body bytes are immutable; the two legitimate `.html` rewrites both preserve them.** (a) `finalize()` on a live note (since v0.9.0) compiles the live feed into a static body and shuts off live behavior; (b) `update_metadata` (v0.22+) regenerates the `.html` with a new title/tags/theme but re-injects the *same* body verbatim. Both are explicit, bounded operations. Don't add a code path that rewrites a note's *body* in place — body evolution goes through `replace` (a new note + `superseded_by` pointer), never an in-place edit.
 - **The outer note iframe must NEVER have `allow-same-origin`.** In `src/viewer/render.ts` look for the `<iframe class="note-iframe" ... sandbox="...">` — keep it without `allow-same-origin`. That null-origin property is the single check making body-level scripts safe.
 - **`allow-same-origin` is always stripped from agent-supplied nested iframes** in `sanitize.ts transformTags.iframe`. Don't relax this — same reasoning at the second level.
-- **Append-only (ADR-014).** No `folio.update` MCP tool, no in-place note mutation. New iteration = new note in same thread folder.
+- **Append-only _per revision_ (ADR-014, relaxed v0.22+).** A note's body bytes never change in place — but a note *evolves by appending*: `replace` mints a new immutable note and points the old one's `superseded_by` at it (the chain is the document's append-log; walk it with `getRevisionChain` / the `list_revisions` tool), and live/iteration notes append to `.entries.jsonl`. Capability-URL trust holds: every `/n/<id>` keeps serving the bytes it always served. There is no tool that rewrites a note's *body* in place; `update_metadata` touches only metadata.
 - **Themes are filesystem-backed, no cache** (`src/core/themes.ts loadThemes()`). Drop folder, viewer picks it up on next request. Don't reintroduce in-memory cache.
 - **Test before commit.** `bun test` must stay green. CI runs the same suite.
 - **`FOLIO_HOME` env override** must work in every code path that touches `~/Folio/` (it does — via `src/core/config.ts folioRoot()`).

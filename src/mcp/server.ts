@@ -22,6 +22,7 @@ import {
   unfinalize,
   updateNoteMetadata,
   replaceNote,
+  getRevisionChain,
   listThreads,
   suggestThread,
   stats,
@@ -65,6 +66,18 @@ const tools: Tool[] = [
       properties: {
         id: { type: "string" },
         include_body: { type: "boolean", description: "Include full body_html (default true)." },
+      },
+    },
+  },
+  {
+    name: "list_revisions",
+    description:
+      "List the full revision chain a note belongs to (v0.30.2+), oldest → newest. When a document note is revised via `replace`, each prior draft stays as its own immutable note with its own capability URL — this surfaces that version history. Returns every revision with id, version number, title, created timestamp, word_count, and is_head (the current version). A note that was never replaced returns a single-element chain (itself). Use before `replace` to see prior versions, or to reference / link an older revision.",
+    inputSchema: {
+      type: "object",
+      required: ["id"],
+      properties: {
+        id: { type: "string", description: "Any note id in the chain — the head or any superseded revision." },
       },
     },
   },
@@ -424,6 +437,22 @@ export async function buildServer(): Promise<Server> {
           return jsonContent({ ...note, body_html });
         }
 
+        case "list_revisions": {
+          const id = String(args.id ?? "");
+          if (!id) return errContent("Missing id");
+          const chain = getRevisionChain(id);
+          if (chain.length === 0) return errContent(`Not found: ${id}`);
+          const revisions = chain.map((m, i) => ({
+            id: m.id,
+            version: i + 1,
+            title: m.title,
+            created: m.created,
+            word_count: m.word_count,
+            is_head: m.superseded_by === null,
+          }));
+          return jsonContent({ note_id: id, count: revisions.length, revisions });
+        }
+
         case "list": {
           const rows = listNotes({
             type: args.type as NoteType | undefined,
@@ -565,14 +594,19 @@ export async function buildServer(): Promise<Server> {
             if (result.reason === "already-superseded") return errContent(`Note ${old_id} is already superseded; replace its successor instead.`);
             return errContent(`Replace failed: ${result.reason ?? "unknown"}`);
           }
+          // Build URLs via the same helpers every other handler uses — both
+          // take a loaded cfg. The earlier code called viewerLocalBaseUrl()
+          // with no argument, so cfg was undefined and the first .viewer_host
+          // access threw (`cfg.viewer_host`) on any replace call.
+          const cfg = await loadConfig();
           return jsonContent({
             ok: true,
             old_id: result.old_id,
             new_id: result.new_meta!.id,
             new_slug: result.new_meta!.slug,
-            new_local_url: `${viewerLocalBaseUrl()}/n/${result.new_meta!.id}`,
-            new_public_url: `${(await loadConfig()).viewer_public_url || viewerLocalBaseUrl()}/n/${result.new_meta!.id}`,
-            old_local_url: `${viewerLocalBaseUrl()}/n/${result.old_id}`,
+            new_local_url: `${viewerLocalBaseUrl(cfg)}/n/${result.new_meta!.id}`,
+            new_public_url: `${viewerPublicBaseUrl(cfg)}/n/${result.new_meta!.id}`,
+            old_local_url: `${viewerLocalBaseUrl(cfg)}/n/${result.old_id}`,
           });
         }
 

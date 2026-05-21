@@ -2,6 +2,90 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.30.4 — 2026-05-21
+
+**Fix: the `replace` MCP tool threw on every call.** The handler built its response URLs with `viewerLocalBaseUrl()` and a hand-rolled `viewer_public_url` fallback but passed **no `cfg` argument** — so `cfg.viewer_host` threw on first access. Every other handler (`create`, `version`, `attach_asset`) passes a loaded `cfg`; this one didn't, and no test exercised the tool, so it shipped (surfaced while testing Phase 3). The storage primitive `replaceNote` was always fine — only the MCP tool's URL-building was broken.
+
+### Fixed
+
+- **`replace` MCP tool** (`src/mcp/server.ts`): loads `cfg` via `loadConfig()` and uses `viewerLocalBaseUrl(cfg)` / `viewerPublicBaseUrl(cfg)` (the latter already encapsulates the `viewer_public_url`-or-local fallback), consistent with the other handlers.
+
+### Tests
+
+- `tests/mcp.test.ts` (+1): the `replace` tool returns `ok:true` + well-formed local/public URLs — a regression guard for the missing-`cfg` bug. Full suite **667 pass**.
+
+## v0.30.3 — 2026-05-21
+
+**Docs caught up to the mutation model — Phase 4 (final phase).** The ADR-014 language in `AGENTS.md` still said "agents only CREATE, never UPDATE / no `folio.update` tool / no in-place mutation" — false since v0.22 (`replace`, `update_metadata`) and stale after the v0.30.x unification. Rewritten to the accurate invariant. No production code touched.
+
+### Changed (docs only)
+
+- **`AGENTS.md`** — the ADR-014 passages now state the real invariant: **append-only _per revision_** (a note's body bytes never change in place; a note evolves by appending — `replace` for documents via the `superseded_by` chain, `.entries.jsonl` for live/iteration). Clarified that `finalize` and `update_metadata` are the two `.html` rewrites that *preserve* body bytes (body evolution only via `replace`). Added `note-log.ts` to the directory map (the one classifier) and corrected the stale "15 tools" → 23.
+- **`skills/folio/SKILL.md`** — added `list_revisions` to the tool list and the mutation decision tree ("show me previous versions"), plus a note that the `replace` chain is inspectable (a document behaves like a versioned log), not lost.
+
+Full suite **666 pass** (doc-only; no test changes).
+
+## v0.30.2 — 2026-05-21
+
+**Document revision history surfaced — `list_revisions` + viewer strip.** Phase 3 of the mutation-model unification. The `superseded_by` chain a document accumulates through `replace` was already an append-only log of immutable revisions — but it was invisible: old revisions are hidden everywhere and there was no way to see the version history. This surfaces it, so a document visibly behaves like a versioned log. Identity and capability-URL semantics are unchanged — each revision keeps its own immutable `/n/<id>`.
+
+### Added
+
+- **`getRevisionChain(id)`** (`src/core/storage.ts`) — returns the full chain a note belongs to, oldest → newest (head last), from any id in it. Walks to the head, then backward via the `notes_by_superseded` index. A never-replaced note yields a single-element chain (itself); `maxHops` guards corrupt data.
+- **`list_revisions` MCP tool** — returns `{ note_id, count, revisions: [{ id, version, title, created, word_count, is_head }] }`. Read-only. Lets an agent see prior versions before `replace`, or reference an older revision.
+- **Viewer revision strip** (`src/viewer/render.ts` `pageNote`) — when a note is part of a chain (length > 1), the note-side panel shows linked `v1 · v2 · …` chips, current highlighted, head marked ★. Single-revision notes (the common case) render nothing. Each chip links to that revision's own `/n/<id>`.
+
+### Tests
+
+- `tests/replace.test.ts` (+4): `getRevisionChain` single + multi-revision resolved from any id in the chain; viewer strip present for a chain (current/head marked) and absent for a single note.
+- `tests/mcp.test.ts` (+2): `list_revisions` chain shape + `is_head` flags; unknown-id error. `tests/live-mcp.test.ts`: tool count 22 → 23.
+- Full suite **666 pass**.
+
+### Known issue (pre-existing, not addressed here)
+
+- The `replace` **MCP tool** builds response URLs via `viewerLocalBaseUrl()` before `await loadConfig()`, so on a cold config cache it can throw `cfg.viewer_host`. Surfaced while testing; left for a separate fix since it's unrelated to this change and out of scope.
+
+## v0.30.1 — 2026-05-21
+
+**Fix: `superseded_by` now syncs across devices.** Phase 2 of the mutation-model unification. Before this, a `replace` on one device never hid the old revision on another — the supersede pointer lived only in the local DB and was absent from the sync payload. And adding it to the payload alone wasn't enough: `pushNotes` selects by `created`, but `replaceNote()` bumps the old note's `updated` (not `created`), so the old note was never re-pushed. Fixed with a dedicated push pass that mirrors `pushDeletes`.
+
+### Added
+
+- **`pushSupersedes()`** (`src/core/sync.ts`) — a separate push pass with its own `updated`-keyed cursor (`last_supersede_pushed_at` in `SyncState`), exactly like `pushDeletes`. Re-pushes the full payload of any active note whose `superseded_by` is set; the cloud `INSERT…ON CONFLICT` upserts the pointer, so there's no "must already exist on cloud" ordering dependency. Wired into `syncOnce` after `pushNotes`.
+- Shared **`buildNotePayloads()`** helper + `NotePushRow` type + `NOTE_PUSH_COLUMNS` constant so `pushNotes` and `pushSupersedes` can't drift on which columns they send.
+
+### Changed
+
+- **`superseded_by` threaded through the wire**: `PushNotePayload` / `PullNote` (`src/core/sync.ts`), the pull upsert in `applyPulledNote`, the cloud `PushNote` / `PullNote` shapes + push INSERT + pull SELECT (`src/cloud/sync.ts`), and the cloud `notes` schema + idempotent ALTER (`src/cloud/db.ts`). Optional on the pull side for back-compat with older cloud builds (defaults null).
+
+### Scope note
+
+- Deliberately narrow to supersede pointers. The same `created`-cursor gap means `finalize` / `is_pinned` updates to already-synced notes also don't propagate — but `finalize` propagation is intentionally per-device (`src/core/storage.ts`), so general metadata-update sync is left as a separate decision rather than turned on as a side effect.
+
+### Tests
+
+- `tests/sync-daemon.test.ts` (+2): replace-after-first-sync propagates the pointer to the cloud DB via `pushSupersedes`; a foreign superseded note pulled from cloud writes `superseded_by` locally and is hidden from default listings. Full suite **660 pass**.
+
+## v0.30.0 — 2026-05-21
+
+**Unified note classification — `note-log.ts`.** Phase 1 of the mutation-model unification (C-minimal; design notes in the `folio-model-edytowalnosci` thread). The "which substrate is this note, and how does it render" decision was implicit boolean logic duplicated across `storage.ts finalize()` and `render.ts pageNote()` — the "keep four in sync" hazard called out in AGENTS.md. It now lives in one place. Pure refactor: zero behavior change.
+
+### Added
+
+- **`src/core/note-log.ts`** — single source of truth for note classification:
+  - **`strategyOf(note)`** → `document | feed | iteration` — the durable substrate. Checks `live` before `type`, faithful to `finalize()`'s historical order; a finalized former-live note (`live=0`) classifies as `document`.
+  - **`renderModeOf(note)`** → `document | live-panel | live-inline | iteration-gallery` — the viewer branch. Folds in `is_final` so finalized feed/iteration notes collapse to a static `document` (no live chrome, no gallery auto-refresh).
+  - Doc comment carries the substrate-model table (document → `superseded_by` chain; feed/iteration → `entries.jsonl` + the pure compile functions) — the conceptual home for the unification.
+
+### Changed
+
+- **`finalize()`** (`src/core/storage.ts`) dispatches the feed/iteration compile step through `strategyOf` instead of inline `if (note.live) … else if (type === "iteration")`.
+- **`pageNote()`** (`src/viewer/render.ts`) computes one `renderModeOf(note)` instead of scattered `isLive` / `isInlineLive` / `type === "iteration"` checks.
+
+### Tests
+
+- New `tests/note-log.test.ts` (12 tests): `live`-before-`type` precedence, finalized feed/iteration collapse to `document`, all four render modes. Full suite **658 pass**.
+
 ## v0.29.3 — 2026-05-20
 
 **Fix: home list rendered "Yesterday" before "Today" when a pinned note was older.** Regression from v0.29.0. `listNotes` sorts `is_pinned DESC, pinned_at DESC, created DESC`, so a pinned older note floats to the front of the array; `pageList` built its date groups by `Map` insertion order, so a pinned note from yesterday seeded the "Yesterday" group first and it rendered above "Today".

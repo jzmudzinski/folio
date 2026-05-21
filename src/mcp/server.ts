@@ -594,14 +594,19 @@ export async function buildServer(): Promise<Server> {
             if (result.reason === "already-superseded") return errContent(`Note ${old_id} is already superseded; replace its successor instead.`);
             return errContent(`Replace failed: ${result.reason ?? "unknown"}`);
           }
+          // Build URLs via the same helpers every other handler uses — both
+          // take a loaded cfg. The earlier code called viewerLocalBaseUrl()
+          // with no argument, so cfg was undefined and the first .viewer_host
+          // access threw (`cfg.viewer_host`) on any replace call.
+          const cfg = await loadConfig();
           return jsonContent({
             ok: true,
             old_id: result.old_id,
             new_id: result.new_meta!.id,
             new_slug: result.new_meta!.slug,
-            new_local_url: `${viewerLocalBaseUrl()}/n/${result.new_meta!.id}`,
-            new_public_url: `${(await loadConfig()).viewer_public_url || viewerLocalBaseUrl()}/n/${result.new_meta!.id}`,
-            old_local_url: `${viewerLocalBaseUrl()}/n/${result.old_id}`,
+            new_local_url: `${viewerLocalBaseUrl(cfg)}/n/${result.new_meta!.id}`,
+            new_public_url: `${viewerPublicBaseUrl(cfg)}/n/${result.new_meta!.id}`,
+            old_local_url: `${viewerLocalBaseUrl(cfg)}/n/${result.old_id}`,
           });
         }
 

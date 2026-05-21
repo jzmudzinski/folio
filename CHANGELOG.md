@@ -2,6 +2,18 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.30.4 — 2026-05-21
+
+**Fix: the `replace` MCP tool threw on every call.** The handler built its response URLs with `viewerLocalBaseUrl()` and a hand-rolled `viewer_public_url` fallback but passed **no `cfg` argument** — so `cfg.viewer_host` threw on first access. Every other handler (`create`, `version`, `attach_asset`) passes a loaded `cfg`; this one didn't, and no test exercised the tool, so it shipped (surfaced while testing Phase 3). The storage primitive `replaceNote` was always fine — only the MCP tool's URL-building was broken.
+
+### Fixed
+
+- **`replace` MCP tool** (`src/mcp/server.ts`): loads `cfg` via `loadConfig()` and uses `viewerLocalBaseUrl(cfg)` / `viewerPublicBaseUrl(cfg)` (the latter already encapsulates the `viewer_public_url`-or-local fallback), consistent with the other handlers.
+
+### Tests
+
+- `tests/mcp.test.ts` (+1): the `replace` tool returns `ok:true` + well-formed local/public URLs — a regression guard for the missing-`cfg` bug. Full suite **667 pass**.
+
 ## v0.30.3 — 2026-05-21
 
 **Docs caught up to the mutation model — Phase 4 (final phase).** The ADR-014 language in `AGENTS.md` still said "agents only CREATE, never UPDATE / no `folio.update` tool / no in-place mutation" — false since v0.22 (`replace`, `update_metadata`) and stale after the v0.30.x unification. Rewritten to the accurate invariant. No production code touched.

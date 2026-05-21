@@ -87,8 +87,8 @@ test("list_revisions returns the chain oldest→newest with is_head flags", asyn
     thread_id: "rev-mcp",
   });
   const { id: v1 } = JSON.parse(c.content[0].text);
-  // Build the chain via storage (isolates this test to list_revisions; the
-  // replace MCP tool's URL-building has an unrelated config-cache quirk).
+  // Build the chain via storage to keep this test focused on list_revisions
+  // (the replace MCP tool has its own dedicated test below).
   const { replaceNote } = await import("../src/core/storage");
   const r = await replaceNote({ old_id: v1, body_html: "<p>two</p>", title: "Rev v2" });
   const v2 = r.new_meta!.id;
@@ -106,6 +106,22 @@ test("list_revisions returns the chain oldest→newest with is_head flags", asyn
 test("list_revisions errors on an unknown id", async () => {
   const res = await callTool("list_revisions", { id: "NOTAREALID000000000000000" });
   expect(res.isError).toBe(true);
+});
+
+test("replace tool returns ok + valid URLs (regression: cfg must be loaded)", async () => {
+  // Before v0.30.4 the replace handler called viewerLocalBaseUrl() with no
+  // cfg → threw `cfg.viewer_host`. No test exercised the tool, so it shipped.
+  const c = await callTool("create", { type: "snippet", title: "Orig", body_html: "<p>one</p>" });
+  const { id } = JSON.parse(c.content[0].text);
+  const r = await callTool("replace", { old_id: id, body_html: "<p>two</p>", title: "Revised" });
+  expect(r.isError).toBeFalsy();
+  const data = JSON.parse(r.content[0].text);
+  expect(data.ok).toBe(true);
+  expect(data.old_id).toBe(id);
+  expect(typeof data.new_id).toBe("string");
+  expect(data.new_local_url).toMatch(/^http:\/\/.+\/n\/.+/);
+  expect(data.new_public_url).toMatch(/^https?:\/\/.+\/n\/.+/);
+  expect(data.old_local_url).toContain(`/n/${id}`);
 });
 
 test("export standalone inlines theme CSS", async () => {

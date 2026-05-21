@@ -13,7 +13,7 @@ Folio generates visually rich HTML communication artifacts. Markdown in chat is 
 - **Storage:** `$FOLIO_HOME` (default `~/Folio/`)
 - **Viewer:** `folio serve` → http://127.0.0.1:4810
 - **MCP server name:** `folio`
-- **Tools:** `create`, `get`, `list`, `search`, `replace`, `update_metadata`, `finalize`, `unfinalize`, `suggest_thread`, `list_themes`, `list_expiring`, `export`, `attach_asset`, `append_entry`, `list_entries`, `set_pinned`, `publish`, `propose_round`, `pick_variant`, `iteration_state`, `wait_for_pick`, `version`
+- **Tools:** `create`, `get`, `list`, `list_revisions`, `search`, `replace`, `update_metadata`, `finalize`, `unfinalize`, `suggest_thread`, `list_themes`, `list_expiring`, `export`, `attach_asset`, `append_entry`, `list_entries`, `set_pinned`, `publish`, `propose_round`, `pick_variant`, `iteration_state`, `wait_for_pick`, `version`
 - **Stylebook:** [`STYLEBOOK.md`](STYLEBOOK.md) — class contract with theme.css
 - **Examples:** [`examples/<type>/`](examples/) — worked agent prompts + expected `body_html` per type
 - **Detail references** (load only when relevant):
@@ -105,6 +105,7 @@ User says…                                      → Agent does…
 "fix this typo in the body"                     → replace(old_id, …)
 "polish this" / "different version"             → replace(old_id, …) for snippet/comparison/research
                                                   create(thread_id: same) for iteration/technical (variants are the point)
+"show me the previous versions" / "history"     → list_revisions({id})  (read-only: v1…head of the replace chain)
 "rename this to X"                              → update_metadata({id, title:"X"})
                                                   or "click the title in the viewer to rename inline"
 "add tag X" / "retag this"                      → update_metadata({id, tags:[…]})
@@ -118,6 +119,7 @@ User says…                                      → Agent does…
 
 - **No body textarea in the viewer.** Users don't hand-edit body HTML in a browser — they ask the agent. Visual layer (themes, navigation, sharing) is for humans; content layer is for agents.
 - ADR-014 still binds *for the bytes of a published `.html` file* — capability URL trust is intact. `replace` is not a rewrite; it's a new note with a pointer.
+- The `replace` chain is **inspectable, not lost**: `list_revisions(id)` returns every revision v1…head, and the viewer shows a revision strip on any note in a chain. Superseded revisions stay reachable at their own `/n/<id>` (hidden from listings, never deleted) — the document behaves like a versioned log.
 
 Never tell the user "Folio is append-only, I can't edit" — `replace` (body) and `update_metadata` (metadata) are the supported paths.
 

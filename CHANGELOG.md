@@ -2,6 +2,17 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.30.3 — 2026-05-21
+
+**Docs caught up to the mutation model — Phase 4 (final phase).** The ADR-014 language in `AGENTS.md` still said "agents only CREATE, never UPDATE / no `folio.update` tool / no in-place mutation" — false since v0.22 (`replace`, `update_metadata`) and stale after the v0.30.x unification. Rewritten to the accurate invariant. No production code touched.
+
+### Changed (docs only)
+
+- **`AGENTS.md`** — the ADR-014 passages now state the real invariant: **append-only _per revision_** (a note's body bytes never change in place; a note evolves by appending — `replace` for documents via the `superseded_by` chain, `.entries.jsonl` for live/iteration). Clarified that `finalize` and `update_metadata` are the two `.html` rewrites that *preserve* body bytes (body evolution only via `replace`). Added `note-log.ts` to the directory map (the one classifier) and corrected the stale "15 tools" → 23.
+- **`skills/folio/SKILL.md`** — added `list_revisions` to the tool list and the mutation decision tree ("show me previous versions"), plus a note that the `replace` chain is inspectable (a document behaves like a versioned log), not lost.
+
+Full suite **666 pass** (doc-only; no test changes).
+
 ## v0.30.2 — 2026-05-21
 
 **Document revision history surfaced — `list_revisions` + viewer strip.** Phase 3 of the mutation-model unification. The `superseded_by` chain a document accumulates through `replace` was already an append-only log of immutable revisions — but it was invisible: old revisions are hidden everywhere and there was no way to see the version history. This surfaces it, so a document visibly behaves like a versioned log. Identity and capability-URL semantics are unchanged — each revision keeps its own immutable `/n/<id>`.

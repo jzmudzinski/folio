@@ -62,6 +62,12 @@ export interface SyncState {
    *  bumps `updated` but doesn't bump `created`, so the active-notes cursor
    *  wouldn't move past it. Null on first run. */
   last_delete_pushed_at?: string | null;
+  /** ISO timestamp of the most recent superseded note's `updated` we've
+   *  pushed a supersede pointer for. Separate cursor for the same reason as
+   *  deletes: replaceNote() bumps `updated` (not `created`) on the OLD note,
+   *  so the created-keyed active-notes window in pushNotes never re-sends it.
+   *  Null on first run. */
+  last_supersede_pushed_at?: string | null;
 }
 
 function statePath(): string {
@@ -322,6 +328,10 @@ interface PushNotePayload {
   inline_render: 0 | 1;
   is_pinned: 0 | 1;
   pinned_at: string | null;
+  /** v0.30.1: supersede chain pointer (id of the note that replaced this
+   *  one), or null for a head note. Carried so a re-push via pushSupersedes
+   *  upserts it onto the cloud row. */
+  superseded_by: string | null;
   tags: string[];
   summary: string | null;
   word_count: number;
@@ -383,6 +393,8 @@ interface PullNote {
    *  unpinned on the consumer side. */
   is_pinned?: 0 | 1;
   pinned_at?: string | null;
+  /** v0.30.1: optional — older cloud builds don't send it; default null. */
+  superseded_by?: string | null;
   tags: string[];
   summary: string | null;
   word_count: number;
@@ -449,38 +461,81 @@ export async function pushDeletes(state: SyncState, selfDeviceId: string): Promi
   return uuids.length;
 }
 
+// Shared row shape + column list + payload builder for the two note-push
+// passes (pushNotes by `created`, pushSupersedes by `updated`). One source so
+// the passes can't drift on which columns they send.
+interface NotePushRow {
+  id: string;
+  slug: string;
+  path: string;
+  title: string;
+  type: string;
+  theme: string;
+  theme_profile: string;
+  thread_id: string;
+  is_final: number;
+  live: number;
+  created: string;
+  updated: string;
+  expires_at: string | null;
+  word_count: number;
+  summary: string | null;
+  origin_device_id: string | null;
+  owner_device_id: string | null;
+  inline_render: number;
+  is_pinned: number;
+  pinned_at: string | null;
+  superseded_by: string | null;
+}
+
+const NOTE_PUSH_COLUMNS =
+  `id, slug, path, title, type, theme, theme_profile, thread_id,
+          is_final, live, created, updated, expires_at, word_count, summary,
+          origin_device_id, owner_device_id, inline_render, is_pinned, pinned_at,
+          superseded_by`;
+
+function buildNotePayloads(rows: NotePushRow[]): PushNotePayload[] {
+  return rows.map((r) => {
+    const tags = db()
+      .query<{ tag: string }, [string]>("SELECT tag FROM tags WHERE note_id = ?")
+      .all(r.id)
+      .map((t) => t.tag);
+    const fullHtml = readFileSync(join(folioRoot(), r.path), "utf-8");
+    const body_html = extractBodyHtml(fullHtml);
+    const stats = extractText(body_html);
+    return {
+      uuid: r.id,
+      slug: r.slug,
+      thread_id: r.thread_id,
+      title: r.title,
+      type: r.type,
+      theme: r.theme,
+      theme_profile: r.theme_profile,
+      body_html,
+      plain_text: stats.body.slice(0, 8192),
+      created_at: r.created,
+      updated_at: r.updated,
+      expires_at: r.expires_at,
+      is_final: (r.is_final ? 1 : 0) as 0 | 1,
+      live: (r.live ? 1 : 0) as 0 | 1,
+      owner_device_id: r.owner_device_id,
+      inline_render: (r.inline_render ? 1 : 0) as 0 | 1,
+      is_pinned: (r.is_pinned ? 1 : 0) as 0 | 1,
+      pinned_at: r.pinned_at,
+      superseded_by: r.superseded_by,
+      tags,
+      summary: r.summary,
+      word_count: r.word_count,
+    };
+  });
+}
+
 export async function pushNotes(state: SyncState, selfDeviceId: string): Promise<{ pushed: number; renamed: number; assets_pushed: number }> {
   // Notes to push: own origin (or unset = pre-W2, assumed own) AND newer than cursor.
   const cursor = state.last_pushed_at ?? "1970-01-01T00:00:00Z";
   const rows = db()
-    .query<
-      {
-        id: string;
-        slug: string;
-        path: string;
-        title: string;
-        type: string;
-        theme: string;
-        theme_profile: string;
-        thread_id: string;
-        is_final: number;
-        live: number;
-        created: string;
-        updated: string;
-        expires_at: string | null;
-        word_count: number;
-        summary: string | null;
-        origin_device_id: string | null;
-        owner_device_id: string | null;
-        inline_render: number;
-        is_pinned: number;
-        pinned_at: string | null;
-      },
-      [string, string]
-    >(
-      `SELECT id, slug, path, title, type, theme, theme_profile, thread_id,
-              is_final, live, created, updated, expires_at, word_count, summary,
-              origin_device_id, owner_device_id, inline_render, is_pinned, pinned_at
+    .query<NotePushRow, [string, string]>(
+      `SELECT ${NOTE_PUSH_COLUMNS}
          FROM notes
         WHERE status = 'active'
           AND (origin_device_id IS NULL OR origin_device_id = ?)
@@ -515,38 +570,7 @@ export async function pushNotes(state: SyncState, selfDeviceId: string): Promise
 
   if (rows.length === 0) return { pushed: 0, renamed: 0, assets_pushed: assetResult.uploaded };
 
-  const payloads: PushNotePayload[] = rows.map((r) => {
-    const tags = db()
-      .query<{ tag: string }, [string]>("SELECT tag FROM tags WHERE note_id = ?")
-      .all(r.id)
-      .map((t) => t.tag);
-    const fullHtml = readFileSync(join(folioRoot(), r.path), "utf-8");
-    const body_html = extractBodyHtml(fullHtml);
-    const stats = extractText(body_html);
-    return {
-      uuid: r.id,
-      slug: r.slug,
-      thread_id: r.thread_id,
-      title: r.title,
-      type: r.type,
-      theme: r.theme,
-      theme_profile: r.theme_profile,
-      body_html,
-      plain_text: stats.body.slice(0, 8192),
-      created_at: r.created,
-      updated_at: r.updated,
-      expires_at: r.expires_at,
-      is_final: (r.is_final ? 1 : 0) as 0 | 1,
-      live: (r.live ? 1 : 0) as 0 | 1,
-      owner_device_id: r.owner_device_id,
-      inline_render: (r.inline_render ? 1 : 0) as 0 | 1,
-      is_pinned: (r.is_pinned ? 1 : 0) as 0 | 1,
-      pinned_at: r.pinned_at,
-      tags,
-      summary: r.summary,
-      word_count: r.word_count,
-    };
-  });
+  const payloads: PushNotePayload[] = buildNotePayloads(rows);
 
   const resp = await http<PushAcceptedResp>("POST", `${state.remote}/v1/sync/push`, state.device_token, {
     notes: payloads,
@@ -575,6 +599,42 @@ export async function pushNotes(state: SyncState, selfDeviceId: string): Promise
   if (maxCreated) state.last_pushed_at = maxCreated;
 
   return { pushed: payloads.length, renamed, assets_pushed: assetResult.uploaded };
+}
+
+// ----- Push supersedes -----
+
+/**
+ * Push supersede pointers — a SEPARATE pass with its own `updated`-keyed
+ * cursor, exactly like pushDeletes. replaceNote() sets superseded_by on the
+ * OLD (already-pushed) note and bumps `updated` but not `created`, so the
+ * created-keyed window in pushNotes never re-sends it; without this pass a
+ * `replace` on one device never hides the old revision on another. Re-pushes
+ * the full note payload (body is immutable) so the cloud INSERT…ON CONFLICT
+ * upserts superseded_by with no "must already exist on cloud" ordering
+ * dependency.
+ */
+export async function pushSupersedes(state: SyncState, selfDeviceId: string): Promise<number> {
+  const cursor = state.last_supersede_pushed_at ?? "1970-01-01T00:00:00Z";
+  const rows = db()
+    .query<NotePushRow, [string, string]>(
+      `SELECT ${NOTE_PUSH_COLUMNS}
+         FROM notes
+        WHERE status = 'active'
+          AND superseded_by IS NOT NULL
+          AND (origin_device_id IS NULL OR origin_device_id = ?)
+          AND updated > ?
+        ORDER BY updated ASC
+        LIMIT 100`
+    )
+    .all(selfDeviceId, cursor);
+  if (rows.length === 0) return 0;
+  const payloads = buildNotePayloads(rows);
+  const resp = await http<PushAcceptedResp>("POST", `${state.remote}/v1/sync/push`, state.device_token, {
+    notes: payloads,
+  });
+  if (!resp) throw new Error("pushSupersedes: empty response");
+  state.last_supersede_pushed_at = rows.reduce((acc, r) => (r.updated > acc ? r.updated : acc), cursor);
+  return payloads.length;
 }
 
 // ----- Push live entries -----
@@ -815,8 +875,8 @@ async function applyPulledNote(n: PullNote): Promise<void> {
          id, slug, path, title, type, theme, theme_profile, thread_id,
          is_final, created, updated, expires_at, word_count, summary, status,
          live, last_entry_at, origin_device_id, owner_device_id, inline_render,
-         is_pinned, pinned_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, ?, ?, ?, ?, ?)
+         is_pinned, pinned_at, superseded_by
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          slug = excluded.slug,
          path = excluded.path,
@@ -835,7 +895,8 @@ async function applyPulledNote(n: PullNote): Promise<void> {
          owner_device_id = excluded.owner_device_id,
          inline_render = excluded.inline_render,
          is_pinned = excluded.is_pinned,
-         pinned_at = excluded.pinned_at`,
+         pinned_at = excluded.pinned_at,
+         superseded_by = excluded.superseded_by`,
       [
         n.uuid,
         slug,
@@ -857,6 +918,7 @@ async function applyPulledNote(n: PullNote): Promise<void> {
         (n.inline_render ?? 0) ? 1 : 0,
         (n.is_pinned ?? 0) ? 1 : 0,
         n.pinned_at ?? null,
+        n.superseded_by ?? null,
       ]
     );
     // Tag set replace.
@@ -924,12 +986,16 @@ export async function syncOnce(state: SyncState): Promise<SyncStepResult> {
   const pushR = await pushNotes(state, self.id);
   const liveR = await pushLiveEntries(state, self.id);
   const deletedR = await pushDeletes(state, self.id);
+  // Supersede pointers ride after the main note push (which created any
+  // brand-new heads) but the full-payload re-push is order-independent
+  // anyway thanks to INSERT…ON CONFLICT on the cloud.
+  const supersededR = await pushSupersedes(state, self.id);
   const pullR = await pullNotes(state, self.id);
   saveSyncState(state);
   return {
     pulled: pullR.pulled,
     live_pulled: pullR.live_pulled,
-    pushed: pushR.pushed,
+    pushed: pushR.pushed + supersededR,
     renamed: pushR.renamed,
     live_pushed: liveR,
     deleted: deletedR,

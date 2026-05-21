@@ -2,6 +2,27 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.30.1 — 2026-05-21
+
+**Fix: `superseded_by` now syncs across devices.** Phase 2 of the mutation-model unification. Before this, a `replace` on one device never hid the old revision on another — the supersede pointer lived only in the local DB and was absent from the sync payload. And adding it to the payload alone wasn't enough: `pushNotes` selects by `created`, but `replaceNote()` bumps the old note's `updated` (not `created`), so the old note was never re-pushed. Fixed with a dedicated push pass that mirrors `pushDeletes`.
+
+### Added
+
+- **`pushSupersedes()`** (`src/core/sync.ts`) — a separate push pass with its own `updated`-keyed cursor (`last_supersede_pushed_at` in `SyncState`), exactly like `pushDeletes`. Re-pushes the full payload of any active note whose `superseded_by` is set; the cloud `INSERT…ON CONFLICT` upserts the pointer, so there's no "must already exist on cloud" ordering dependency. Wired into `syncOnce` after `pushNotes`.
+- Shared **`buildNotePayloads()`** helper + `NotePushRow` type + `NOTE_PUSH_COLUMNS` constant so `pushNotes` and `pushSupersedes` can't drift on which columns they send.
+
+### Changed
+
+- **`superseded_by` threaded through the wire**: `PushNotePayload` / `PullNote` (`src/core/sync.ts`), the pull upsert in `applyPulledNote`, the cloud `PushNote` / `PullNote` shapes + push INSERT + pull SELECT (`src/cloud/sync.ts`), and the cloud `notes` schema + idempotent ALTER (`src/cloud/db.ts`). Optional on the pull side for back-compat with older cloud builds (defaults null).
+
+### Scope note
+
+- Deliberately narrow to supersede pointers. The same `created`-cursor gap means `finalize` / `is_pinned` updates to already-synced notes also don't propagate — but `finalize` propagation is intentionally per-device (`src/core/storage.ts`), so general metadata-update sync is left as a separate decision rather than turned on as a side effect.
+
+### Tests
+
+- `tests/sync-daemon.test.ts` (+2): replace-after-first-sync propagates the pointer to the cloud DB via `pushSupersedes`; a foreign superseded note pulled from cloud writes `superseded_by` locally and is hidden from default listings. Full suite **660 pass**.
+
 ## v0.30.0 — 2026-05-21
 
 **Unified note classification — `note-log.ts`.** Phase 1 of the mutation-model unification (C-minimal; design notes in the `folio-model-edytowalnosci` thread). The "which substrate is this note, and how does it render" decision was implicit boolean logic duplicated across `storage.ts finalize()` and `render.ts pageNote()` — the "keep four in sync" hazard called out in AGENTS.md. It now lives in one place. Pure refactor: zero behavior change.

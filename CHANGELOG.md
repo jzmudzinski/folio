@@ -2,6 +2,26 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.30.0 — 2026-05-21
+
+**Unified note classification — `note-log.ts`.** Phase 1 of the mutation-model unification (C-minimal; design notes in the `folio-model-edytowalnosci` thread). The "which substrate is this note, and how does it render" decision was implicit boolean logic duplicated across `storage.ts finalize()` and `render.ts pageNote()` — the "keep four in sync" hazard called out in AGENTS.md. It now lives in one place. Pure refactor: zero behavior change.
+
+### Added
+
+- **`src/core/note-log.ts`** — single source of truth for note classification:
+  - **`strategyOf(note)`** → `document | feed | iteration` — the durable substrate. Checks `live` before `type`, faithful to `finalize()`'s historical order; a finalized former-live note (`live=0`) classifies as `document`.
+  - **`renderModeOf(note)`** → `document | live-panel | live-inline | iteration-gallery` — the viewer branch. Folds in `is_final` so finalized feed/iteration notes collapse to a static `document` (no live chrome, no gallery auto-refresh).
+  - Doc comment carries the substrate-model table (document → `superseded_by` chain; feed/iteration → `entries.jsonl` + the pure compile functions) — the conceptual home for the unification.
+
+### Changed
+
+- **`finalize()`** (`src/core/storage.ts`) dispatches the feed/iteration compile step through `strategyOf` instead of inline `if (note.live) … else if (type === "iteration")`.
+- **`pageNote()`** (`src/viewer/render.ts`) computes one `renderModeOf(note)` instead of scattered `isLive` / `isInlineLive` / `type === "iteration"` checks.
+
+### Tests
+
+- New `tests/note-log.test.ts` (12 tests): `live`-before-`type` precedence, finalized feed/iteration collapse to `document`, all four render modes. Full suite **658 pass**.
+
 ## v0.29.3 — 2026-05-20
 
 **Fix: home list rendered "Yesterday" before "Today" when a pinned note was older.** Regression from v0.29.0. `listNotes` sorts `is_pinned DESC, pinned_at DESC, created DESC`, so a pinned older note floats to the front of the array; `pageList` built its date groups by `Map` insertion order, so a pinned note from yesterday seeded the "Yesterday" group first and it rendered above "Today".

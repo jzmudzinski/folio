@@ -10,6 +10,7 @@ import { renderNote } from "./templates";
 import { getTheme } from "./themes";
 import { extractBodyHtml } from "./sync";
 import type { CreateNoteInput, NoteMeta, SearchHit, NoteType, RenderProfile } from "./types";
+import { strategyOf } from "./note-log";
 
 function isoNow(): string {
   return new Date().toISOString();
@@ -700,9 +701,14 @@ export function finalize(id: string): boolean {
 
   const ageDays = Math.floor((Date.now() - new Date(note.created).getTime()) / 86400000);
 
-  if (note.live) {
+  // Dispatch the "compile feed → static body" step by substrate. strategyOf
+  // checks live before type (matching this function's historical order), so
+  // a live note routes to finalizeLive and a non-live iteration note to
+  // finalizeIteration. document notes need no compile step.
+  const strategy = strategyOf(note);
+  if (strategy === "feed") {
     finalizeLive(note);
-  } else if (note.type === "iteration") {
+  } else if (strategy === "iteration") {
     finalizeIteration(note);
   }
 

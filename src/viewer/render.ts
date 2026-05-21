@@ -3,6 +3,7 @@ import { db } from "../core/db";
 import { resolveHeadOfChain, listPopularTags, type ContinueRailItem, type ProjectDashboard } from "../core/storage";
 import { listThemes } from "../core/themes";
 import { panelIframeSrcdoc, LIVE_CHROME_JS } from "./live-panel";
+import { renderModeOf } from "../core/note-log";
 import { ENTRIES_CSS } from "./entries-css";
 import { themesDir, bundledThemesDir } from "../core/config";
 import { existsSync, readFileSync } from "node:fs";
@@ -2498,15 +2499,15 @@ export function pageNote(note: NoteMeta, _themeName: string, context?: NoteListC
   // a chrome-side EventSource subscriber. Panel iframe is sandboxed and
   // null-origin (no allow-same-origin); chrome and panel talk via
   // postMessage. Body iframe is unchanged — its CSP stays connect-src:'none'.
-  const isLive = note.live && !note.is_final;
-  // v0.17 inline_render: entries are spliced into body_html at /raw/ time
-  // (server-side) + parent forwards new SSE entries to the body iframe via
-  // postMessage. Side panel is suppressed for these notes — body owns the
-  // visual. Non-inline live notes keep the panel as before.
-  const isInlineLive = isLive && note.inline_render;
+  // Render mode is the single source of truth for the live/iteration/static
+  // branch (core/note-log.ts renderModeOf). v0.17 inline_render: live-inline
+  // splices entries into body_html at /raw/ time + forwards SSE entries to
+  // the body iframe; live-panel keeps the side-panel feed; finalized
+  // feed/iteration notes collapse to a plain document (static body).
+  const mode = renderModeOf(note);
   let livePanelHtml = "";
   let liveScript = "";
-  if (isLive && !isInlineLive) {
+  if (mode === "live-panel") {
     const themeCss = loadThemeCss(note.theme) ?? "";
     const srcdoc = panelIframeSrcdoc({ theme_css: themeCss, entries_css: ENTRIES_CSS, noteId: note.id });
     livePanelHtml = `
@@ -2514,7 +2515,7 @@ export function pageNote(note: NoteMeta, _themeName: string, context?: NoteListC
     <iframe class="live-panel-iframe" title="Live feed" sandbox="allow-scripts" srcdoc="${esc(srcdoc)}"></iframe>
   </aside>`;
     liveScript = `<script>window.__folioLiveNoteId = ${JSON.stringify(note.id)};</script>${LIVE_CHROME_JS}`;
-  } else if (isInlineLive) {
+  } else if (mode === "live-inline") {
     // Parent chrome opens the same SSE stream the panel would, but instead
     // of postMessage'ing into a side-panel iframe, it postMessage's into
     // the body iframe. The body iframe's bootstrap (appended in /raw/)
@@ -2564,7 +2565,7 @@ export function pageNote(note: NoteMeta, _themeName: string, context?: NoteListC
         }
       });
     })();</script>`;
-  } else if (note.type === "iteration" && !note.is_final) {
+  } else if (mode === "iteration-gallery") {
     // Iteration notes auto-refresh the gallery when the agent appends a new
     // round (v0.20.2+). SSE delivers every entry on the JSONL substrate; we
     // reload the body iframe only on `kind:variant` entries — those mean a
@@ -2597,7 +2598,7 @@ export function pageNote(note: NoteMeta, _themeName: string, context?: NoteListC
       });
     })();</script>`;
   }
-  const shellClass = isLive && !isInlineLive ? "note-shell has-live" : "note-shell";
+  const shellClass = mode === "live-panel" ? "note-shell has-live" : "note-shell";
   const sharePop = sharePopoverHtml(note.id);
 
   return shell(note.title, `${topbar()}

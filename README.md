@@ -20,7 +20,7 @@ When your agent has something to show — research, comparison, technical doc, d
 - 🎨 **18 themes** with structural CSS the agent uses (`.eyebrow`, `.lead`, `.pill`, `.card`, `.verdict`, …) — drop your own folder under `~/Folio/themes/` and it shows up live
 - 📂 **Notes as plain HTML files** in `~/Folio/threads/<topic>/` — append-only, no database lock-in, `tar` and walk away
 - 🔎 **SQLite FTS5 full-text search** with Polish-aware tokenizer + suffix stemmer
-- 🧩 **MCP server** (`folio-mcp`) — **20 tools** (v0.19.1), works with OpenClaw, Claude Code, Claude Desktop, Cursor, Continue
+- 🧩 **MCP server** (`folio-mcp`) — **23 tools** (v0.30.2), works with OpenClaw, Claude Code, Claude Desktop, Cursor, Continue
 - 🖼️ **Local viewer** at `127.0.0.1:4810` — iframe-isolated themes, lightbox, TOC with scroll spy, prev/next-in-thread, **topbar Share popover** (v0.19+) for mint-and-revoke capability URLs
 - 📰 **Live notes** (v0.9+) — append-only feeds (journal, todo, ops log) that grow over time, inline-rendered (v0.17+) or in a side panel, `finalize` compiles them into a static body
 - 🎛 **Iteration primitive** (v0.18+) — agent proposes N design candidates → user clicks one in a gallery → agent proposes N variants of the pick → repeat. `wait_for_pick` (v0.19.1) lets the agent block on the SSE hub so no "I clicked!" chat round-trip
@@ -49,7 +49,7 @@ The page runs entirely inside Folio's null-origin sandboxed iframe with CSP `con
 
 ## Status
 
-**v0.19.1 — shippable.** Stable MCP contract, 458 tests across 44 files, pre-compiled binaries for darwin-arm64 / linux-x64 / linux-arm64. Cloud + PWA + publish + iteration + viewer share UI all ride on the same machinery — opt in to one without losing the others.
+**v0.30.4 — shippable.** Stable MCP contract, 667 tests across 60 files, pre-compiled binaries for darwin-arm64 / linux-x64 / linux-arm64. Cloud + PWA + publish + iteration + project workspace + viewer share UI all ride on the same machinery — opt in to one without losing the others.
 
 - ✅ Core flow: agent → MCP `create` → note on disk → `/n/<id>` renders
 - ✅ Sync daemon (`folio sync`) mirrors `~/Folio/` to an optional cloud relay — bidirectional notes + assets + tombstones
@@ -61,7 +61,7 @@ The page runs entirely inside Folio's null-origin sandboxed iframe with CSP `con
 - ✅ `folio publish` mints capability URLs (or use the new viewer UI); with `--recipient` the cloud emails the link via Resend, hash-bound
 - ✅ Cloud observability snapshot (`GET /v1/admin/stats` + viewer Cloud stats panel)
 - ✅ Soft-delete (`folio delete`, `.trash/` with 7-day grace) plus sidebar button in the viewer
-- ✅ Append-only (ADR-014) preserved end-to-end: agents iterate via new sibling notes, never edits
+- ✅ **Append-only _per revision_** (ADR-014, relaxed v0.22+) end-to-end: a note's body bytes never change in place; documents evolve via `replace` (the `superseded_by` chain is the document's append-log, surfaced by the `list_revisions` tool + a viewer revision strip — v0.30.x), live/iteration notes via `.entries.jsonl`. Metadata edits in place via `update_metadata`; capability-URL trust intact
 - ✅ `folio update` self-updates from GitHub Releases
 
 <details>
@@ -69,12 +69,12 @@ The page runs entirely inside Folio's null-origin sandboxed iframe with CSP `con
 
 | Version | Date | Highlight |
 |---|---|---|
-| **v0.19.1** | 2026-05-15 | `wait_for_pick` MCP tool — long-poll for iteration picks via SSE hub; closes the "tell agent you clicked" round-trip |
-| **v0.19.0** | 2026-05-15 | Viewer share UI — topbar `↗ Share` popover, `/n/:id/shares` manage page, active-shares indicator |
-| **v0.18.2** | 2026-05-15 | Sanitizer fix — `data-*` wildcard for agent-built interactive widgets (tabs, datasets, dataset-driven handlers) |
-| **v0.18.1** | 2026-05-14 | Cloud migrator hotfix — `inline_render` ALTER was unreachable on clouds created at v0.13/v0.14 (early-return bug) |
-| **v0.18.0** | 2026-05-14 | Iteration note primitive — N design candidates → user picks → N variants of the pick → repeat. Gallery render, lineage breadcrumb, finalize compiles into static body |
-| **v0.17.x** | 2026-05-14 | Inline-rendered live notes; sanitizer relaxations (`<button>` + form controls + `data-*`); banner threshold + scrollbar fixes |
+| **v0.30.4** | 2026-05-21 | Fix — the `replace` MCP tool threw on every call (built response URLs without a loaded `cfg`); now consistent with the other handlers |
+| **v0.30.3** | 2026-05-21 | Docs — `AGENTS.md` / `SKILL.md` caught up to the "append-only _per revision_" model (the old "never UPDATE / no update tool" wording was false since v0.22) |
+| **v0.30.2** | 2026-05-21 | Document revision history — `getRevisionChain` + `list_revisions` MCP tool + a viewer revision strip; a document visibly behaves like a versioned log |
+| **v0.30.1** | 2026-05-21 | `superseded_by` now syncs across devices — dedicated `pushSupersedes` pass (a `replace` on one device finally hides the old revision on another) |
+| **v0.30.0** | 2026-05-21 | Unified note classification — `src/core/note-log.ts` (`strategyOf` / `renderModeOf`) is the single source of truth for `finalize` + `pageNote` |
+| **v0.29.3** | 2026-05-20 | Fix — home list rendered "Yesterday" before "Today" when a pinned note was older; pinned now render in their own section above the date groups |
 
 Full notes: [CHANGELOG.md](CHANGELOG.md).
 </details>

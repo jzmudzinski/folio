@@ -778,9 +778,12 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
             expires_in_days?: number;
             max_views?: number | null;
             recipient?: string;
+            include_linked?: boolean;
           };
           const payload: Record<string, unknown> = {
-            scope_type: "note",
+            // include_linked → 'set' scope: grants the note + the notes it
+            // links to (computed cloud-side from synced bodies).
+            scope_type: body.include_linked ? "set" : "note",
             scope_id: id,
             expires_in_days: body.expires_in_days ?? 7,
             max_views: body.max_views ?? null,

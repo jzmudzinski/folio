@@ -1650,6 +1650,9 @@ function sharePopoverHtml(noteId: string): string {
       <label for="share-recipient">Recipient email (optional)</label>
       <input id="share-recipient" name="recipient" type="email" placeholder="alice@example.com">
     </div>
+    <div class="share-pop__row share-pop__row--check">
+      <label><input id="share-include-linked" name="include_linked" type="checkbox"> Include linked notes <span class="share-pop__hint">grant access to every note this one links to</span></label>
+    </div>
     <button class="share-pop__go" type="submit" id="share-submit">Publish →</button>
   </form>
   <div class="share-pop__result" id="share-result">
@@ -1772,6 +1775,8 @@ function sharePopoverJs(noteId: string): string {
     if (maxv) body.max_views = Number(maxv);
     var rec = document.getElementById('share-recipient').value.trim();
     if (rec) body.recipient = rec;
+    var inc = document.getElementById('share-include-linked');
+    if (inc && inc.checked) body.include_linked = true;
     fetch('/api/notes/' + encodeURIComponent(noteId) + '/shares', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -1791,6 +1796,12 @@ function sharePopoverJs(noteId: string): string {
       }
       lastToken = resp.data.token;
       resultUrl.textContent = resp.data.url;
+      // Set shares grant a bundle — make the size explicit so the user knows
+      // they shared more than one note.
+      var rlabel = pop.querySelector('.share-pop__result-label');
+      if (rlabel) rlabel.textContent = (resp.data.note_count && resp.data.note_count > 1)
+        ? ('✓ Published · ' + resp.data.note_count + ' notes (this + ' + (resp.data.note_count - 1) + ' linked)')
+        : '✓ Published';
       result.classList.add('is-shown');
       refreshActive();
     }).catch(function (err) {

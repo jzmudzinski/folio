@@ -136,7 +136,7 @@ When a note links to another Folio doc (a hub, an index, "see also"), write the 
 
 Why: a full-domain link dies the moment the note is opened anywhere else (a teammate's host, a published capability URL, the phone PWA). The viewer handles root-relative internal links for you — it **breaks them out of the note's sandboxed iframe** (so you don't get the whole viewer rendered *inside* the note) and **resolves them against the current scope** (local origin, or a capability `/p/<token>` base on a published share). External links (`https://…` to non-Folio sites) are fine as-is; they open in a new tab.
 
-One caveat for **published** hubs: a capability URL only grants its own scope. A note-scope share linking to other notes will 403 on those links. Publish the hub at **thread or project scope** (`scope_type: "thread"`) so the linked notes are reachable.
+One caveat for **published** hubs: a capability URL only grants its own scope, so a plain note-scope share **403s on links to other notes**. Fix (v0.32+): publish with **`include_linked: true`** — the share then also grants every note this one links to (followed transitively, bounded, snapshotted at publish time). It's the `publish` MCP tool's `include_linked` flag, or the viewer Share popover's **"Include linked notes"** checkbox; the response/UI reports the bundle size (`note_count`). The linked notes must already be synced to the cloud.
 
 ## Code blocks
 

@@ -2,6 +2,21 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.31.1 — 2026-05-22
+
+**Cross-note links break out of the iframe + survive publish.** When a note links to another Folio doc (`/n/<id>`, `/p/<slug>`, `/t/<thread>`, `/tag/…`), the click used to navigate the note's own sandboxed body iframe — loading the entire viewer *inside* the note ("Folio-in-Folio"). And a full-domain link (`http://127.0.0.1:4810/n/…`) died the moment the note was opened on another host or as a published capability URL. Now internal links break out to the **top** window and resolve against the **current scope**.
+
+### Changed
+
+- **`src/viewer/note-bootstrap.ts`** — new `attachInternalLinks()`: delegated, capture-phase click handler that relays internal-link clicks to the parent as `{ns:'folio', type:'navigate', href}` (the sandbox has no `allow-top-navigation`, so postMessage is the only route). Same-host full URLs are normalised to their path; modifier-clicks/cross-host links fall through to the existing new-tab behaviour.
+- **`src/viewer/render.ts`** — `pageNote` parent gains a `navigate` case: validates the path is internal (`^/(n|p|t|tag|threads)`) and navigates the **top** viewer window.
+- **`src/cloud/render.ts`** — the `/raw` body (`renderStandaloneNote`) gets the same interceptor; the capability page (`renderSharedNotePage`) navigate handler **prefixes `/p/<token>`** so links stay inside the granted scope; the PWA `/n/` shell (`renderNotePage`) navigates root-relative.
+- **`skills/folio/STYLEBOOK.md` + `SKILL.md`** — agents must write cross-note links **root-relative** (`/n/<id>`), never with a host; documents the publish-scope caveat (a note-scope share 403s on links to other notes — publish hubs at thread/project scope).
+
+### Tests
+
+- New `tests/internal-links.test.ts` (5): bootstrap relays navigate; local `pageNote` parent handles it; all three cloud shells (raw interceptor, capability token-prefix, PWA root-relative) present. E2E-verified in a real viewer (clicked an `/n/` link → top window navigated, no nesting). Full suite **673 pass**.
+
 ## v0.31.0 — 2026-05-22
 
 **Project workspace shows notes, not just threads.** The `/p/<slug>` dashboard used to render one card per thread (count + latest) — to reach a specific note you clicked the thread, then the note. Now each thread card lists **its notes inside it**, each row clicking straight through to `/n/<id>` (one click). Recent activity is demoted to the bottom. Design picked from a 3-variant Folio iteration (variant C). Render-only — `getProjectDashboard` already returned `threadGroups[].notes`.

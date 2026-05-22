@@ -2375,6 +2375,15 @@ export function pageNote(note: NoteMeta, _themeName: string, context?: NoteListC
         case 'scroll':
           if (progressFill) progressFill.style.width = Math.max(0, Math.min(100, Number(d.pct) || 0)) + '%';
           break;
+        case 'navigate': {
+          // Internal Folio link clicked inside the body iframe (relayed by
+          // note-bootstrap, since the sandbox has no allow-top-navigation).
+          // Navigate the TOP viewer page — kills the "Folio-in-Folio" nesting.
+          // Guard: only same-origin internal paths, never //host or javascript:.
+          var nhref = String(d.href || '');
+          if (/^\\/(n|p|t|tag|threads)(\\/|\$|[?#])/.test(nhref)) window.location.assign(nhref);
+          break;
+        }
         case 'content': {
           var p = pending.get(String(d.requestId));
           if (!p) return;

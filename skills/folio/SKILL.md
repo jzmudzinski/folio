@@ -188,6 +188,7 @@ Full spec in [`STYLEBOOK.md`](STYLEBOOK.md). Quick rules:
 - ⚠️ `<style>` at body level — allowed since v0.15 but **default to theme classes**. Reach for it only when using `plain` or utilities genuinely don't fit. Never redefine `.eyebrow` / `.card` / `.pill`.
 - ❌ Deprecated HTML4 tags (`<font>`, `<center>`)
 - ❌ Raw hex colors in attributes — use classes
+- ❌ Full-domain links to other Folio notes (`http://127.0.0.1:4810/n/…`) — use root-relative `/n/<id>` / `/p/<slug>` / `/t/<thread>`. The viewer breaks them out of the note iframe + resolves them per scope so they survive publish. See [`STYLEBOOK.md`](STYLEBOOK.md) "Linking to other Folio notes".
 
 **Allowed (v0.17.1+):**
 - `<script>` at body level — runs in null-origin sandboxed iframe with CSP `connect-src 'none'` + `form-action 'none'`. Can build DOM; cannot reach parent, cookies, or network.

@@ -127,6 +127,17 @@ Bullet style depends on the theme (linen uses dots, brutalist red arrows, pastel
 - **`<mark>`** — highlight (theme.css supplies a subtle background)
 - **`<a href="...">`** — link
 
+## Linking to other Folio notes
+
+When a note links to another Folio doc (a hub, an index, "see also"), write the link **root-relative**, never with a host:
+
+- ✅ `<a href="/n/01K…">`, `/p/<slug>`, `/t/<thread>`, `/tag/<tag>`
+- ❌ `<a href="http://127.0.0.1:4810/n/01K…">` or `https://folio.notibox.ai/n/…`
+
+Why: a full-domain link dies the moment the note is opened anywhere else (a teammate's host, a published capability URL, the phone PWA). The viewer handles root-relative internal links for you — it **breaks them out of the note's sandboxed iframe** (so you don't get the whole viewer rendered *inside* the note) and **resolves them against the current scope** (local origin, or a capability `/p/<token>` base on a published share). External links (`https://…` to non-Folio sites) are fine as-is; they open in a new tab.
+
+One caveat for **published** hubs: a capability URL only grants its own scope. A note-scope share linking to other notes will 403 on those links. Publish the hub at **thread or project scope** (`scope_type: "thread"`) so the linked notes are reachable.
+
 ## Code blocks
 
 ```html

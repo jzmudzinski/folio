@@ -2,6 +2,14 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.30.6 — 2026-05-22
+
+**Skill: warn agents not to translate tag keywords.** The Language note tells agents to match trigger *intents* in any language — but a multilingual agent could "helpfully" localize a tag prefix (`projekt:` instead of `project:`), which silently breaks grouping: the note still lands under `/tag/projekt:<slug>` but `/p/<slug>` stays empty (the workspace matches the literal ASCII `project:`).
+
+### Changed (skill docs only)
+
+- **`skills/folio/SKILL.md`** — added a callout in the project-tag section: keep every code-interpreted namespace verbatim ASCII — `project:`, `slot:`, `state:`, `view:pinned` — plus the canonical `state:` values (`open` / `in_progress` / `done` / `cancelled`, matched literally by the kanban lanes). Only the prose *inside* an entry gets translated.
+
 ## v0.30.5 — 2026-05-22
 
 **Skill examples made product-neutral.** Folio is a general visual-communication layer (hardware-agnostic), but the skill's worked examples had all been written while dogfooding on one product (NotiBox / Jetson / cameras / `notibox.ai` hosts). That biases an agent's mental model toward "Folio is a device/edge thing" — exactly the wrong frame for a tool meant to work in any context. Examples only; no behavior, triggers, or description changed.

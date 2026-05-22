@@ -251,6 +251,37 @@ test("GET /p/<slug> renders slot cards above the threads list", async () => {
   expect(html).toContain("Where we're going");
 });
 
+test("GET /p/<slug> lists each thread's notes inside its card, linking to /n/<id> (v0.31)", async () => {
+  await setup();
+  const { createNote } = await import("../src/core/storage");
+  const a = await createNote({
+    type: "technical", title: "Spec draft", body_html: "<p>spec</p>",
+    thread_id: "build", theme: "linen", tags: ["project:demo"],
+  });
+  const b = await createNote({
+    type: "research", title: "Background research", body_html: "<p>bg</p>",
+    thread_id: "build", theme: "linen", tags: ["project:demo"],
+  });
+  await startViewer();
+  const r = await fetch(`${viewerUrl}/p/demo`);
+  const html = await r.text();
+  // Threads section renders cards (proj-tcard) with note rows (proj-nrow) inside.
+  expect(html).toContain('class="proj-tcard"');
+  expect(html).toContain('class="proj-nrow"');
+  // Each note row clicks straight through to /n/<id> (one click).
+  expect(html).toContain(`/n/${a.id}?from=project:demo`);
+  expect(html).toContain(`/n/${b.id}?from=project:demo`);
+  expect(html).toContain("Spec draft");
+  expect(html).toContain("Background research");
+  // Card header still links to the /t/<thread> view.
+  expect(html).toContain(`href="/t/build"`);
+  // Recent activity is demoted below the threads section.
+  const tIdx = html.indexOf('class="proj-tcards"');
+  const aIdx = html.indexOf('class="proj-activity"');
+  expect(tIdx).toBeGreaterThan(-1);
+  expect(aIdx).toBeGreaterThan(tIdx);
+});
+
 test("GET /p/<slug> renders pending-iteration cards when iteration notes await pick", async () => {
   await setup();
   const { createNote } = await import("../src/core/storage");

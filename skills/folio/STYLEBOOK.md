@@ -146,10 +146,10 @@ A `<pre>` box of `|`, `-`, `>` characters is the **last resort**, not the defaul
    ```html
    <pre class="mermaid">
    sequenceDiagram
-       participant K as Klient #40;LAN#41;
-       participant V as vendor.notibox.ai
-       K->>V: redirect ?code&state
-       V-->>K: ✓ wróć do panelu
+       participant U as User #40;web#41;
+       participant A as api.example.com
+       U->>A: redirect ?code&state
+       A-->>U: ✓ back to the panel
    </pre>
    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
    <script>

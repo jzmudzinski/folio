@@ -2,6 +2,31 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.32.0 — 2026-05-22
+
+**Share a note *and* the notes it links to.** Publishing a hub/index note used to share only that one note — its `/n/<id>` links 403'd for the recipient (capability URLs grant a single scope; the v0.31.1 caveat). New **`set` share scope** grants the note *plus* the notes it links to. Opt in with the Share popover's **"Include linked notes"** checkbox or `publish({ include_linked: true })`.
+
+### Added
+
+- **`set` share scope** (`src/cloud/shares.ts`, `src/cloud/db.ts`). New `share_notes(token, note_uuid)` table holds the bundle membership. `createShare({scope_type:"set"})` computes the linked set and snapshots it; `validateShareAccess` gates `/p/<token>/n/<uuid>` by membership. Threads aren't grantable through a set (it's a note bundle).
+- **`computeLinkedNoteSet(rootUuid, userId, db, {maxDepth, cap})`** — follows `/n/<id>` links in note bodies transitively (default depth 3, cap 50), cloud-side over synced bodies. Cycle-safe; skips dangling/foreign links (no leak); only the creator's own notes are included.
+- **`publish` MCP tool** gains `include_linked` → `set` scope; response carries `note_count` (root + linked).
+- **Viewer Share popover** gains an **"Include linked notes"** checkbox; the success line shows the bundle size ("Published · N notes (this + N−1 linked)").
+
+### Changed
+
+- The cloud `/v1/share` handler accepts `scope_type:"set"`; `set` shares land at the root note (`/p/<token>/n/<root>`). The viewer share proxy maps `include_linked` → `set`.
+- **`skills/folio/STYLEBOOK.md`** — the published-hub caveat now points at `include_linked` instead of "publish at thread scope".
+
+### Notes
+
+- **Snapshot, not live**: the set is frozen at publish time — re-share to pick up new links (editing the note doesn't silently widen an existing share). Linked notes must be synced to the cloud to be included.
+- **Consent**: the checkbox is off by default and the result states how many notes the bundle grants, so sharing a bundle is explicit.
+
+### Tests
+
+- New `tests/share-set.test.ts` (4): transitive/cycle-safe/bounded link set, dangling-link skip, membership-gated access, thread-request denial. Full suite **677 pass**.
+
 ## v0.31.1 — 2026-05-22
 
 **Cross-note links break out of the iframe + survive publish.** When a note links to another Folio doc (`/n/<id>`, `/p/<slug>`, `/t/<thread>`, `/tag/…`), the click used to navigate the note's own sandboxed body iframe — loading the entire viewer *inside* the note ("Folio-in-Folio"). And a full-domain link (`http://127.0.0.1:4810/n/…`) died the moment the note was opened on another host or as a published capability URL. Now internal links break out to the **top** window and resolve against the **current scope**.

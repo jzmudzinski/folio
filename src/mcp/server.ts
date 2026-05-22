@@ -318,7 +318,7 @@ const tools: Tool[] = [
   },
   {
     name: "publish",
-    description: "Create a capability-URL share for a note or thread. The returned URL grants read-only access to the resource without requiring the recipient to pair a device — anyone with the link can view. Requires the local Folio to be paired with a cloud relay (folio sync pair). Default expiry: 7 days. Set expires_in_days: 0 for no expiry. Optional max_views caps total page loads. Revoke via folio shares revoke <token>. Use this after create() when the user wants to share the rendered note with someone external (Slack, email, Telegram).",
+    description: "Create a capability-URL share for a note or thread. The returned URL grants read-only access to the resource without requiring the recipient to pair a device — anyone with the link can view. Requires the local Folio to be paired with a cloud relay (folio sync pair). Default expiry: 7 days. Set expires_in_days: 0 for no expiry. Optional max_views caps total page loads. Revoke via folio shares revoke <token>. Use this after create() when the user wants to share the rendered note with someone external (Slack, email, Telegram). For a hub/index note that links to other notes (v0.32+), pass include_linked:true to grant access to the whole linked set — otherwise those links 403 for the recipient (note-scope only covers the one note). Response includes note_count (root + linked) for set shares.",
     inputSchema: {
       type: "object",
       required: ["id"],
@@ -336,6 +336,10 @@ const tools: Tool[] = [
         max_views: {
           type: "number",
           description: "Optional cap on total page views before the share auto-locks. Useful for one-time-look situations.",
+        },
+        include_linked: {
+          type: "boolean",
+          description: "v0.32+. When true, the share also grants access to every note this one links to (/n/<id>, followed transitively + bounded), snapshotted now. Use for hub/index notes so their links work for the recipient. Ignored for thread scope. The linked notes must already be synced to the cloud.",
         },
       },
     },
@@ -916,8 +920,13 @@ export async function buildServer(): Promise<Server> {
         case "publish": {
           const id = String(args.id ?? "");
           if (!id) return errContent("Missing id");
-          const scope_type = (args.scope_type === "thread" ? "thread" : "note") as "note" | "thread";
-          if (scope_type === "note") {
+          // include_linked → a 'set' share: this note + every note it links to
+          // (/n/<id>, computed cloud-side from synced bodies, bounded). Root is
+          // still a note, so the local-existence check applies.
+          const scope_type = (args.include_linked === true
+            ? "set"
+            : args.scope_type === "thread" ? "thread" : "note") as "note" | "thread" | "set";
+          if (scope_type === "note" || scope_type === "set") {
             const note = getNoteMeta(id);
             if (!note) return errContent(`Not found locally: ${id}. If recently created, run \`folio sync --once\` first.`);
           }
@@ -951,6 +960,7 @@ export async function buildServer(): Promise<Server> {
             url: string;
             scope_type: string;
             scope_id: string;
+            note_count?: number;
             expires_at: string | null;
             max_views: number | null;
           };
@@ -958,6 +968,7 @@ export async function buildServer(): Promise<Server> {
             url: out.url,
             scope_type: out.scope_type,
             scope_id: out.scope_id,
+            ...(out.scope_type === "set" ? { note_count: out.note_count ?? 1 } : {}),
             expires_at: out.expires_at,
             max_views: out.max_views,
             revoke_hint: `folio shares revoke ${out.token.slice(0, 12)}…`,

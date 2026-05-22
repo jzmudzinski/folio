@@ -872,7 +872,7 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
         // ---- Shares (capability URL admin) ----
         if (path === "/v1/share" && method === "POST") {
           const body = await readJsonBody<{
-            scope_type?: "note" | "thread";
+            scope_type?: "note" | "thread" | "set";
             scope_id?: string;
             expires_in_days?: number | null;
             max_views?: number | null;
@@ -883,8 +883,8 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
              *  it MUST match the hash of recipient_email (defensive client). */
             recipient_email?: string | null;
           }>(req);
-          if (body.scope_type !== "note" && body.scope_type !== "thread") {
-            return badRequest("scope_type must be 'note' or 'thread'");
+          if (body.scope_type !== "note" && body.scope_type !== "thread" && body.scope_type !== "set") {
+            return badRequest("scope_type must be 'note', 'thread', or 'set'");
           }
           if (!body.scope_id) return badRequest("scope_id required");
           // If the caller sent a plaintext email, derive the hash here so
@@ -912,10 +912,12 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
               max_views: body.max_views ?? null,
               recipient_email_hash: recipientEmailHash,
             });
+            // 'set' shares enter at the root note (same /n/ path as a note
+            // share); only thread shares use the /t/ landing.
             const scopePath =
-              share.scope_type === "note"
-                ? `/p/${share.token}/n/${share.scope_id}`
-                : `/p/${share.token}/t/${share.scope_id}`;
+              share.scope_type === "thread"
+                ? `/p/${share.token}/t/${share.scope_id}`
+                : `/p/${share.token}/n/${share.scope_id}`;
             const url = `${publicUrl}${scopePath}`;
             // Send the invite if (a) the caller gave us a plaintext email
             // AND (b) a mailer is configured. We return the mailer outcome
@@ -948,11 +950,17 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
                 else email_error = result.error ?? "mailer returned not-ok";
               }
             }
+            // For a 'set' share, report how many notes the bundle grants
+            // (root + linked) so the caller can show "shared N notes".
+            const note_count = share.scope_type === "set"
+              ? (cloudDb().query<{ n: number }, [string]>("SELECT COUNT(*) AS n FROM share_notes WHERE token = ?").get(share.token)?.n ?? 1)
+              : 1;
             return json({
               token: share.token,
               url,
               scope_type: share.scope_type,
               scope_id: share.scope_id,
+              note_count,
               created_at: share.created_at,
               expires_at: share.expires_at,
               max_views: share.max_views,

@@ -29,7 +29,7 @@ import { cloudDb } from "./db";
 export interface Share {
   token: string;
   user_id: string;
-  scope_type: "note" | "thread";
+  scope_type: "note" | "thread" | "set";
   scope_id: string;
   created_by_device: string;
   created_at: string;
@@ -45,9 +45,63 @@ export function generateShareToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
+/** Pull /n/<id> note links out of a body_html blob — the root-relative links
+ *  the agent is told to write (and that the viewer breaks out of the iframe).
+ *  We collect candidates loosely; the membership query rejects non-notes. */
+const NOTE_LINK_RE = /\/n\/([0-9A-Za-z][0-9A-Za-z-]{7,})/g;
+
+/**
+ * Compute the note uuids reachable from a root note by following /n/<id>
+ * links in note bodies — transitively, bounded by maxDepth + cap. Only notes
+ * owned by `userId` are followed/included (no cross-user leak). Returns uuids
+ * EXCLUDING the root (the caller adds it). Snapshot over the current cloud
+ * bodies; re-share to refresh. The cap stops a hub from accidentally sharing
+ * half the graph.
+ */
+export function computeLinkedNoteSet(
+  rootUuid: string,
+  userId: string,
+  db: Database = cloudDb(),
+  opts: { maxDepth?: number; cap?: number } = {}
+): string[] {
+  const maxDepth = opts.maxDepth ?? 3;
+  const cap = opts.cap ?? 50;
+  const seen = new Set<string>([rootUuid]);
+  const out: string[] = [];
+  let frontier: string[] = [rootUuid];
+  for (let depth = 0; depth < maxDepth && frontier.length > 0 && out.length < cap; depth++) {
+    const next: string[] = [];
+    for (const uuid of frontier) {
+      const row = db
+        .query<{ body_html: string }, [string, string]>(
+          "SELECT body_html FROM notes WHERE uuid = ? AND user_id = ?"
+        )
+        .get(uuid, userId);
+      if (!row) continue;
+      NOTE_LINK_RE.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = NOTE_LINK_RE.exec(row.body_html)) !== null) {
+        const id = m[1]!;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const exists = db
+          .query<{ uuid: string }, [string, string]>("SELECT uuid FROM notes WHERE uuid = ? AND user_id = ?")
+          .get(id, userId);
+        if (!exists) continue; // dangling/foreign link — skip, don't leak
+        out.push(id);
+        next.push(id);
+        if (out.length >= cap) break;
+      }
+      if (out.length >= cap) break;
+    }
+    frontier = next;
+  }
+  return out;
+}
+
 export interface CreateShareInput {
   user_id: string;
-  scope_type: "note" | "thread";
+  scope_type: "note" | "thread" | "set";
   scope_id: string;
   created_by_device: string;
   expires_in_days?: number | null;
@@ -59,6 +113,7 @@ export function createShare(input: CreateShareInput, db: Database = cloudDb()): 
   // Verify the scope target exists AND belongs to the share creator's user.
   // Don't issue a share for a phantom note or for another user's note
   // (the latter would be an authorization bypass).
+  let setMembers: string[] = [];
   if (input.scope_type === "note") {
     const exists = db
       .query<{ uuid: string; user_id: string }, [string]>("SELECT uuid, user_id FROM notes WHERE uuid = ?")
@@ -70,6 +125,14 @@ export function createShare(input: CreateShareInput, db: Database = cloudDb()): 
       .query<{ n: number }, [string, string]>("SELECT COUNT(*) AS n FROM notes WHERE user_id = ? AND thread_id = ?")
       .get(input.user_id, input.scope_id);
     if (!count || count.n === 0) throw new Error(`thread not found or empty: ${input.scope_id}`);
+  } else if (input.scope_type === "set") {
+    // Root note must exist + belong to the user. The set = root + the notes
+    // it links to (transitive, bounded), snapshotted at create time below.
+    const root = db
+      .query<{ uuid: string; user_id: string }, [string]>("SELECT uuid, user_id FROM notes WHERE uuid = ?")
+      .get(input.scope_id);
+    if (!root || root.user_id !== input.user_id) throw new Error(`note not found: ${input.scope_id}`);
+    setMembers = computeLinkedNoteSet(input.scope_id, input.user_id, db);
   } else {
     throw new Error(`invalid scope_type: ${input.scope_type}`);
   }
@@ -97,6 +160,12 @@ export function createShare(input: CreateShareInput, db: Database = cloudDb()): 
       input.max_views ?? null,
     ]
   );
+  if (input.scope_type === "set") {
+    // Snapshot membership: root + every linked note. PK dedupes.
+    const ins = db.query("INSERT OR IGNORE INTO share_notes (token, note_uuid) VALUES (?, ?)");
+    ins.run(token, input.scope_id);
+    for (const uuid of setMembers) ins.run(token, uuid);
+  }
   return {
     token,
     user_id: input.user_id,
@@ -140,7 +209,7 @@ export function getShare(token: string, db: Database = cloudDb()): Share | null 
   return {
     token: row.token,
     user_id: row.user_id,
-    scope_type: row.scope_type as "note" | "thread",
+    scope_type: row.scope_type as "note" | "thread" | "set",
     scope_id: row.scope_id,
     created_by_device: row.created_by_device,
     created_at: row.created_at,
@@ -240,6 +309,16 @@ export function validateShareAccess(
   if (share.scope_type === "note") {
     if (requested.type !== "note") return { ok: false, reason: "scope-mismatch" };
     if (requested.uuid !== share.scope_id) return { ok: false, reason: "scope-mismatch" };
+  } else if (share.scope_type === "set") {
+    // Set-scoped: the requested note must be a member of share_notes. Threads
+    // aren't grantable through a set (it's a note bundle, not a thread).
+    if (requested.type !== "note") return { ok: false, reason: "scope-mismatch" };
+    const member = db
+      .query<{ note_uuid: string }, [string, string]>(
+        "SELECT note_uuid FROM share_notes WHERE token = ? AND note_uuid = ?"
+      )
+      .get(share.token, requested.uuid);
+    if (!member) return { ok: false, reason: "scope-mismatch" };
   } else {
     // share is thread-scoped.
     if (requested.type === "thread") {

@@ -212,8 +212,8 @@ CREATE INDEX IF NOT EXISTS tombstones_by_seq ON tombstones(server_seq);
 CREATE TABLE IF NOT EXISTS shares (
   token TEXT PRIMARY KEY,        -- 32-byte url-safe random (43 chars base64url)
   user_id TEXT NOT NULL DEFAULT 'default',
-  scope_type TEXT NOT NULL,      -- 'note' | 'thread'
-  scope_id TEXT NOT NULL,        -- note uuid or thread_id
+  scope_type TEXT NOT NULL,      -- 'note' | 'thread' | 'set' (v0.32)
+  scope_id TEXT NOT NULL,        -- note uuid or thread_id ('set' → root note uuid)
   created_by_device TEXT NOT NULL REFERENCES devices(id),
   created_at TEXT NOT NULL,
   expires_at TEXT,               -- null = forever
@@ -224,6 +224,18 @@ CREATE TABLE IF NOT EXISTS shares (
 );
 CREATE INDEX IF NOT EXISTS shares_by_scope ON shares(scope_type, scope_id);
 CREATE INDEX IF NOT EXISTS shares_by_expires ON shares(expires_at) WHERE expires_at IS NOT NULL;
+
+-- v0.32: membership for 'set'-scoped shares. A set token grants read access
+-- to exactly these note uuids (the shared note + the notes it links to,
+-- snapshotted at create time). Cascade-free: revoke leaves rows (token is the
+-- credential; revoked_at on the share row gates access). One row per granted
+-- note; PK dedupes.
+CREATE TABLE IF NOT EXISTS share_notes (
+  token TEXT NOT NULL,
+  note_uuid TEXT NOT NULL,
+  PRIMARY KEY (token, note_uuid)
+);
+CREATE INDEX IF NOT EXISTS share_notes_by_token ON share_notes(token);
 
 -- Server-wide sequence counter. Notes and live_entries draw from this so that
 -- a single monotonic int suffices as pull cursor across both. Bumped under

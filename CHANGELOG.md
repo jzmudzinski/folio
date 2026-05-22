@@ -2,6 +2,19 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.31.0 — 2026-05-22
+
+**Project workspace shows notes, not just threads.** The `/p/<slug>` dashboard used to render one card per thread (count + latest) — to reach a specific note you clicked the thread, then the note. Now each thread card lists **its notes inside it**, each row clicking straight through to `/n/<id>` (one click). Recent activity is demoted to the bottom. Design picked from a 3-variant Folio iteration (variant C). Render-only — `getProjectDashboard` already returned `threadGroups[].notes`.
+
+### Changed
+
+- **`pageProject`** (`src/viewer/render.ts`): the "All threads" card grid → a **Threads** section of per-thread cards, each with a header (thread name links to `/t/<thread>`, plus count · latest · ★ final) and its notes listed as rows inside (`type` badge · title · ago, with `● live` / `★` flags). Each row links to `/n/<id>?from=project:<slug>`. Section order is now Slots → Pending → **Threads** → **Recent activity** (activity moved from 3rd to last). New `.proj-tcard` / `.proj-nrow` styles replace `.proj-thread`.
+- **`skills/folio/SKILL.md`**: the `/p/<slug>` description updated to reflect notes-inside-cards.
+
+### Tests
+
+- `tests/project-dashboard.test.ts` (+1): asserts thread cards render note rows linking to `/n/<id>`, the card header links to `/t/<thread>`, and Recent activity sorts below the Threads section. Full suite **668 pass**.
+
 ## v0.30.6 — 2026-05-22
 
 **Skill: warn agents not to translate tag keywords.** The Language note tells agents to match trigger *intents* in any language — but a multilingual agent could "helpfully" localize a tag prefix (`projekt:` instead of `project:`), which silently breaks grouping: the note still lands under `/tag/projekt:<slug>` but `/p/<slug>` stays empty (the workspace matches the literal ASCII `project:`).

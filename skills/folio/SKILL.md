@@ -210,7 +210,7 @@ Full spec in [`STYLEBOOK.md`](STYLEBOOK.md). Quick rules:
 
 A `thread_id` is **one document and its iterations**. One project usually spans **many threads** — research, decisions, design, ops log. Folio has no folder/project entity above threads; the convention is a `project:<slug>` tag on every note in the project. The viewer surfaces it two ways:
 
-- **`/p/<slug>`** — project workspace: one card per thread (note count + latest activity + ★ final count). Best mental model for users coming from Obsidian folders.
+- **`/p/<slug>`** — project workspace: slot cards + pending picks on top, then one card per thread with **its notes listed inside** (each row clicks straight to the note), recent activity at the bottom. Best mental model for users coming from Obsidian folders.
 - **`/tag/project:<slug>`** — flat list of every project-tagged note across threads.
 
 > **`project:` is a literal keyword — never translate it.** The `/p/<slug>` workspace matches the exact ASCII prefix `project:`. A localized prefix (Polish `projekt:`, German `projekt:`, French `projet:`, …) **silently breaks** the grouping: the note still appears under `/tag/<your-prefix>:<slug>`, but `/p/<slug>` stays empty. This is the one spot where the **Language note** at the top inverts — translate trigger *intents*, but keep tag *keywords* verbatim in ASCII. Same rule for **every namespace Folio's code interprets** — `project:`, `slot:`, `state:`, `view:pinned` — plus the canonical `state:` values (`open` / `in_progress` / `done` / `cancelled`, which the kanban lanes match literally). A localized `stan:gotowe` breaks state decoration and kanban placement exactly the way `projekt:` breaks `/p/`. Translate only the prose *inside* an entry, never these.

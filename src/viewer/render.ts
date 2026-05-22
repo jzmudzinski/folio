@@ -1247,9 +1247,11 @@ import type { ProjectThreadGroup } from "../core/storage";
  *      Each card shows slot name, head note title, excerpt, and click → /n/<head-id>
  *   2. Pending iterations (any non-finalized iteration note in the project)
  *      Each opens the gallery view; "round X · N variants · pick one"
- *   3. Recent activity (last 14d of events scoped to this project's threads)
+ *   3. Threads — one card per thread, the thread's notes listed inside it as
+ *      rows that click straight through to /n/<id> (v0.31). Card header links
+ *      to the /t/<thread> view.
+ *   4. Recent activity (last 14d of events) — demoted to the bottom (v0.31).
  *      Thin timeline — kind icon + title + ago
- *   4. All threads (existing card grid, slightly condensed)
  *
  * Empty project: keeps the v0.20 "tag a note with project:<slug>" prompt.
  */
@@ -1310,18 +1312,23 @@ export function pageProject(dashboard: ProjectDashboard): string {
     .proj-act-row .desc a:hover { color: var(--vorange); border-bottom-color: currentColor; }
     .proj-act-row .when { font-family: var(--vmono); font-size: 10.5px; color: var(--vmuted-2); }
 
-    /* Existing thread cards, condensed */
-    .proj-threads { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 8px; }
-    .proj-thread { background: var(--vpanel); border: 1px solid var(--vline); border-radius: 12px; padding: 18px 20px; transition: border-color .12s, transform .12s; text-decoration: none; color: inherit; display: flex; flex-direction: column; gap: 10px; }
-    .proj-thread:hover { border-color: var(--vorange); transform: translateY(-2px); }
-    .proj-thread__head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-    .proj-thread__name { font-family: var(--vhead); font-size: 17px; font-weight: 500; letter-spacing: -0.01em; color: var(--vink-2); }
-    .proj-thread__count { font-family: var(--vmono); font-size: 11px; color: var(--vmuted); margin-left: auto; }
-    .proj-thread__latest { font-family: var(--vmono); font-size: 11px; color: var(--vmuted); }
-    .proj-thread__latest .type { display: inline-block; background: var(--vorange-soft); color: var(--vorange); font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; padding: 2px 7px; border-radius: 9px; margin-right: 6px; }
-    .proj-thread__latest .when { color: var(--vmuted-2); }
-    .proj-thread__title { font-family: var(--vserif); font-style: italic; font-size: 14.5px; color: var(--vmuted); line-height: 1.4; margin: 0; }
-    .proj-thread__final { font-family: var(--vmono); font-size: 10px; color: var(--vorange); margin-top: 4px; }
+    /* Threads as cards, each with its notes listed inside (one click → note) */
+    .proj-tcards { display: flex; flex-direction: column; gap: 14px; margin-top: 8px; }
+    .proj-tcard { background: var(--vpanel); border: 1px solid var(--vline); border-radius: 12px; padding: 2px 18px 6px; transition: border-color .12s; }
+    .proj-tcard:hover { border-color: var(--vline-2); }
+    .proj-tcard__head { display: flex; align-items: baseline; gap: 10px; padding: 13px 4px 9px; border-bottom: 1px solid var(--vline-2); }
+    .proj-tcard__name { font-family: var(--vhead); font-size: 16px; font-weight: 500; letter-spacing: -0.01em; color: var(--vink-2); text-decoration: none; }
+    .proj-tcard__name:hover { color: var(--vorange); }
+    .proj-tcard__meta { font-family: var(--vmono); font-size: 10.5px; color: var(--vmuted); margin-left: auto; }
+    .proj-tcard__meta .final { color: var(--vorange); }
+    .proj-nrow { display: grid; grid-template-columns: 96px 1fr auto; gap: 12px; align-items: center; padding: 9px 4px; border-bottom: 1px solid var(--vline-2); text-decoration: none; color: inherit; transition: background .1s; }
+    .proj-nrow:last-child { border-bottom: 0; }
+    .proj-nrow:hover { background: var(--vbg-2); }
+    .proj-nrow__type { font-family: var(--vmono); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--vorange); background: var(--vorange-soft); padding: 3px 0; border-radius: 8px; text-align: center; }
+    .proj-nrow__title { font-family: var(--vhead); font-size: 14.5px; font-weight: 500; letter-spacing: -0.01em; color: var(--vink); min-width: 0; }
+    .proj-nrow__title .live { color: #2f9050; font-weight: 600; font-size: 11px; }
+    .proj-nrow__title .final { color: var(--vorange); font-weight: 700; }
+    .proj-nrow__when { font-family: var(--vmono); font-size: 10.5px; color: var(--vmuted-2); white-space: nowrap; }
   </style>`;
 
   // Slot icons — emoji-free, monospace glyphs the linen theme already uses
@@ -1414,7 +1421,7 @@ export function pageProject(dashboard: ProjectDashboard): string {
          </div>`).join("")
        }</div>`;
 
-  // ── All threads (existing) ────────────────────────────────────────────
+  // ── Threads — one card per thread, its notes listed inside (v0.31) ─────
   let threadsHtml: string;
   if (threadGroups.length === 0) {
     threadsHtml = `<div class="proj-empty">
@@ -1422,24 +1429,29 @@ export function pageProject(dashboard: ProjectDashboard): string {
       <p style="font-size: 14px; line-height: 1.55;">When you ask an agent to write something for this project, ask it to <strong>tag the note <code>project:${esc(slug)}</code></strong> — it'll show up here grouped by thread.</p>
     </div>`;
   } else {
-    const cards = threadGroups.map((g) => {
-      const latest = g.notes[0]!;
-      const title = latest.title;
-      return `<a class="proj-thread" href="/t/${esc(g.thread_id)}">
-        <div class="proj-thread__head">
-          <span class="proj-thread__name">${esc(g.thread_id)}</span>
-          <span class="proj-thread__count">${g.noteCount} ${g.noteCount === 1 ? "note" : "notes"}</span>
-        </div>
-        <p class="proj-thread__title">${esc(title)}</p>
-        <div class="proj-thread__latest">
-          <span class="type">${esc(latest.type)}</span>
-          <span class="when">latest ${ago(g.latestCreated)}</span>
-        </div>
-        ${g.finalCount > 0 ? `<div class="proj-thread__final">★ ${g.finalCount} final</div>` : ""}
+    const noteRow = (n: NoteMeta): string => {
+      const flags = [
+        n.live ? `<span class="live">● live</span>` : "",
+        n.is_final ? `<span class="final">★</span>` : "",
+      ].filter(Boolean).join(" ");
+      return `<a class="proj-nrow" href="/n/${esc(n.id)}?from=project:${encodeURIComponent(slug)}">
+        <span class="proj-nrow__type">${esc(n.type)}</span>
+        <span class="proj-nrow__title">${esc(n.title)}${flags ? ` ${flags}` : ""}</span>
+        <span class="proj-nrow__when">${ago(n.created)}</span>
       </a>`;
+    };
+    const cards = threadGroups.map((g) => {
+      const rows = g.notes.map(noteRow).join("");
+      return `<div class="proj-tcard">
+        <div class="proj-tcard__head">
+          <a class="proj-tcard__name" href="/t/${esc(g.thread_id)}">${esc(g.thread_id)}</a>
+          <span class="proj-tcard__meta">${g.noteCount} ${g.noteCount === 1 ? "note" : "notes"} · latest ${ago(g.latestCreated)}${g.finalCount > 0 ? ` · <span class="final">★ ${g.finalCount}</span>` : ""}</span>
+        </div>
+        ${rows}
+      </div>`;
     }).join("");
-    threadsHtml = `<div class="proj-section"><h2>All threads <span class="lbl-cnt">· ${threadGroups.length}</span></h2></div>
-       <div class="proj-threads">${cards}</div>`;
+    threadsHtml = `<div class="proj-section"><h2>Threads <span class="lbl-cnt">· ${threadGroups.length}</span></h2><span class="hint">notes grouped by thread — click to open</span></div>
+       <div class="proj-tcards">${cards}</div>`;
   }
 
   // Sidebar: group notes by thread, list under thread-name section heading.
@@ -1464,13 +1476,13 @@ export function pageProject(dashboard: ProjectDashboard): string {
     <div class="proj-head">
       <div class="proj-eyebrow"><a href="/">← Notes</a> · <a href="/tag/${esc(`project:${slug}`)}">flat tag view</a></div>
       <h1 class="proj-title">${headerInner}</h1>
-      <p class="proj-sub">Project workspace — canonical docs, pending decisions, recent activity, every thread.</p>
+      <p class="proj-sub">Project workspace — canonical docs, pending decisions, every note one click away.</p>
       ${meta ? `<div class="proj-meta">${meta}</div>` : ""}
     </div>
     ${slotsHtml}
     ${pendingHtml}
-    ${activityHtml}
     ${threadsHtml}
+    ${activityHtml}
   </div>
 </main>`;
 

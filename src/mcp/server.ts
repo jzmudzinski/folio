@@ -28,6 +28,7 @@ import {
   stats,
 } from "../core/storage";
 import { loadConfig, folioRoot, bundledThemesDir, themesDir, viewerLocalBaseUrl, viewerPublicBaseUrl, threadAssetsDir, isSafeAssetFilename } from "../core/config";
+import { scheduleAutoSync } from "../core/sync";
 import { listThemes, getTheme } from "../core/themes";
 import { db, logEvent } from "../core/db";
 import type { NoteType, RenderProfile } from "../core/types";
@@ -424,6 +425,7 @@ export async function buildServer(): Promise<Server> {
             response.local_stream_url = `${viewerLocalBaseUrl(cfg)}/n/${note.id}/stream`;
             response.stream_url = `${viewerPublicBaseUrl(cfg)}/n/${note.id}/stream`;
           }
+          scheduleAutoSync(); // v0.33: push the new note in the background
           return jsonContent(response);
         }
 
@@ -482,6 +484,7 @@ export async function buildServer(): Promise<Server> {
           if (!id) return errContent("Missing id");
           const ok = finalize(id);
           if (!ok) return errContent(`Not found: ${id}`);
+          scheduleAutoSync();
           return jsonContent({ ok: true, id });
         }
 
@@ -603,6 +606,7 @@ export async function buildServer(): Promise<Server> {
           // with no argument, so cfg was undefined and the first .viewer_host
           // access threw (`cfg.viewer_host`) on any replace call.
           const cfg = await loadConfig();
+          scheduleAutoSync();
           return jsonContent({
             ok: true,
             old_id: result.old_id,
@@ -704,6 +708,7 @@ export async function buildServer(): Promise<Server> {
             note.thread_id,
           );
 
+          scheduleAutoSync();
           return jsonContent({
             entry_id: result.entry.id,
             ts: result.entry.ts,

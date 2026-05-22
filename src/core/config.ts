@@ -26,6 +26,12 @@ export interface FolioConfig {
   /** Cloud relay remote URL (e.g. https://folio.notibox.ai). Set once when
    *  pairing; sync daemon reads from here unless --remote overrides. */
   sync_remote?: string;
+  /** v0.33: when paired, sync in the background automatically — the `folio
+   *  serve` viewer runs a periodic push/pull loop, and MCP writes schedule a
+   *  debounced sync — so you don't run `folio sync` by hand. Lock-guarded, so
+   *  it coexists with a standalone `folio sync` daemon (a tick is skipped if
+   *  one is already running). Default on; set false to require explicit sync. */
+  auto_sync?: boolean;
 }
 
 export const DEFAULT_CONFIG: FolioConfig = {
@@ -33,6 +39,7 @@ export const DEFAULT_CONFIG: FolioConfig = {
   default_lifespan_days: 30,
   viewer_port: 4810,
   viewer_host: "127.0.0.1",
+  auto_sync: true,
 };
 
 export function viewerLocalBaseUrl(cfg: FolioConfig): string {

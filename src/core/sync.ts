@@ -37,7 +37,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, appendF
 import { join, dirname } from "node:path";
 import { createHash } from "node:crypto";
 import { db } from "./db";
-import { folioRoot, threadsDir, threadAssetsDir, getOrCreateDeviceId, configPath, isSafeAssetFilename } from "./config";
+import { folioRoot, threadsDir, threadAssetsDir, getOrCreateDeviceId, configPath, isSafeAssetFilename, loadConfig } from "./config";
 import { renderNote } from "./templates";
 import { getTheme } from "./themes";
 import { plNormalize } from "./slug";
@@ -1003,4 +1003,52 @@ export async function syncOnce(state: SyncState): Promise<SyncStepResult> {
     assets_pushed: pushR.assets_pushed,
     assets_pulled: pullR.assets_pulled,
   };
+}
+
+// ----- Auto-sync (v0.33) -----
+
+/**
+ * Best-effort background sync used by the auto-sync surfaces — the `folio
+ * serve` loop and the MCP sync-on-write hook. No-op when not paired or
+ * `auto_sync` is disabled. Honours the same `.sync.lock` as the standalone
+ * daemon: if another syncer holds it, this tick is skipped silently. Never
+ * throws — offline/transient errors are swallowed (the caller is a background
+ * tick, not a user-facing command). Returns the step result on success, or
+ * null when it no-op'd / skipped / failed.
+ */
+export async function autoSyncTick(): Promise<SyncStepResult | null> {
+  const cfg = await loadConfig();
+  if (cfg.auto_sync === false) return null;
+  const state = loadSyncState();
+  if (!state) return null; // not paired
+  try {
+    acquireLock();
+  } catch {
+    return null; // a daemon or another tick is mid-sync — skip, no double work
+  }
+  try {
+    const r = await syncOnce(state);
+    return r;
+  } catch {
+    return null;
+  } finally {
+    releaseLock();
+  }
+}
+
+let _autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Schedule a debounced background sync — the MCP sync-on-write hook. Coalesces
+ * rapid writes (e.g. several append_entry calls) into one sync shortly after
+ * the last one. Fire-and-forget; never throws. unref'd so a pending sync never
+ * keeps an otherwise-idle process alive.
+ */
+export function scheduleAutoSync(delayMs = 1500): void {
+  if (_autoSyncTimer) clearTimeout(_autoSyncTimer);
+  _autoSyncTimer = setTimeout(() => {
+    _autoSyncTimer = null;
+    void autoSyncTick();
+  }, delayMs);
+  (_autoSyncTimer as any)?.unref?.();
 }

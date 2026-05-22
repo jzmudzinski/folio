@@ -2,6 +2,26 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.33.0 — 2026-05-22
+
+**Auto-sync when paired — no more manual `folio sync`.** A sync daemon already existed (`folio sync`), but you had to start and keep it running as a separate process; the viewer didn't sync, and agent-created notes waited for a manual sync (the v0.32 "must be synced first" friction). Now, when paired, sync happens in the background.
+
+### Added
+
+- **`autoSyncTick()`** (`src/core/sync.ts`) — best-effort background sync: no-op when unpaired or `auto_sync` is off; honours the same `.sync.lock` as the standalone daemon (a tick is skipped if one is running); never throws. **`scheduleAutoSync()`** debounces it (coalesces rapid writes; unref'd so it never keeps a process alive).
+- **`folio serve` runs a background sync loop** when paired + `auto_sync` (every 30s). The interval is cleared on `server.stop()` so it never outlives the process.
+- **MCP sync-on-write**: `create` / `replace` / `append_entry` / `finalize` schedule a debounced sync, so agent output is pushed to the cloud within ~1.5s — a hub published with `include_linked` now finds its linked notes already up.
+- **`auto_sync` config flag** (`FolioConfig`, default `true`). Set `false` to require explicit `folio sync`. The standalone daemon still works for headless deploys.
+
+### Notes
+
+- Conflict-free by construction (append-only) and lock-guarded, so the viewer loop, the MCP hook, and a standalone daemon coexist without double-work.
+- No new privacy surface: pairing is already the opt-in to the relay; `auto_sync:false` keeps push-on-demand.
+
+### Tests
+
+- New `tests/auto-sync.test.ts` (4): unpaired no-op, disabled no-op, lock-skip (daemon coexistence), debounce-never-throws. Full suite **681 pass**.
+
 ## v0.32.0 — 2026-05-22
 
 **Share a note *and* the notes it links to.** Publishing a hub/index note used to share only that one note — its `/n/<id>` links 403'd for the recipient (capability URLs grant a single scope; the v0.31.1 caveat). New **`set` share scope** grants the note *plus* the notes it links to. Opt in with the Share popover's **"Include linked notes"** checkbox or `publish({ include_linked: true })`.

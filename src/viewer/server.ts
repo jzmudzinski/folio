@@ -972,5 +972,26 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
   const publicNote = publicBase !== localBase ? `  (public: ${publicBase})` : "";
   console.log(`📄 Folio v${pkg.version} → ${localBase}${publicNote}`);
   console.log(`   Notes from: ${folioRoot()}`);
+
+  // v0.33: background auto-sync. When paired + auto_sync (default on), the
+  // viewer is the long-lived process that keeps ~/Folio in step with the
+  // cloud — no separate `folio sync` daemon needed. Lock-guarded inside
+  // autoSyncTick, so it coexists with a daemon (a tick is skipped if one is
+  // running). The interval is cleared when the server stops so it never
+  // outlives the process (important for tests + clean shutdown).
+  if (cfg.auto_sync !== false) {
+    const { loadSyncState, autoSyncTick } = await import("../core/sync");
+    if (loadSyncState()) {
+      const everyMs = 30_000;
+      const iv = setInterval(() => { void autoSyncTick(); }, everyMs);
+      (iv as any)?.unref?.();
+      const origStop = server.stop.bind(server);
+      (server as any).stop = (closeActiveConnections?: boolean) => {
+        clearInterval(iv);
+        return origStop(closeActiveConnections);
+      };
+      console.log(`   Auto-sync: on (every ${everyMs / 1000}s, paired)`);
+    }
+  }
   return server;
 }

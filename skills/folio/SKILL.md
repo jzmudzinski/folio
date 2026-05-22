@@ -153,13 +153,13 @@ Decision order:
   .slide.cover { background: #0a0a0a; color: #f5f3ee; }
 </style>
 <section class="slide cover">
-  <h1>Project NotiBox-Jetson</h1>
+  <h1>Project Atlas</h1>
   <p>Q3 review · 2026-09-15</p>
   <aside class="notes">Open with the cost slide first if the room is execs.</aside>
 </section>
 <section class="slide">
   <h1>The plan in three numbers</h1>
-  <ul><li>12 cameras</li><li>4 sites</li><li>1 NotiBox per site</li></ul>
+  <ul><li>3 teams</li><li>14 services</li><li>1 launch</li></ul>
 </section>
 <!-- as many <section class="slide"> blocks as you need -->
 ```
@@ -247,20 +247,20 @@ Exactly **one head note per slot per project**. If two exist, the viewer picks t
 
 ```
 # First-time roadmap setup
-create({ type: "technical", title: "NotiBox-Jetson roadmap", thread_id: "notibox-jetson-roadmap",
-         tags: ["project:notibox-jetson", "slot:roadmap"], … })
+create({ type: "technical", title: "Web redesign roadmap", thread_id: "web-redesign-roadmap",
+         tags: ["project:web-redesign", "slot:roadmap"], … })
 
 # User: "update the roadmap with what we agreed today"
-search({ q: "slot:roadmap project:notibox-jetson", limit: 1 })  → find current head
+search({ q: "slot:roadmap project:web-redesign", limit: 1 })  → find current head
 replace({ old_id: <head>, body_html: <new full roadmap>, … })   → new head, old superseded
 
-# User: "add 'wire up cam-2' to todo"
-search({ q: "slot:todo project:notibox-jetson", limit: 1 })     → find the live todo note
-append_entry({ note_id: <id>, content_html: "<p>Wire up cam-2</p>",
-              tags: ["project:notibox-jetson", "state:open"] })
+# User: "add 'password-reset flow' to todo"
+search({ q: "slot:todo project:web-redesign", limit: 1 })     → find the live todo note
+append_entry({ note_id: <id>, content_html: "<p>Add the password-reset flow</p>",
+              tags: ["project:web-redesign", "state:open"] })
 
-# User: "what's left to do on NotiBox?"
-search({ q: "slot:todo project:notibox-jetson" }) → list_entries({ note_id, tag: "state:open" })
+# User: "what's left on the redesign?"
+search({ q: "slot:todo project:web-redesign" }) → list_entries({ note_id, tag: "state:open" })
 ```
 
 **Anti-pattern:** ❌ creating a new note titled "Roadmap v2" with `slot:roadmap` instead of `replace`-ing the existing one. Two slot:roadmap heads in one project is a fight; `replace` is the canonical update path for canonical docs.

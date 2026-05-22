@@ -70,11 +70,11 @@ Folio rewrites image URLs at render time. Use the **relative** form `/t/<thread>
 <img src="/t/morning-ride-2026-05-12/asset/speed-chart.png" alt="Speed over time" width="800">
 
 <!-- ❌ inside body_html: absolute URL with viewer_public_url -->
-<img src="https://my-zeszyt.local/t/morning-ride-2026-05-12/asset/speed-chart.png" ...>
+<img src="https://my-folio.example.com/t/morning-ride-2026-05-12/asset/speed-chart.png" ...>
 <!-- breaks when user opens the note through Tailscale Funnel, capability URL on cloud, or local viewer -->
 
 <!-- ✅ in an email / Telegram message: absolute URL -->
-<a href="https://my-zeszyt.notibox.ai/t/.../asset/...">↗ Open</a>
+<a href="https://my-folio.example.com/t/.../asset/...">↗ Open</a>
 ```
 
 Use the absolute `url` only when relaying outside Folio (email body, Telegram, anywhere the recipient won't be viewing through a Folio origin).

@@ -2,6 +2,18 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.30.5 — 2026-05-22
+
+**Skill examples made product-neutral.** Folio is a general visual-communication layer (hardware-agnostic), but the skill's worked examples had all been written while dogfooding on one product (NotiBox / Jetson / cameras / `notibox.ai` hosts). That biases an agent's mental model toward "Folio is a device/edge thing" — exactly the wrong frame for a tool meant to work in any context. Examples only; no behavior, triggers, or description changed.
+
+### Changed (skill docs only)
+
+- **`skills/folio/SKILL.md`** — presentation example "Project NotiBox-Jetson / 12 cameras · 4 sites · 1 NotiBox per site" → "Project Atlas / 3 teams · 14 services · 1 launch"; the whole slot-workflow walkthrough re-based from `project:notibox-jetson` (cameras, "wire up cam-2") to a generic software project `project:web-redesign` ("add the password-reset flow").
+- **`skills/folio/STYLEBOOK.md`** — Mermaid sequence-diagram example re-based from `Klient (LAN)` → `vendor.notibox.ai` to `User (web)` → `api.example.com` (kept the `#40;…#41;` paren-escape demonstration).
+- **`skills/folio/reference/assets.md`** — example asset URLs `my-zeszyt.local` / `my-zeszyt.notibox.ai` → `my-folio.example.com`.
+
+Real infrastructure references (the `folio.notibox.ai` live demo in the README, deploy comments in `src/`) are left as-is — those are the maintainer's actual hosting, not part of the product's definition.
+
 ## v0.30.4 — 2026-05-21
 
 **Fix: the `replace` MCP tool threw on every call.** The handler built its response URLs with `viewerLocalBaseUrl()` and a hand-rolled `viewer_public_url` fallback but passed **no `cfg` argument** — so `cfg.viewer_host` threw on first access. Every other handler (`create`, `version`, `attach_asset`) passes a loaded `cfg`; this one didn't, and no test exercised the tool, so it shipped (surfaced while testing Phase 3). The storage primitive `replaceNote` was always fine — only the MCP tool's URL-building was broken.

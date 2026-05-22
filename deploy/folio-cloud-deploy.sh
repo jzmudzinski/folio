@@ -84,12 +84,19 @@ cd "$WORK"
 log "downloading ${URL}"
 curl -fL --retry 3 --progress-bar "$URL" -o folio.tar.gz
 tar xzf folio.tar.gz
-[ -e "dist/folio-${TARGET}" ] || { err "tarball missing dist/folio-${TARGET}"; exit 1; }
+# Locate the binary — the release layout differs across versions:
+#   current (>=~0.17): ./folio at the tarball root (asset is already per-arch)
+#   legacy:            ./dist/folio-<target>
+BINSRC=""
+for cand in "folio" "dist/folio-${TARGET}"; do
+  [ -f "$cand" ] && { BINSRC="$cand"; break; }
+done
+[ -n "$BINSRC" ] || { err "tarball has no folio binary (looked for ./folio and dist/folio-${TARGET})"; exit 1; }
 [ -e "themes/linen/theme.css" ] || { err "tarball missing themes/"; exit 1; }
 
-# ───── Install (mirror of update.sh) ──────────────────────────────────────
-log "installing binary + themes + templates"
-install -m 755 "dist/folio-${TARGET}" "$BIN"
+# ───── Install ────────────────────────────────────────────────────────────
+log "installing binary (${BINSRC}) + themes + templates"
+install -m 755 "$BINSRC" "$BIN"
 rsync -a --delete themes/ /opt/folio/themes/
 rsync -a --delete templates/ /opt/folio/templates/
 

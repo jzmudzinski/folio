@@ -54,6 +54,11 @@ systemctl enable --now folio-cloud
 sleep 1
 systemctl --no-pager status folio-cloud | head -15
 
+# 6. One-command deploy/upgrade helper (fetch latest release → install → restart
+#    → health check). Re-runnable as `sudo folio-cloud-deploy`.
+install -m 755 deploy/folio-cloud-deploy.sh /usr/local/bin/folio-cloud-deploy
+echo "✓ installed /usr/local/bin/folio-cloud-deploy"
+
 echo ""
 echo "Next steps:"
 echo "  1. Set FOLIO_CLOUD_PUBLIC_URL via drop-in:"

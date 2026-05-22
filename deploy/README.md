@@ -96,6 +96,21 @@ copy — server stores only its hash. Lost = pair a new device.
 
 ## Update to a newer release
 
+**One command** (recommended — installed by `install.sh` as `/usr/local/bin/folio-cloud-deploy`):
+
+```bash
+sudo folio-cloud-deploy            # fetch latest release for this arch → install → restart → health check
+sudo folio-cloud-deploy --check    # report current vs latest, change nothing
+sudo FOLIO_VERSION=v0.32.0 folio-cloud-deploy   # pin a release (rollback)
+```
+
+It resolves the latest `jzmudzinski/folio` tag, skips if already current
+(`--force` to override), downloads `folio-<arch>.tar.gz`, runs the same install
+steps as below, restarts `folio-cloud`, then health-checks the bind port. For a
+private repo, export `GH_TOKEN` first.
+
+**Manual** (inspect every step):
+
 ```bash
 scp folio-cloud-deploy.tar.gz vps:/tmp/
 ssh vps
@@ -104,8 +119,9 @@ cd folio-deploy
 sudo ./deploy/update.sh
 ```
 
-`update.sh` overwrites `/opt/folio/folio` + themes/templates + restarts the
-service. Data in `/var/lib/folio-cloud/` is untouched.
+`update.sh` (and `folio-cloud-deploy`) overwrites `/opt/folio/folio` +
+themes/templates + restarts the service. Data in `/var/lib/folio-cloud/` is
+untouched.
 
 ## Test cloud changes locally first
 

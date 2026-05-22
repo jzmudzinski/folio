@@ -19,12 +19,17 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-for f in dist/folio-linux-x64 themes/linen/theme.css deploy/folio-cloud.service; do
+for f in themes/linen/theme.css deploy/folio-cloud.service; do
   if [ ! -e "$f" ]; then
     echo "✗ missing $f — did you unpack the release tarball?" >&2
     exit 1
   fi
 done
+
+# Binary lives at ./folio (current layout) or ./dist/folio-linux-x64 (legacy).
+BINSRC=""
+for cand in folio dist/folio-linux-x64; do [ -f "$cand" ] && { BINSRC="$cand"; break; }; done
+[ -n "$BINSRC" ] || { echo "✗ no folio binary in tarball (looked for ./folio and dist/folio-linux-x64)" >&2; exit 1; }
 
 # 1. Dedicated system user. No login shell, no home dir.
 if ! id -u folio >/dev/null 2>&1; then
@@ -39,7 +44,7 @@ echo "✓ created /opt/folio + /var/lib/folio-cloud"
 
 # 3. Binary + bundled assets. rsync --delete on themes/templates so a renamed
 #    or removed theme doesn't linger on the host.
-install -m 755 dist/folio-linux-x64 /opt/folio/folio
+install -m 755 "$BINSRC" /opt/folio/folio
 rsync -a --delete themes/ /opt/folio/themes/
 rsync -a --delete templates/ /opt/folio/templates/
 echo "✓ installed binary + themes + templates to /opt/folio"

@@ -105,7 +105,11 @@ fi
 install -d -m 755 /opt/folio
 install -d -m 755 -o folio -g folio /var/lib/folio-cloud
 
-install -m 755 "dist/folio-${TARGET}" /opt/folio/folio
+# Binary lives at ./folio (current layout) or ./dist/folio-<target> (legacy).
+BINSRC=""
+for cand in folio "dist/folio-${TARGET}"; do [ -f "$cand" ] && { BINSRC="$cand"; break; }; done
+[ -n "$BINSRC" ] || { echo "✗ no folio binary in tarball (looked for ./folio and dist/folio-${TARGET})" >&2; exit 1; }
+install -m 755 "$BINSRC" /opt/folio/folio
 rsync -a --delete themes/ /opt/folio/themes/
 rsync -a --delete templates/ /opt/folio/templates/
 echo "✓ installed binary + themes + templates"

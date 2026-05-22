@@ -79,6 +79,18 @@ export function renderStandaloneNote(input: RenderNoteInput): string {
 ${body}
     </article>
   </main>
+  <script>(function(){
+    document.addEventListener('click', function(e){
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      var t = e.target, a = t && t.closest ? t.closest('a[href]') : null;
+      if (!a) return;
+      var href = a.getAttribute('href') || '';
+      if (href.charAt(0) !== '/' || href.charAt(1) === '/') return;
+      if (!/^\\/(n|p|t|tag|threads)(\\/|\$|[?#])/.test(href)) return;
+      e.preventDefault();
+      try { parent.postMessage({ ns: 'folio', type: 'navigate', href: href }, '*'); } catch(_){}
+    }, true);
+  })();</script>
 </body>
 </html>`;
 }
@@ -129,6 +141,21 @@ export function renderSharedNotePage(token: string, uuid: string, title: string,
   </style>
 </head>
 <body>
+  <script>(function(){
+    var TOKEN = ${JSON.stringify(token)};
+    // Internal Folio link clicked inside the capability iframe (relayed by
+    // the /raw interceptor). Keep it inside the granted scope: prefix the
+    // capability token so the link resolves to /p/<token>/n/<id>, not the
+    // bare /n/<id> (which would drop the token and 403). Navigates the TOP
+    // window — no Folio-in-Folio. The target still has to be inside the
+    // share's scope (note vs thread); out-of-scope targets 403 by design.
+    window.addEventListener('message', function(e){
+      var d = e.data; if (!d || d.ns !== 'folio' || d.type !== 'navigate') return;
+      var href = String(d.href || '');
+      if (!/^\\/(n|p|t|tag|threads)(\\/|\$|[?#])/.test(href)) return;
+      window.location.assign('/p/' + TOKEN + href);
+    });
+  })();</script>
   <iframe
     src="/p/${esc(token)}/raw/${esc(uuid)}"
     sandbox="allow-scripts allow-popups allow-forms allow-modals"
@@ -339,6 +366,17 @@ export function renderNotePage(uuid: string, _title: string): string {
   </style>
 </head>
 <body>
+  <script>(function(){
+    // Internal Folio link clicked inside the body iframe (relayed by the
+    // /raw interceptor) → navigate the TOP PWA page. Same origin + authed,
+    // so the root-relative path is correct as-is. Kills Folio-in-Folio.
+    window.addEventListener('message', function(e){
+      var d = e.data; if (!d || d.ns !== 'folio' || d.type !== 'navigate') return;
+      var href = String(d.href || '');
+      if (!/^\\/(n|p|t|tag|threads)(\\/|\$|[?#])/.test(href)) return;
+      window.location.assign(href);
+    });
+  })();</script>
   <a href="/" class="back" id="back">‹ back</a>
   <div id="state" class="state">Loading…</div>
   <iframe id="frame" sandbox="allow-scripts allow-popups allow-forms allow-modals" referrerpolicy="no-referrer" style="display: none;"></iframe>

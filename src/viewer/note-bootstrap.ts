@@ -137,6 +137,42 @@ export const NOTE_BOOTSTRAP = `<script>
     });
   }
 
+  // Links to other Folio docs (/n/, /p/, /t/, /tag/, /threads) must NOT
+  // navigate this sandboxed body iframe — that loads the whole viewer inside
+  // the note ("Folio-in-Folio"). The sandbox has no allow-top-navigation, so
+  // we relay the click to the parent chrome, which navigates the TOP window
+  // and resolves the path against the current scope (local origin, or a
+  // capability /p/<token> base). Delegated + capture so it also covers links
+  // added after load; reads parentUrl at click time. Full-domain links to the
+  // *same* viewer host are normalised to their path; cross-host links fall
+  // through to attachExternalLinks (new tab).
+  function isInternalNav(p){ return /^\\/(n|p|t|tag|threads)(\\/|\$|[?#])/.test(p); }
+  function attachInternalLinks(){
+    if (window.__folioNavBound) return; window.__folioNavBound = true;
+    document.addEventListener('click', function(e){
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      var t = e.target;
+      var a = t && t.closest ? t.closest('a[href]') : null;
+      if (!a) return;
+      var href = a.getAttribute('href') || '';
+      if (!href || href.charAt(0) === '#') return;
+      var path = null;
+      if (href.charAt(0) === '/' && href.charAt(1) !== '/') {
+        path = href;
+      } else if (/^https?:\\/\\//i.test(href)) {
+        try {
+          var u = new URL(href);
+          var ph = parentUrl ? new URL(parentUrl).host : '';
+          if (ph && u.host === ph) path = u.pathname + u.search + u.hash;
+        } catch(_){}
+      }
+      if (path && isInternalNav(path)) {
+        e.preventDefault();
+        post({ type: 'navigate', href: path });
+      }
+    }, true);
+  }
+
   function emitToc(){
     // Two depths max — h3 and below add noise without much navigational
     // value in the typical note. Anchor links still work for h3+ (the
@@ -275,6 +311,7 @@ export const NOTE_BOOTSTRAP = `<script>
     attachCopyCode();
     attachLightbox();
     attachExternalLinks();
+    attachInternalLinks();
     emitToc();
     post({ type: 'ready' });
   }

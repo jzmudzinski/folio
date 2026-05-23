@@ -86,7 +86,7 @@ function help(): number {
   out(`  ${c.cyan("doctor")}            Show install + storage + cloud sync state (--json, --offline)`);
   out(`  ${c.cyan("cloud <sub>")}       Cloud relay: init | serve | pair-code (see deploy/ for systemd unit)`);
   out(`  ${c.cyan("sync <sub>")}        Sync with cloud: pair | status | unpair | run (default) — flags: --remote, --code, --once, --interval`);
-  out(`  ${c.cyan("publish <id>")}      Create a capability URL share — flags: --expires-days, --max-views, --scope=note|thread`);
+  out(`  ${c.cyan("publish <id>")}      Create a capability URL share — flags: --expires-days, --max-views, --scope=note|thread, --allow-pick`);
   out(`  ${c.cyan("shares <sub>")}      Manage capability URL shares: list | revoke <token> — flags: --for &lt;id&gt;`);
   out(`  ${c.cyan("version")}           Print Folio version + system info (--json) — also: --version, -v`);
   out(`  ${c.cyan("help")}              This help`);
@@ -289,6 +289,7 @@ export async function main(argv = process.argv): Promise<number> {
           maxViews: flagInt(flags["max-views"]),
           scope: flagStr(flags.scope) as any,
           recipient: flagStr(flags.recipient),
+          allowPick: flagBool(flags["allow-pick"]),
           jsonOut: flagBool(flags.json),
         });
       case "shares":

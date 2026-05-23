@@ -28,6 +28,10 @@ export interface PublishOpts {
    *  email never leaves this device. Reduces blast radius of a URL leak
    *  (recipient still needs the email to read). */
   recipient?: string;
+  /** v0.34: let share recipients register a soft variant preference
+   *  (POST /p/:token/pick). Pairs with `data-folio-pick` markers in the
+   *  note body. Opt-in; default off (read-only share). */
+  allowPick?: boolean;
   jsonOut?: boolean;
 }
 
@@ -78,6 +82,7 @@ export async function publishCmd(opts: PublishOpts): Promise<number> {
     expires_in_days: opts.expiresDays ?? 7,
     max_views: opts.maxViews ?? null,
   };
+  if (opts.allowPick) body.allow_pick = true;
   if (opts.recipient && opts.recipient.trim()) {
     const plain = opts.recipient.trim().toLowerCase();
     body.recipient_email_hash = recipientEmailHash(plain);
@@ -108,6 +113,7 @@ export async function publishCmd(opts: PublishOpts): Promise<number> {
     url: string;
     expires_at: string | null;
     max_views: number | null;
+    allow_pick?: boolean;
     email_sent?: boolean;
     email_skipped?: "no-mailer" | "no-recipient" | null;
     email_error?: string | null;
@@ -128,6 +134,9 @@ export async function publishCmd(opts: PublishOpts): Promise<number> {
   }
   if (respBody.max_views !== null) {
     out(`  ${c.dim("max views")} ${respBody.max_views}`);
+  }
+  if (respBody.allow_pick) {
+    out(`  ${c.ok("◆")} ${c.dim("recipient can pick a variant")} ${c.dim("(mark variants with data-folio-pick)")}`);
   }
   if (opts.recipient) {
     out(`  ${c.dim("recipient")} ${opts.recipient} ${c.dim("(must confirm email on first visit)")}`);

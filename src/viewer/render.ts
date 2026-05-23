@@ -1653,6 +1653,9 @@ function sharePopoverHtml(noteId: string): string {
     <div class="share-pop__row share-pop__row--check">
       <label><input id="share-include-linked" name="include_linked" type="checkbox"> Include linked notes <span class="share-pop__hint">grant access to every note this one links to</span></label>
     </div>
+    <div class="share-pop__row share-pop__row--check">
+      <label><input id="share-allow-pick" name="allow_pick" type="checkbox"> Let recipient pick a variant <span class="share-pop__hint">adds a "choose this" button to every <code>data-folio-pick</code> block</span></label>
+    </div>
     <button class="share-pop__go" type="submit" id="share-submit">Publish →</button>
   </form>
   <div class="share-pop__result" id="share-result">
@@ -1777,6 +1780,8 @@ function sharePopoverJs(noteId: string): string {
     if (rec) body.recipient = rec;
     var inc = document.getElementById('share-include-linked');
     if (inc && inc.checked) body.include_linked = true;
+    var pick = document.getElementById('share-allow-pick');
+    if (pick && pick.checked) body.allow_pick = true;
     fetch('/api/notes/' + encodeURIComponent(noteId) + '/shares', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -2720,6 +2725,14 @@ ${noteScript}${liveScript}
 // shares for a single note. Reached from the popover's "manage →" link.
 // ───────────────────────────────────────────────────────────────────────
 
+export interface SharePickRow {
+  note_uuid: string;
+  variant: string;
+  label: string | null;
+  picked_at: string;
+  pick_count: number;
+}
+
 export interface ShareRow {
   token: string;
   url: string;
@@ -2728,6 +2741,8 @@ export interface ShareRow {
   max_views: number | null;
   view_count: number;
   recipient_email_hash?: string | null;
+  allow_pick?: boolean;
+  picks?: SharePickRow[];
 }
 
 export function pageShares(note: NoteMeta, shares: ShareRow[], paired: boolean): string {
@@ -2760,6 +2775,12 @@ export function pageShares(note: NoteMeta, shares: ShareRow[], paired: boolean):
 .shares-not-paired h3 { font-family: var(--vhead); margin: 0 0 6px; font-size: 16px; font-weight: 500; }
 .shares-not-paired p { font-family: var(--vserif); font-style: italic; color: var(--vmuted); margin: 0 0 12px; }
 .shares-not-paired a { color: var(--vorange); font-family: var(--vmono); font-size: 12px; border-bottom: 1px solid currentColor; }
+.share-card__picks { margin: 0 0 14px; display: flex; flex-direction: column; gap: 8px; }
+.share-card__pick { display: flex; align-items: baseline; gap: 8px; padding: 10px 12px; background: rgba(47,144,80,0.07); border: 1px solid rgba(47,144,80,0.28); border-radius: 8px; font-family: var(--vmono); font-size: 12.5px; color: var(--vink-2); }
+.share-card__pick-dot { color: #2f9050; }
+.share-card__pick strong { font-family: var(--vhead); font-weight: 600; color: var(--vink); }
+.share-card__pick-meta { margin-left: auto; color: var(--vmuted); font-size: 11px; }
+.share-card__picks--empty { padding: 10px 12px; background: var(--vbg-2); border: 1px dashed var(--vline); border-radius: 8px; font-family: var(--vserif); font-style: italic; font-size: 13px; color: var(--vmuted); }
 </style>`;
 
   const escAttr = (s: string) => esc(s);
@@ -2777,6 +2798,18 @@ export function pageShares(note: NoteMeta, shares: ShareRow[], paired: boolean):
     const expCls = isExpired(s.expires_at) ? " expired" : "";
     const views = s.max_views !== null ? `${s.view_count} / ${s.max_views}` : `${s.view_count} / ∞`;
     const recipient = s.recipient_email_hash ? `<dt>Recipient</dt><dd title="${escAttr(s.recipient_email_hash)}">${escAttr(s.recipient_email_hash.slice(0, 12))}…</dd>` : "";
+    const pickMeta = s.allow_pick ? `<div><dt>Picking</dt><dd>enabled</dd></div>` : "";
+    const picks = s.picks ?? [];
+    const pickBanner = picks.length
+      ? `<div class="share-card__picks">${picks
+          .map(
+            (p) =>
+              `<div class="share-card__pick"><span class="share-card__pick-dot">◆</span> Client picked <strong>${escAttr(p.label || p.variant)}</strong><span class="share-card__pick-meta">${escAttr(fmtDate(p.picked_at))}${p.pick_count > 1 ? ` · changed ${p.pick_count}×` : ""}</span></div>`
+          )
+          .join("")}</div>`
+      : s.allow_pick
+        ? `<div class="share-card__picks share-card__picks--empty">Waiting for the recipient to pick…</div>`
+        : "";
     return `<article class="share-card" data-token="${escAttr(s.token)}">
   <div class="share-card__url">
     <span class="share-card__url-text">${escAttr(s.url)}</span>
@@ -2786,8 +2819,10 @@ export function pageShares(note: NoteMeta, shares: ShareRow[], paired: boolean):
     <div><dt>Created</dt><dd>${escAttr(fmtDate(s.created_at))}</dd></div>
     <div><dt>Expires</dt><dd class="${expCls.trim()}">${escAttr(exp)}</dd></div>
     <div><dt>Views</dt><dd>${escAttr(views)}</dd></div>
+    ${pickMeta}
     ${recipient ? `<div>${recipient}</div>` : ""}
   </dl>
+  ${pickBanner}
   <div class="share-card__actions">
     <button type="button" class="share-card__revoke" data-token="${escAttr(s.token)}">Revoke</button>
   </div>

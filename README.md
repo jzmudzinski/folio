@@ -175,7 +175,7 @@ iteration_state({ note_id })                                → snapshot
 | `folio sync pair --remote <url> --code <6-digit>` | Pair this device with a Folio Cloud relay |
 | `folio sync [--once] [--interval 30]` | Push/pull daemon (or one-shot) against the paired cloud |
 | `folio sync status` / `unpair` | Inspect / clear local sync state |
-| `folio publish <id\|thread:slug> [--expires-days 7] [--max-views N]` | Mint a capability URL share |
+| `folio publish <id\|thread:slug> [--expires-days 7] [--max-views N] [--allow-pick]` | Mint a capability URL share (`--allow-pick`: recipient can choose a `data-folio-pick` variant) |
 | `folio shares list` / `revoke <token>` | Manage active shares |
 | `folio cloud {init\|serve\|pair-code}` | Run a cloud relay (operator side) |
 | `folio doctor [--offline] [--json]` | Install + storage + cloud sync diagnostics |

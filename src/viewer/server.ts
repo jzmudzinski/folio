@@ -779,6 +779,7 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
             max_views?: number | null;
             recipient?: string;
             include_linked?: boolean;
+            allow_pick?: boolean;
           };
           const payload: Record<string, unknown> = {
             // include_linked → 'set' scope: grants the note + the notes it
@@ -788,6 +789,7 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
             expires_in_days: body.expires_in_days ?? 7,
             max_views: body.max_views ?? null,
           };
+          if (body.allow_pick) payload.allow_pick = true;
           if (body.recipient && body.recipient.trim()) {
             const { recipientEmailHash } = await import("../cli/commands/publish");
             const plain = body.recipient.trim().toLowerCase();

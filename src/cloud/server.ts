@@ -51,6 +51,8 @@ import {
   listShares,
   validateShareAccess,
   incrementShareViews,
+  recordSharePick,
+  getSharePicks,
 } from "./shares";
 import { buildAdminStats, buildGlobalStats } from "./stats";
 import { getMailer, isMailerConfigured, renderShareEmail } from "./mailer";
@@ -152,6 +154,63 @@ async function handleCapabilityRoute(req: Request, path: string, method: string,
         "Referrer-Policy": "no-referrer",
       },
     });
+  }
+
+  // POST /p/:token/pick — a recipient registers a SOFT variant preference for
+  // a note inside this share's scope. Requires the share to be live AND
+  // allow_pick. The capability token is the credential (link = authority); for
+  // recipient-bound shares we additionally require the confirmation cookie.
+  // Writes to share_picks — deliberately separate from the authoritative
+  // iteration state machine (no kind:pick, no append-only side effects).
+  // Idempotent last-pick-wins per (token, note).
+  if (parts.length === 3 && parts[2] === "pick" && method === "POST") {
+    const jsonErr = (msg: string, status: number): Response =>
+      new Response(JSON.stringify({ error: msg }), {
+        status,
+        headers: { "Content-Type": "application/json", "Referrer-Policy": "no-referrer" },
+      });
+    if (!share.allow_pick) return jsonErr("not found", 404);
+    if (share.revoked_at) return jsonErr("not found", 404);
+    if (share.expires_at && new Date(share.expires_at).getTime() <= Date.now()) {
+      return jsonErr("link expired", 410);
+    }
+    if (share.recipient_email_hash) {
+      const cookie = req.headers.get("cookie") ?? "";
+      if (!cookie.split(";").some((c) => c.trim() === `folio_share_${token}=1`)) {
+        return jsonErr("recipient confirmation required", 403);
+      }
+    }
+    let noteUuid = "";
+    let variant = "";
+    let label: string | null = null;
+    try {
+      const b = (await req.json()) as { note_uuid?: string; variant?: string; label?: string };
+      noteUuid = (b.note_uuid ?? "").trim();
+      variant = (b.variant ?? "").trim();
+      label = b.label ? String(b.label).slice(0, 200) : null;
+    } catch {}
+    if (!noteUuid || !variant) return jsonErr("note_uuid and variant required", 400);
+    // The picked note must belong to the share's user (no cross-user write via
+    // a leaked token) AND be inside the share's scope.
+    const note = cloudDb()
+      .query<{ uuid: string; thread_id: string }, [string, string]>(
+        "SELECT uuid, thread_id FROM notes WHERE uuid = ? AND user_id = ?"
+      )
+      .get(noteUuid, share.user_id);
+    if (!note) return jsonErr("note not found", 404);
+    const v = validateShareAccess(share, { type: "note", uuid: note.uuid, thread_id: note.thread_id });
+    if (!v.ok) return jsonErr("scope mismatch", 403);
+    const pick = recordSharePick({
+      token,
+      note_uuid: note.uuid,
+      user_id: share.user_id,
+      variant: variant.slice(0, 200),
+      label,
+    });
+    return new Response(
+      JSON.stringify({ ok: true, variant: pick.variant, label: pick.label, picked_at: pick.picked_at }),
+      { status: 200, headers: { "Content-Type": "application/json", "Referrer-Policy": "no-referrer" } }
+    );
   }
 
   if (method !== "GET") {
@@ -332,6 +391,11 @@ async function handleCapabilityRoute(req: Request, path: string, method: string,
       title: note.title,
       theme: note.theme,
       bodyHtml: rewrittenBody,
+      // v0.34: when the share allows picking, inject the affordance that turns
+      // [data-folio-pick] elements into "choose this" controls. The body iframe
+      // can't fetch (CSP connect-src 'none') so it postMessages the pick to the
+      // parent /n page, which does the POST to /p/:token/pick.
+      pickable: share.allow_pick,
     });
     const res = new Response(body, { status: 200, headers: sharedHeaders() });
     // Don't bump on /raw/ — it's loaded inside the iframe spawned by /n/,
@@ -882,6 +946,8 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
              *  the mailer returns. If recipient_email_hash is also provided
              *  it MUST match the hash of recipient_email (defensive client). */
             recipient_email?: string | null;
+            /** v0.34: opt-in — let recipients register a variant preference. */
+            allow_pick?: boolean;
           }>(req);
           if (body.scope_type !== "note" && body.scope_type !== "thread" && body.scope_type !== "set") {
             return badRequest("scope_type must be 'note', 'thread', or 'set'");
@@ -911,6 +977,7 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
               expires_in_days: body.expires_in_days ?? 7,
               max_views: body.max_views ?? null,
               recipient_email_hash: recipientEmailHash,
+              allow_pick: body.allow_pick === true,
             });
             // 'set' shares enter at the root note (same /n/ path as a note
             // share); only thread shares use the /t/ landing.
@@ -964,6 +1031,7 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
               created_at: share.created_at,
               expires_at: share.expires_at,
               max_views: share.max_views,
+              allow_pick: share.allow_pick,
               email_sent,
               email_skipped,
               email_error,
@@ -1008,6 +1076,10 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
               expires_at: s.expires_at,
               max_views: s.max_views,
               view_count: s.view_count,
+              allow_pick: s.allow_pick,
+              // v0.34: recipient variant preferences for this share (soft
+              // signal). Empty unless allow_pick + someone has chosen.
+              picks: s.allow_pick ? getSharePicks(s.token) : [],
             })),
           });
         }

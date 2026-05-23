@@ -144,6 +144,8 @@ Decision order:
 
 **`comparison` vs `iteration` — the load-bearing distinction:** `comparison` = options the user already has (real things with known properties, agent renders side-by-side). `iteration` = options the agent generates (logo directions, hero layouts, email tone variants) where the user picks one and the agent refines.
 
+> **Letting a *share recipient* pick on a `comparison` note (v0.34+):** if you want the **client you share the note with** to choose a variant (not you, and the agent doesn't need to react), wrap each option in `data-folio-pick="<id>"` and publish with `--allow-pick`. Their choice surfaces in your Share manager as a soft signal. This is NOT `iteration` — see STYLEBOOK "Client-pickable variants on a shared note". Reach for `iteration` only when the *agent* must react to the pick.
+
 **`presentation` shape (v0.26+):** body_html is a sequence of `<section class="slide">` blocks. The viewer hides all but the current and adds keyboard nav (← / → / Space / Home / End / digit 1-9), F → fullscreen, S → speaker mode (reveals `<aside class="notes">` inside the current slide). Theme: usually `plain` because each slide wants its own typography + layout. Skeleton:
 
 ```html

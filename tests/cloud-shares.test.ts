@@ -324,3 +324,135 @@ test("creating share without auth is rejected", async () => {
   });
   expect(r.status).toBe(401);
 });
+
+// ─── v0.34: recipient variant picks (allow_pick) ──────────────────────────
+
+async function pick(token: string, body: Record<string, unknown>): Promise<Response> {
+  return fetch(`${baseUrl}/p/${token}/pick`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+async function listSharesFor(scopeId: string): Promise<any[]> {
+  const r = await fetch(`${baseUrl}/v1/shares?scope_id=${encodeURIComponent(scopeId)}`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  return ((await r.json()) as { shares: any[] }).shares;
+}
+
+test("allow_pick share injects the pick affordance into /raw; plain share does not", async () => {
+  const pickable = await createShare({ scope_type: "note", scope_id: "01HXNOTE001", allow_pick: true });
+  expect((pickable as any).allow_pick).toBe(true);
+  const r1 = await fetch(`${baseUrl}/p/${pickable.token}/raw/01HXNOTE001`);
+  const html1 = await r1.text();
+  expect(html1).toContain("folio-pick-btn");
+
+  const plain = await createShare({ scope_type: "note", scope_id: "01HXNOTE001" });
+  const r2 = await fetch(`${baseUrl}/p/${plain.token}/raw/01HXNOTE001`);
+  const html2 = await r2.text();
+  expect(html2).not.toContain("folio-pick-btn");
+});
+
+test("data-folio-pick markers in the body survive to the shared /raw view", async () => {
+  await fetch(`${baseUrl}/v1/sync/push`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      notes: [
+        {
+          uuid: "01HXNOTE100",
+          slug: "variants",
+          thread_id: "alpha-thread",
+          title: "Variants",
+          type: "comparison",
+          body_html:
+            '<div class="card" data-folio-pick="A" data-folio-pick-label="Kierunek A"><h3>A</h3></div>' +
+            '<div class="card" data-folio-pick="B"><h3>B</h3></div>',
+          created_at: "2026-05-13T11:00:00Z",
+        },
+      ],
+    }),
+  });
+  const s = await createShare({ scope_type: "note", scope_id: "01HXNOTE100", allow_pick: true });
+  const r = await fetch(`${baseUrl}/p/${s.token}/raw/01HXNOTE100`);
+  const html = await r.text();
+  expect(html).toContain('data-folio-pick="A"');
+  expect(html).toContain('data-folio-pick-label="Kierunek A"');
+  expect(html).toContain("folio-pick-btn");
+});
+
+test("parent /n page wires the share-pick POST listener", async () => {
+  const s = await createShare({ scope_type: "note", scope_id: "01HXNOTE001", allow_pick: true });
+  const r = await fetch(`${baseUrl}/p/${s.token}/n/01HXNOTE001`);
+  const html = await r.text();
+  expect(html).toContain("share-pick");
+  expect(html).toContain("/pick");
+});
+
+test("POST /p/:token/pick records a preference (last-pick-wins) and owner sees it", async () => {
+  const s = await createShare({ scope_type: "note", scope_id: "01HXNOTE001", allow_pick: true });
+
+  const r1 = await pick(s.token, { note_uuid: "01HXNOTE001", variant: "A", label: "Kierunek A" });
+  expect(r1.status).toBe(200);
+  expect(((await r1.json()) as any).variant).toBe("A");
+
+  // change of mind → last write wins, pick_count increments
+  const r2 = await pick(s.token, { note_uuid: "01HXNOTE001", variant: "B", label: "Kierunek B" });
+  expect(r2.status).toBe(200);
+
+  const shares = await listSharesFor("01HXNOTE001");
+  const mine = shares.find((x) => x.token === s.token);
+  expect(mine.allow_pick).toBe(true);
+  expect(mine.picks.length).toBe(1);
+  expect(mine.picks[0].variant).toBe("B");
+  expect(mine.picks[0].label).toBe("Kierunek B");
+  expect(mine.picks[0].pick_count).toBe(2);
+  expect(mine.picks[0].note_uuid).toBe("01HXNOTE001");
+});
+
+test("POST /p/:token/pick is rejected when the share has no allow_pick (404)", async () => {
+  const s = await createShare({ scope_type: "note", scope_id: "01HXNOTE001" });
+  const r = await pick(s.token, { note_uuid: "01HXNOTE001", variant: "A" });
+  expect(r.status).toBe(404);
+});
+
+test("POST /p/:token/pick rejects an out-of-scope note (403, nothing recorded)", async () => {
+  const s = await createShare({ scope_type: "note", scope_id: "01HXNOTE001", allow_pick: true });
+  // NOTE003 exists + same user, but lives in another thread → out of a
+  // note-scoped share's scope.
+  const r = await pick(s.token, { note_uuid: "01HXNOTE003", variant: "A" });
+  expect(r.status).toBe(403);
+  const shares = await listSharesFor("01HXNOTE001");
+  const mine = shares.find((x) => x.token === s.token);
+  expect(mine.picks.length).toBe(0);
+});
+
+test("POST /p/:token/pick requires a variant (400)", async () => {
+  const s = await createShare({ scope_type: "note", scope_id: "01HXNOTE001", allow_pick: true });
+  const r = await pick(s.token, { note_uuid: "01HXNOTE001" });
+  expect(r.status).toBe(400);
+});
+
+test("thread-scoped allow_pick share accepts a pick on a member note", async () => {
+  const s = await createShare({ scope_type: "thread", scope_id: "alpha-thread", allow_pick: true });
+  const r = await pick(s.token, { note_uuid: "01HXNOTE002", variant: "X", label: "Wariant X" });
+  expect(r.status).toBe(200);
+  const shares = await listSharesFor("alpha-thread");
+  const mine = shares.find((x) => x.token === s.token);
+  expect(mine.picks.length).toBe(1);
+  expect(mine.picks[0].note_uuid).toBe("01HXNOTE002");
+  expect(mine.picks[0].variant).toBe("X");
+});
+
+test("POST /p/:token/pick on a revoked share is rejected", async () => {
+  const s = await createShare({ scope_type: "note", scope_id: "01HXNOTE001", allow_pick: true });
+  const del = await fetch(`${baseUrl}/v1/share/${s.token}`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${token}` },
+  });
+  expect(del.ok).toBe(true);
+  const r = await pick(s.token, { note_uuid: "01HXNOTE001", variant: "A" });
+  expect(r.status).toBe(404);
+});

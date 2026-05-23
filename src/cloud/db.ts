@@ -220,7 +220,11 @@ CREATE TABLE IF NOT EXISTS shares (
   revoked_at TEXT,
   recipient_email_hash TEXT,     -- optional, hex sha-256(email)
   max_views INTEGER,             -- null = unlimited
-  view_count INTEGER NOT NULL DEFAULT 0
+  view_count INTEGER NOT NULL DEFAULT 0,
+  -- v0.34: when 1, recipients of this share may register a NON-authoritative
+  -- variant preference (POST /p/:token/pick → share_picks). Opt-in per share;
+  -- pre-existing rows default to 0 (read-only, as before).
+  allow_pick INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS shares_by_scope ON shares(scope_type, scope_id);
 CREATE INDEX IF NOT EXISTS shares_by_expires ON shares(expires_at) WHERE expires_at IS NOT NULL;
@@ -236,6 +240,26 @@ CREATE TABLE IF NOT EXISTS share_notes (
   PRIMARY KEY (token, note_uuid)
 );
 CREATE INDEX IF NOT EXISTS share_notes_by_token ON share_notes(token);
+
+-- v0.34: soft variant preferences registered by share recipients. NOT
+-- authoritative — deliberately separate from live_entries / iteration
+-- kind:pick so it never touches the append-only "first pick wins" state
+-- machine. The capability token is the credential (link = authority); no
+-- recipient identity is required. One row per (token, note); last pick wins,
+-- pick_count records how many times the recipient changed their mind. Cleaned
+-- up alongside the share on revoke --purge; orphan rows are harmless (the
+-- share row gates whether anyone can still write).
+CREATE TABLE IF NOT EXISTS share_picks (
+  token TEXT NOT NULL,
+  note_uuid TEXT NOT NULL,
+  user_id TEXT NOT NULL DEFAULT 'default',
+  variant TEXT NOT NULL,
+  label TEXT,
+  picked_at TEXT NOT NULL,
+  pick_count INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (token, note_uuid)
+);
+CREATE INDEX IF NOT EXISTS share_picks_by_token ON share_picks(token);
 
 -- Server-wide sequence counter. Notes and live_entries draw from this so that
 -- a single monotonic int suffices as pull cursor across both. Bumped under
@@ -432,6 +456,13 @@ function ensureMultiUserSchema(db: Database): void {
   // DB picks up the column on next boot; pre-existing rows default to NULL.
   if (notesCols.length > 0 && !notesCols.some((c) => c.name === "superseded_by")) {
     db.exec("ALTER TABLE notes ADD COLUMN superseded_by TEXT");
+  }
+  // v0.34: shares.allow_pick. Same idempotent-ALTER pattern — pre-existing
+  // shares default to 0 (read-only). share_picks is a CREATE TABLE IF NOT
+  // EXISTS in CLOUD_SCHEMA, so it needs no ALTER here.
+  const shareCols = db.query<{ name: string }, []>("PRAGMA table_info(shares)").all();
+  if (shareCols.length > 0 && !shareCols.some((c) => c.name === "allow_pick")) {
+    db.exec("ALTER TABLE shares ADD COLUMN allow_pick INTEGER NOT NULL DEFAULT 0");
   }
 }
 

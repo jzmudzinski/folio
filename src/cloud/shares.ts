@@ -38,6 +38,9 @@ export interface Share {
   recipient_email_hash: string | null;
   max_views: number | null;
   view_count: number;
+  /** v0.34: when true, recipients may register a soft variant preference
+   *  (POST /p/:token/pick). Opt-in per share; default false (read-only). */
+  allow_pick: boolean;
 }
 
 export function generateShareToken(): string {
@@ -107,6 +110,8 @@ export interface CreateShareInput {
   expires_in_days?: number | null;
   max_views?: number | null;
   recipient_email_hash?: string | null;
+  /** v0.34: opt-in — allow share recipients to register a variant preference. */
+  allow_pick?: boolean;
 }
 
 export function createShare(input: CreateShareInput, db: Database = cloudDb()): Share {
@@ -146,8 +151,8 @@ export function createShare(input: CreateShareInput, db: Database = cloudDb()): 
   db.run(
     `INSERT INTO shares (
        token, user_id, scope_type, scope_id, created_by_device, created_at,
-       expires_at, revoked_at, recipient_email_hash, max_views, view_count
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 0)`,
+       expires_at, revoked_at, recipient_email_hash, max_views, view_count, allow_pick
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 0, ?)`,
     [
       token,
       input.user_id,
@@ -158,6 +163,7 @@ export function createShare(input: CreateShareInput, db: Database = cloudDb()): 
       expiresAt,
       input.recipient_email_hash ?? null,
       input.max_views ?? null,
+      input.allow_pick ? 1 : 0,
     ]
   );
   if (input.scope_type === "set") {
@@ -178,6 +184,7 @@ export function createShare(input: CreateShareInput, db: Database = cloudDb()): 
     recipient_email_hash: input.recipient_email_hash ?? null,
     max_views: input.max_views ?? null,
     view_count: 0,
+    allow_pick: input.allow_pick ?? false,
   };
 }
 
@@ -197,11 +204,12 @@ export function getShare(token: string, db: Database = cloudDb()): Share | null 
         recipient_email_hash: string | null;
         max_views: number | null;
         view_count: number;
+        allow_pick: number;
       },
       [string]
     >(
       `SELECT token, user_id, scope_type, scope_id, created_by_device, created_at,
-              expires_at, revoked_at, recipient_email_hash, max_views, view_count
+              expires_at, revoked_at, recipient_email_hash, max_views, view_count, allow_pick
          FROM shares WHERE token = ?`
     )
     .get(token);
@@ -218,6 +226,7 @@ export function getShare(token: string, db: Database = cloudDb()): Share | null 
     recipient_email_hash: row.recipient_email_hash,
     max_views: row.max_views,
     view_count: row.view_count,
+    allow_pick: row.allow_pick === 1,
   };
 }
 
@@ -254,7 +263,7 @@ export function listShares(opts: ListSharesOptions = {}, db: Database = cloudDb(
   }
   const sql =
     `SELECT token, user_id, scope_type, scope_id, created_by_device, created_at,
-            expires_at, revoked_at, recipient_email_hash, max_views, view_count
+            expires_at, revoked_at, recipient_email_hash, max_views, view_count, allow_pick
        FROM shares ` +
     (where.length > 0 ? `WHERE ${where.join(" AND ")} ` : "") +
     `ORDER BY created_at DESC`;
@@ -273,6 +282,7 @@ export function listShares(opts: ListSharesOptions = {}, db: Database = cloudDb(
       recipient_email_hash: r.recipient_email_hash,
       max_views: r.max_views,
       view_count: r.view_count,
+      allow_pick: r.allow_pick === 1,
     }));
 }
 
@@ -345,4 +355,67 @@ export function validateShareAccess(
 /** Atomically bump view_count. Call after a successful render of /p/:token/*. */
 export function incrementShareViews(token: string, db: Database = cloudDb()): void {
   db.run("UPDATE shares SET view_count = view_count + 1 WHERE token = ?", [token]);
+}
+
+export interface SharePick {
+  token: string;
+  note_uuid: string;
+  variant: string;
+  label: string | null;
+  picked_at: string;
+  pick_count: number;
+}
+
+/**
+ * Record a recipient's variant preference for a shared note. SOFT signal —
+ * NOT an authoritative iteration pick (deliberately separate from live_entries
+ * / kind:pick). One row per (token, note); last write wins, pick_count tracks
+ * how many times the recipient changed their mind. Caller must have already
+ * validated that the share is live, allow_pick, and covers `note_uuid`.
+ */
+export function recordSharePick(
+  input: { token: string; note_uuid: string; user_id: string; variant: string; label?: string | null },
+  db: Database = cloudDb()
+): SharePick {
+  const now = new Date().toISOString();
+  db.run(
+    `INSERT INTO share_picks (token, note_uuid, user_id, variant, label, picked_at, pick_count)
+       VALUES (?, ?, ?, ?, ?, ?, 1)
+     ON CONFLICT(token, note_uuid) DO UPDATE SET
+       variant    = excluded.variant,
+       label      = excluded.label,
+       picked_at  = excluded.picked_at,
+       pick_count = pick_count + 1`,
+    [input.token, input.note_uuid, input.user_id, input.variant, input.label ?? null, now]
+  );
+  const row = db
+    .query<{ variant: string; label: string | null; picked_at: string; pick_count: number }, [string, string]>(
+      "SELECT variant, label, picked_at, pick_count FROM share_picks WHERE token = ? AND note_uuid = ?"
+    )
+    .get(input.token, input.note_uuid)!;
+  return {
+    token: input.token,
+    note_uuid: input.note_uuid,
+    variant: row.variant,
+    label: row.label,
+    picked_at: row.picked_at,
+    pick_count: row.pick_count,
+  };
+}
+
+/** All recipient picks recorded against a share token (for owner display). */
+export function getSharePicks(token: string, db: Database = cloudDb()): SharePick[] {
+  return db
+    .query<{ note_uuid: string; variant: string; label: string | null; picked_at: string; pick_count: number }, [string]>(
+      "SELECT note_uuid, variant, label, picked_at, pick_count FROM share_picks WHERE token = ? ORDER BY picked_at DESC"
+    )
+    .all(token)
+    .map((r) => ({
+      token,
+      note_uuid: r.note_uuid,
+      variant: r.variant,
+      label: r.label,
+      picked_at: r.picked_at,
+      pick_count: r.pick_count,
+    }));
 }

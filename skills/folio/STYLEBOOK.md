@@ -138,6 +138,25 @@ Why: a full-domain link dies the moment the note is opened anywhere else (a team
 
 One caveat for **published** hubs: a capability URL only grants its own scope, so a plain note-scope share **403s on links to other notes**. Fix (v0.32+): publish with **`include_linked: true`** — the share then also grants every note this one links to (followed transitively, bounded, snapshotted at publish time). It's the `publish` MCP tool's `include_linked` flag, or the viewer Share popover's **"Include linked notes"** checkbox; the response/UI reports the bundle size (`note_count`). The linked notes must already be synced to the cloud.
 
+## Client-pickable variants on a shared note (v0.34+)
+
+For a static note whose **recipient** should be able to choose between options — e.g. you `comparison`-share three offer directions to a client — wrap each option block in **`data-folio-pick="<id>"`** (optionally **`data-folio-pick-label="Human label"`**):
+
+```html
+<div class="card" data-folio-pick="A" data-folio-pick-label="Kierunek minimalistyczny">
+  <h3>Direction A</h3>
+  <p>…</p>
+</div>
+<div class="card" data-folio-pick="B" data-folio-pick-label="Kierunek odważny">
+  <h3>Direction B</h3>
+  <p>…</p>
+</div>
+```
+
+When that note is published with picking enabled (`folio publish <id> --allow-pick`, or the Share popover's **"Let recipient pick a variant"** checkbox), the cloud injects a **"Wybieram ten"** button into each marked block on the recipient's view. Their choice is recorded as a **soft preference** and surfaces back in the owner's Share manager (`/n/<id>/shares`) as *"Client picked: <label>"*. The markers are inert on the local viewer and on read-only shares — they only activate on an `allow_pick` capability URL.
+
+**This is NOT an `iteration` note.** It's a one-shot signal ("which one do you like?") that does **not** drive the iteration state machine, `wait_for_pick`, or any agent reaction — the owner just *sees* the choice. If you need the agent to react to the pick (generate the next round, refine), use a real `iteration` note + `propose_round` instead (see [`reference/iteration-notes.md`](reference/iteration-notes.md)). Don't put `data-folio-pick` markers in an `iteration` note body — its variants come from `propose_round`, and the body gets replaced by the gallery.
+
 ## Code blocks
 
 ```html

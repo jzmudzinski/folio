@@ -314,13 +314,25 @@ async function handleCapabilityRoute(req: Request, path: string, method: string,
   if (kind === "t" && parts.length === 6 && parts[4] === "asset") {
     const threadId = decodeURIComponent(parts[3]!);
     const filename = decodeURIComponent(parts[5]!);
-    // Note-scoped tokens: scope must be a note whose thread_id matches.
-    // Thread-scoped tokens: thread_id must equal scope_id.
+    // Thread-scoped: thread_id must equal scope_id.
+    // Set-scoped: a set grants a BUNDLE of notes that may span threads — the
+    //   asset is in scope if ANY granted note (share_notes) lives in this
+    //   thread, not just the root note. (Regression: checking only the root
+    //   note's thread 404'd images that lived in a linked note's thread.)
+    // Note-scoped: the asset must live in the shared note's own thread.
     const validScope = share.scope_type === "thread"
       ? share.scope_id === threadId
-      : (cloudDb()
-          .query<{ thread_id: string }, [string, string]>("SELECT thread_id FROM notes WHERE uuid = ? AND user_id = ?")
-          .get(share.scope_id, share.user_id)?.thread_id === threadId);
+      : share.scope_type === "set"
+        ? cloudDb()
+            .query<{ n: number }, [string, string, string]>(
+              `SELECT COUNT(*) AS n FROM share_notes sn
+                 JOIN notes n ON n.uuid = sn.note_uuid
+                WHERE sn.token = ? AND n.user_id = ? AND n.thread_id = ?`
+            )
+            .get(share.token, share.user_id, threadId)!.n > 0
+        : (cloudDb()
+            .query<{ thread_id: string }, [string, string]>("SELECT thread_id FROM notes WHERE uuid = ? AND user_id = ?")
+            .get(share.scope_id, share.user_id)?.thread_id === threadId);
     if (!validScope) return new Response("not found", { status: 404 });
     if (share.revoked_at) return new Response("not found", { status: 404 });
     if (share.expires_at && new Date(share.expires_at).getTime() <= Date.now()) {

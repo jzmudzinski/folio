@@ -2,6 +2,14 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.34.3 — 2026-05-23
+
+**Fix — images broke on `set`-scoped shares ("Include linked notes").** A set share grants a bundle of notes that can span threads, but the capability **asset** route's scope check only matched the **root note's** thread. An image living in a *linked* note's (different) thread returned "not found" — the note rendered, only its `<img>` was broken.
+
+### Fixed
+
+- The `/p/<token>/t/<thread>/asset/<file>` scope check now accepts an asset whose thread is the thread of **any** note the set grants (`share_notes`), not just the root note. Thread- and note-scoped shares are unchanged.
+
 ## v0.34.2 — 2026-05-23
 
 **Fix — `set`-scoped shares ("Include linked notes") returned "not found".** A set share is anchored at its root note, so it must land on `/p/<token>/n/<root-uuid>`. Three spots built the capability path with `scope_type === "note" ? "n" : "t"`, routing anything not exactly `"note"` — including `"set"` — to `/t/`, where `validateShareAccess` rejects a note uuid as a thread. Most visible after a recipient confirmed their email: the redirect went to `/t/<uuid>` → not found.

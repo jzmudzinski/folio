@@ -149,7 +149,7 @@ async function handleCapabilityRoute(req: Request, path: string, method: string,
     return new Response(null, {
       status: 303,
       headers: {
-        Location: `/p/${token}/${share.scope_type === "note" ? "n" : "t"}/${share.scope_id}`,
+        Location: `/p/${token}/${share.scope_type === "thread" ? "t" : "n"}/${share.scope_id}`,
         "Set-Cookie": `folio_share_${token}=1; Path=/p/${token}/; Max-Age=${ttlSec}; HttpOnly; SameSite=Strict`,
         "Referrer-Policy": "no-referrer",
       },
@@ -271,7 +271,7 @@ async function handleCapabilityRoute(req: Request, path: string, method: string,
       return new Response("link expired", { status: 410 });
     }
     const { generateQrSvg } = await import("./qr");
-    const shareUrl = `${publicUrl}/p/${token}/${share.scope_type === "note" ? "n" : "t"}/${share.scope_id}`;
+    const shareUrl = `${publicUrl}/p/${token}/${share.scope_type === "thread" ? "t" : "n"}/${share.scope_id}`;
     const svg = await generateQrSvg(shareUrl);
     return new Response(svg, {
       status: 200,
@@ -1069,7 +1069,7 @@ export function startCloudServer(opts: CloudServerOptions = {}): ReturnType<type
           return json({
             shares: shares.map((s) => ({
               token: s.token,
-              url: `${publicUrl}/p/${s.token}/${s.scope_type === "note" ? "n" : "t"}/${s.scope_id}`,
+              url: `${publicUrl}/p/${s.token}/${s.scope_type === "thread" ? "t" : "n"}/${s.scope_id}`,
               scope_type: s.scope_type,
               scope_id: s.scope_id,
               created_at: s.created_at,

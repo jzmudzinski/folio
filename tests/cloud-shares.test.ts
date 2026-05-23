@@ -2,6 +2,7 @@ import { expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
 import { closeCloudDb } from "../src/cloud/db";
 
 let tmpDir: string;
@@ -455,4 +456,38 @@ test("POST /p/:token/pick on a revoked share is rejected", async () => {
   expect(del.ok).toBe(true);
   const r = await pick(s.token, { note_uuid: "01HXNOTE001", variant: "A" });
   expect(r.status).toBe(404);
+});
+
+// ─── 'set' scope path routing (regression: set must land on /n/, not /t/) ──
+
+test("set-scoped recipient share: email confirm redirects to /n/, not /t/", async () => {
+  // Regression: the confirm-recipient redirect (and qr/list URLs) used
+  // `scope_type === "note" ? "n" : "t"`, sending 'set' shares to /t/<note-uuid>
+  // → validateShareAccess rejects a note uuid as a thread → "not found".
+  const emailHash = createHash("sha256").update("client@example.com", "utf8").digest("hex");
+  const s = await createShare({ scope_type: "set", scope_id: "01HXNOTE001", recipient_email_hash: emailHash });
+  const res = await fetch(`${baseUrl}/p/${s.token}/confirm-recipient`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "client@example.com" }),
+    redirect: "manual",
+  });
+  expect(res.status).toBe(303);
+  expect(res.headers.get("location")).toBe(`/p/${s.token}/n/01HXNOTE001`);
+});
+
+test("set-scoped share is listed with an /n/ url (not /t/)", async () => {
+  const s = await createShare({ scope_type: "set", scope_id: "01HXNOTE001" });
+  const shares = await listSharesFor("01HXNOTE001");
+  const mine = shares.find((x) => x.token === s.token);
+  expect(mine.url).toBe(`${publicBase}/p/${s.token}/n/01HXNOTE001`);
+});
+
+test("set-scoped note renders publicly via /n/ (the corrected landing path)", async () => {
+  const s = await createShare({ scope_type: "set", scope_id: "01HXNOTE001" });
+  const r = await fetch(`${baseUrl}/p/${s.token}/n/01HXNOTE001`);
+  expect(r.status).toBe(200);
+  // And /t/<note-uuid> is NOT a valid landing for a set share.
+  const bad = await fetch(`${baseUrl}/p/${s.token}/t/01HXNOTE001`);
+  expect(bad.status).not.toBe(200);
 });

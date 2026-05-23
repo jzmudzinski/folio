@@ -1597,7 +1597,7 @@ const SHARE_POPOVER_CSS = `<style>
    (v0.21.2+) — anchored to the right of the sidebar Share trigger so the
    form sits next to where the user clicked. Falls back to top-right via
    the data-position="top-right" attribute on body if needed. */
-.share-pop { position: fixed; top: 54px; left: 380px; width: 280px; background: var(--vpanel); border: 1px solid var(--vline); border-radius: 10px; box-shadow: 0 12px 36px rgba(0,0,0,0.16); z-index: 100; overflow: hidden; opacity: 0; visibility: hidden; transform: translateX(-4px); transition: opacity .14s, transform .14s, visibility .14s; }
+.share-pop { position: fixed; top: 54px; left: 380px; width: 280px; background: var(--vpanel); border: 1px solid var(--vline); border-radius: 10px; box-shadow: 0 12px 36px rgba(0,0,0,0.16); z-index: 100; overflow-x: hidden; overflow-y: auto; max-height: calc(100vh - 24px); opacity: 0; visibility: hidden; transform: translateX(-4px); transition: opacity .14s, transform .14s, visibility .14s; }
 .share-pop.is-open { opacity: 1; visibility: visible; transform: translateX(0); }
 /* Pointer triangle on the LEFT edge (now that popover sits to the right
    of the trigger). Vertical center is set inline via --share-pop-arrow-top
@@ -1733,6 +1733,8 @@ function sharePopoverJs(noteId: string): string {
     if (html) errorBox.innerHTML = html;
     else errorBox.textContent = msg;
     errorBox.classList.add('is-shown');
+    // Error block grows the popover — re-clamp so the bottom stays on-screen.
+    positionNearTrigger();
   }
   function updateActive(count) {
     if (count > 0) {
@@ -1743,6 +1745,8 @@ function sharePopoverJs(noteId: string): string {
       manageBar.hidden = true;
       if (activeDot) activeDot.hidden = true;
     }
+    // The manage bar toggles the popover's height; re-clamp when it's open.
+    if (pop.classList.contains('is-open')) positionNearTrigger();
   }
   function refreshActive() {
     fetch('/api/notes/' + encodeURIComponent(noteId) + '/shares')
@@ -1808,6 +1812,9 @@ function sharePopoverJs(noteId: string): string {
         ? ('✓ Published · ' + resp.data.note_count + ' notes (this + ' + (resp.data.note_count - 1) + ' linked)')
         : '✓ Published';
       result.classList.add('is-shown');
+      // The result block (URL + actions) grows the popover after publish —
+      // re-clamp so it doesn't slide off the bottom of the viewport.
+      positionNearTrigger();
       refreshActive();
     }).catch(function (err) {
       submitBtn.disabled = false;

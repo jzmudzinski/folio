@@ -491,3 +491,42 @@ test("set-scoped note renders publicly via /n/ (the corrected landing path)", as
   const bad = await fetch(`${baseUrl}/p/${s.token}/t/01HXNOTE001`);
   expect(bad.status).not.toBe(200);
 });
+
+test("set-scoped share serves an asset from a linked note in another thread", async () => {
+  // Regression: the asset validScope only checked the ROOT note's thread, so a
+  // set share's image living in a LINKED note's (different) thread 404'd even
+  // though the share grants that note. The note renders; only the image breaks
+  // — exactly the reported symptom.
+  const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4, 5, 6, 7, 8]);
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  const up = await fetch(`${baseUrl}/v1/sync/assets/${hash}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/octet-stream",
+      "x-folio-filename": "pic.png",
+      "x-folio-thread-id": "img-thread",
+    },
+    body: bytes,
+  });
+  expect(up.ok).toBe(true);
+
+  await fetch(`${baseUrl}/v1/sync/push`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      notes: [
+        { uuid: "01HXLINKED01", slug: "linked", thread_id: "img-thread", title: "Linked", type: "research", body_html: '<img src="/t/img-thread/asset/pic.png" alt="hero">', created_at: "2026-05-13T12:00:00Z" },
+        { uuid: "01HXROOT01", slug: "root", thread_id: "root-thread", title: "Root", type: "research", body_html: '<p>see <a href="/n/01HXLINKED01">linked</a></p>', created_at: "2026-05-13T12:01:00Z" },
+      ],
+    }),
+  });
+
+  const s = await createShare({ scope_type: "set", scope_id: "01HXROOT01" });
+  // The set grants the linked note…
+  expect((await fetch(`${baseUrl}/p/${s.token}/raw/01HXLINKED01`)).status).toBe(200);
+  // …so its image (thread img-thread, ≠ root thread) must be reachable too.
+  const asset = await fetch(`${baseUrl}/p/${s.token}/t/img-thread/asset/pic.png`);
+  expect(asset.status).toBe(200);
+  expect(new Uint8Array(await asset.arrayBuffer())).toEqual(bytes);
+});

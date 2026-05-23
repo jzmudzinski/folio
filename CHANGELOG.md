@@ -2,6 +2,23 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.34.0 — 2026-05-23
+
+**Share recipients can pick a variant.** Shared notes were read-only ("owner picks"). Now a capability-URL recipient — the client you send the link to — can choose between options. Mark each option in a `comparison` note body with `data-folio-pick="<id>"` (+ optional `data-folio-pick-label`), publish with `--allow-pick`, and the recipient gets a "Wybieram ten" button per block. Their choice is recorded as a soft signal and surfaces in your Share manager.
+
+### Added
+
+- **`data-folio-pick` convention + opt-in `allow_pick` shares.** Per-share opt-in via `folio publish <id> --allow-pick`, the `publish` API's `allow_pick`, or the viewer Share popover's **"Let recipient pick a variant"** checkbox. The cloud injects a pick affordance into every `[data-folio-pick]` block on the recipient's view; inert on read-only shares and on the local viewer.
+- **`POST /p/:token/pick`** (`src/cloud/server.ts`) — validates the share is live + `allow_pick` + in-scope (plus the recipient cookie for email-bound shares), then records to the new **`share_picks`** table. `allow_pick` + `picks` now ride on `/v1/share` + `/v1/shares`.
+- **Owner-side surfacing** — `/n/:id/shares` shows *"Client picked: X"* per share; last-pick-wins, `pick_count` tracks changes of mind.
+- **Tests** — 9 unit (`cloud-shares.test.ts`) + 2 browser e2e (`tests/pwa/share-pick.e2e.ts`).
+
+### Notes
+
+- **Deliberately separate from `iteration` notes.** A pick here is a one-shot preference — it does NOT drive the iteration state machine, `wait_for_pick`, or any agent reaction; the owner just *sees* it. For "agent reacts to the pick" (generate the next round, refine), use a real `iteration` note + `propose_round`.
+- **Architecture** — the body iframe is null-origin + CSP `connect-src 'none'`, so it `postMessage`s the pick to the parent `/n` page, which `POST`s it to the cloud (mirrors the local viewer's `iteration-pick` split). No client→local back-channel.
+- **Schema** — `shares.allow_pick` + `share_picks` added via idempotent ALTER / `CREATE TABLE IF NOT EXISTS`; existing cloud DBs upgrade on next boot, pre-existing shares stay read-only.
+
 ## v0.33.0 — 2026-05-22
 
 **Auto-sync when paired — no more manual `folio sync`.** A sync daemon already existed (`folio sync`), but you had to start and keep it running as a separate process; the viewer didn't sync, and agent-created notes waited for a manual sync (the v0.32 "must be synced first" friction). Now, when paired, sync happens in the background.

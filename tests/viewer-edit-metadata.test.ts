@@ -22,6 +22,12 @@ let viewerUrl = "";
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "folio-edit-ui-"));
   process.env.FOLIO_HOME = tmpDir;
+  // Reset the storage db() singleton: it caches the connection and ignores
+  // later FOLIO_HOME changes, so a connection opened by an earlier test file
+  // would otherwise be reused here against a stale temp dir (→ a spurious
+  // "UNIQUE constraint failed: notes.path" in setup()). closeDb() forces the
+  // next db() call to reopen at this test's fresh FOLIO_HOME.
+  closeDb();
 });
 
 afterEach(() => {

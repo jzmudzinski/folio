@@ -2,6 +2,14 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.34.2 — 2026-05-23
+
+**Fix — `set`-scoped shares ("Include linked notes") returned "not found".** A set share is anchored at its root note, so it must land on `/p/<token>/n/<root-uuid>`. Three spots built the capability path with `scope_type === "note" ? "n" : "t"`, routing anything not exactly `"note"` — including `"set"` — to `/t/`, where `validateShareAccess` rejects a note uuid as a thread. Most visible after a recipient confirmed their email: the redirect went to `/t/<uuid>` → not found.
+
+### Fixed
+
+- Confirm-recipient redirect, `qr.svg` URL, and the `/v1/shares` list URL now use `scope_type === "thread" ? "t" : "n"` (matching the share-creation path) — thread → `/t/`, note **and set** → `/n/`. Existing set shares work once deployed; no need to recreate them.
+
 ## v0.34.1 — 2026-05-23
 
 **Fix — the Share popover could slide off the bottom of the screen.** The `position:fixed` Share popover is anchored to the sidebar trigger; it was repositioned only on open and had no height cap, so when its content grew after opening (publish result, error message, the "active shares" manage bar) — or on a short window — part of it ended up below the viewport.

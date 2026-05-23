@@ -2,6 +2,15 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.34.1 — 2026-05-23
+
+**Fix — the Share popover could slide off the bottom of the screen.** The `position:fixed` Share popover is anchored to the sidebar trigger; it was repositioned only on open and had no height cap, so when its content grew after opening (publish result, error message, the "active shares" manage bar) — or on a short window — part of it ended up below the viewport.
+
+### Fixed
+
+- `.share-pop` now caps its height to `calc(100vh - 24px)` with `overflow-y:auto` (scrolls internally as a last resort; the left arrow is preserved via `overflow-x:hidden`), and `positionNearTrigger()` re-runs whenever the popover's height changes (publish result, `showError`, manage-bar toggle) — so the popover always stays fully on-screen.
+- New e2e `tests/pwa/share-popover.e2e.ts` drives the real local viewer in a short window and asserts the popover is fully within the viewport.
+
 ## v0.34.0 — 2026-05-23
 
 **Share recipients can pick a variant.** Shared notes were read-only ("owner picks"). Now a capability-URL recipient — the client you send the link to — can choose between options. Mark each option in a `comparison` note body with `data-folio-pick="<id>"` (+ optional `data-folio-pick-label`), publish with `--allow-pick`, and the recipient gets a "Wybieram ten" button per block. Their choice is recorded as a soft signal and surfaces in your Share manager.

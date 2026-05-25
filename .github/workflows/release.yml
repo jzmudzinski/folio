@@ -54,7 +54,7 @@ jobs:
 
       - name: Package release tarball
         run: |
-          cp -r themes templates skills hooks dist/
+          cp -r themes templates skills hooks og dist/
           cp README.md LICENSE dist/
           mkdir -p dist/docs
           cp docs/mcp-setup.md dist/docs/ 2>/dev/null || true
@@ -66,7 +66,7 @@ jobs:
           set -e
           DEST="${FOLIO_PREFIX:-$HOME/.local/folio}"
           mkdir -p "$DEST"
-          cp -r folio folio-mcp themes templates skills hooks README.md LICENSE "$DEST/"
+          cp -r folio folio-mcp themes templates skills hooks og README.md LICENSE "$DEST/"
           [ -d docs ] && cp -r docs "$DEST/"
           chmod +x "$DEST/folio" "$DEST/folio-mcp"
           # macOS: the adhoc signature applied by `bun build --compile` survives

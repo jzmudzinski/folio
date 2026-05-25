@@ -112,6 +112,9 @@ for cand in folio "dist/folio-${TARGET}"; do [ -f "$cand" ] && { BINSRC="$cand";
 install -m 755 "$BINSRC" /opt/folio/folio
 rsync -a --delete themes/ /opt/folio/themes/
 rsync -a --delete templates/ /opt/folio/templates/
+# og/ = OG-image sidecar (resvg.wasm + font) for link-preview cards. Guarded:
+# an older tarball without it still installs; the og.png route falls back to SVG.
+[ -d og ] && rsync -a --delete og/ /opt/folio/og/
 echo "✓ installed binary + themes + templates"
 
 install -m 644 deploy/folio-cloud.service /etc/systemd/system/folio-cloud.service

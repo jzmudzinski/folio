@@ -160,6 +160,21 @@ export function bundledHooksDir(): string {
   return join(import.meta.dir, "..", "..", "hooks");
 }
 
+export function bundledOgDir(): string {
+  // OG-image sidecar assets for the cloud relay: resvg.wasm (the SVG→PNG
+  // rasterizer) + a bundled font (resvg-wasm ships no system fonts, so card
+  // text renders blank without one). Shipped beside the binary, not embedded
+  // in it — keeps the `folio` binary lean for the CLI majority who never run
+  // the cloud. Same resolution pattern as themes/templates/skills/hooks.
+  const envDir = process.env.FOLIO_BUNDLED_OG_DIR?.trim();
+  if (envDir && existsSync(envDir)) return envDir;
+  if (process.execPath && existsSync(process.execPath)) {
+    const next = join(process.execPath, "..", "og");
+    if (existsSync(next)) return next;
+  }
+  return join(import.meta.dir, "..", "..", "og");
+}
+
 export async function loadConfig(): Promise<FolioConfig> {
   if (!existsSync(configPath())) return { ...DEFAULT_CONFIG };
   try {

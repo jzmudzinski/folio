@@ -263,6 +263,63 @@ async function handleCapabilityRoute(req: Request, path: string, method: string,
     });
   }
 
+  // /p/<token>/og.png — rasterized OG card. og:image points here (not og.svg)
+  // because most unfurlers reject SVG og:images. Same share-validity rules and
+  // title lookup as og.svg. If rasterization is unavailable (a deploy missing
+  // the og/ sidecar), falls back to serving the SVG so the link still previews.
+  if (parts.length === 3 && parts[2] === "og.png") {
+    if (share.revoked_at) return new Response("not found", { status: 404 });
+    if (share.expires_at && new Date(share.expires_at).getTime() <= Date.now()) {
+      return new Response("link expired", { status: 410 });
+    }
+    const og = await import("./og");
+    let title = "Folio";
+    let theme = "linen";
+    const scope_type: "note" | "thread" = share.scope_type;
+    let thread_id: string | null = null;
+    if (share.scope_type === "note") {
+      const note = cloudDb()
+        .query<{ title: string; theme: string; thread_id: string }, [string, string]>(
+          "SELECT title, theme, thread_id FROM notes WHERE uuid = ? AND user_id = ?"
+        )
+        .get(share.scope_id, share.user_id);
+      if (note) {
+        title = note.title;
+        theme = note.theme;
+        thread_id = note.thread_id;
+      }
+    } else {
+      title = share.scope_id;
+      thread_id = share.scope_id;
+    }
+    const ogInput = { title, theme, scope_type, scope_id: share.scope_id, thread_id };
+    try {
+      const png = await og.generateOgPng(ogInput);
+      return new Response(png, {
+        status: 200,
+        headers: {
+          "Content-Type": "image/png",
+          "Cache-Control": "public, max-age=300",
+          "X-Robots-Tag": "noindex, nofollow, noarchive",
+          "Referrer-Policy": "no-referrer",
+        },
+      });
+    } catch {
+      // Rasterizer unavailable (missing og/ sidecar, init failure) — serve the
+      // SVG so SVG-tolerant clients still preview instead of getting a 404.
+      const svg = og.generateOgSvg(ogInput);
+      return new Response(svg, {
+        status: 200,
+        headers: {
+          "Content-Type": "image/svg+xml; charset=utf-8",
+          "Cache-Control": "public, max-age=60",
+          "X-Robots-Tag": "noindex, nofollow, noarchive",
+          "Referrer-Policy": "no-referrer",
+        },
+      });
+    }
+  }
+
   // /p/<token>/qr.svg — QR code encoding the share URL itself. Same
   // share-validity rules as og.svg.
   if (parts.length === 3 && parts[2] === "qr.svg") {
@@ -367,9 +424,9 @@ async function handleCapabilityRoute(req: Request, path: string, method: string,
     // never address user B's notes even if the uuid happens to collide.
     const note = cloudDb()
       .query<
-        { uuid: string; title: string; theme: string; body_html: string; thread_id: string },
+        { uuid: string; title: string; theme: string; body_html: string; thread_id: string; summary: string | null },
         [string, string]
-      >("SELECT uuid, title, theme, body_html, thread_id FROM notes WHERE uuid = ? AND user_id = ?")
+      >("SELECT uuid, title, theme, body_html, thread_id, summary FROM notes WHERE uuid = ? AND user_id = ?")
       .get(id, share.user_id);
     if (!note) return new Response("not found", { status: 404 });
 
@@ -377,7 +434,7 @@ async function handleCapabilityRoute(req: Request, path: string, method: string,
     if (!v.ok) return shareFailure(v.reason);
 
     if (kind === "n") {
-      const body = renderSharedNotePage(token, note.uuid, note.title, publicUrl);
+      const body = renderSharedNotePage(token, note.uuid, note.title, publicUrl, note.summary ?? "");
       const res = new Response(body, {
         status: 200,
         headers: {

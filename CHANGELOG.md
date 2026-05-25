@@ -2,6 +2,16 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.36.0 — 2026-05-25
+
+**Added — `folio install` can wire the Claude Code MCP globally (every project), and a bare install now asks.** Previously the installer only ever wrote a per-project entry (`projects[<cwd>].mcpServers.folio`), so Folio had to be re-installed in each repo. You can now install it once at user/global scope.
+
+### Added
+
+- **`--global` flag** on `folio install` / `folio uninstall` (Claude Code target) → writes the single top-level `mcpServers.folio` in `~/.claude.json`, available in **every** project, instead of a per-project entry.
+- **Bare interactive `folio install` prompts** for scope: *"Install Folio's MCP globally for Claude Code (available in every project)? [Y/n]"* — default global; `n` falls back to the per-project directory prompt. Non-interactive (`--yes` / piped stdin) keeps the previous per-project (cwd) default, so scripts are unaffected.
+- Global scope is handled across the whole lifecycle: `uninstall --global` (and `uninstall --all-scopes`, which now also sweeps the global entry), `folio doctor` lists it as scope `global`, and `folio update`'s refresh re-points the global entry's command to the new binary.
+
 ## v0.35.0 — 2026-05-25
 
 **Added — link-preview cards now render as PNG, so shared links unfurl with an image.** Capability share pages (`/p/<token>/n/:id` and `/t/:thread`) already emitted an `og:image`, but it pointed at an **SVG** — which X/Twitter, Slack, Discord, iMessage, and Facebook/LinkedIn refuse to render, so previews showed a title with no card. `og:image` now points at a rasterized **PNG**.

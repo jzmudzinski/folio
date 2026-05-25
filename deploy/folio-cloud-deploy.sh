@@ -95,10 +95,14 @@ done
 [ -e "themes/linen/theme.css" ] || { err "tarball missing themes/"; exit 1; }
 
 # ───── Install ────────────────────────────────────────────────────────────
-log "installing binary (${BINSRC}) + themes + templates"
+log "installing binary (${BINSRC}) + themes + templates + og"
 install -m 755 "$BINSRC" "$BIN"
 rsync -a --delete themes/ /opt/folio/themes/
 rsync -a --delete templates/ /opt/folio/templates/
+# og/ = OG link-preview sidecar (resvg.wasm + font), v0.35.0+. Guarded so a
+# rollback to a pre-og release still installs; the og.png route falls back to
+# SVG when /opt/folio/og is absent.
+[ -d og ] && rsync -a --delete og/ /opt/folio/og/
 
 log "restarting ${SERVICE}"
 systemctl restart "$SERVICE"

@@ -206,7 +206,8 @@ test("renderSharedNotePage includes og:image / twitter:card meta", async () => {
   expect(html).toContain('property="og:url"');
   expect(html).toContain('name="twitter:card"');
   expect(html).toContain('content="summary_large_image"');
-  expect(html).toContain(`/p/${share.token}/og.svg`);
+  expect(html).toContain(`/p/${share.token}/og.png`); // og:image is the PNG, not SVG
+  expect(html).toContain('content="image/png"');
   expect(html).toContain("An open-graph test note");
 });
 
@@ -231,5 +232,37 @@ test("renderSharedThreadPage includes og + twitter meta", async () => {
   const html = await (await fetch(`${cloudUrl}/p/${threadShare.token}/t/demo-thread`)).text();
   expect(html).toContain('property="og:title"');
   expect(html).toContain("Thread:");
-  expect(html).toContain(`/p/${threadShare.token}/og.svg`);
+  expect(html).toContain(`/p/${threadShare.token}/og.png`);
+});
+
+test("/p/<token>/og.png returns a rasterized PNG (image/png + PNG magic bytes)", async () => {
+  const share = await makeShareForOgQr();
+  const r = await fetch(`${cloudUrl}/p/${share.token}/og.png`);
+  expect(r.status).toBe(200);
+  expect(r.headers.get("content-type")).toBe("image/png");
+  const buf = new Uint8Array(await r.arrayBuffer());
+  expect([buf[0], buf[1], buf[2], buf[3]]).toEqual([0x89, 0x50, 0x4e, 0x47]); // ‰PNG
+  // A card with rendered title text is far larger than the empty-canvas (~5KB)
+  // case — this guards against a regression where the font fails to load.
+  expect(buf.length).toBeGreaterThan(8000);
+});
+
+test("/p/<token>/og.png 410 for expired share", async () => {
+  const share = await makeShareForOgQr();
+  const { cloudDb } = await import("../src/cloud/db");
+  cloudDb().run("UPDATE shares SET expires_at = '2020-01-01T00:00:00Z' WHERE token = ?", [share.token]);
+  const r = await fetch(`${cloudUrl}/p/${share.token}/og.png`);
+  expect(r.status).toBe(410);
+});
+
+test("generateOgPng rasterizes the card with text (PNG magic + non-trivial size)", async () => {
+  const { generateOgPng } = await import("../src/cloud/og");
+  const png = await generateOgPng({
+    title: "Rośliny doniczkowe — pielęgnacja i podlewanie",
+    theme: "linen",
+    scope_type: "note",
+    thread_id: "rosliny",
+  });
+  expect([png[0], png[1], png[2], png[3]]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+  expect(png.length).toBeGreaterThan(8000); // text rendered, not a blank canvas
 });

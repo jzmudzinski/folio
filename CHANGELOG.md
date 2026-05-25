@@ -2,6 +2,21 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.35.0 — 2026-05-25
+
+**Added — link-preview cards now render as PNG, so shared links unfurl with an image.** Capability share pages (`/p/<token>/n/:id` and `/t/:thread`) already emitted an `og:image`, but it pointed at an **SVG** — which X/Twitter, Slack, Discord, iMessage, and Facebook/LinkedIn refuse to render, so previews showed a title with no card. `og:image` now points at a rasterized **PNG**.
+
+### Added
+
+- **`/p/<token>/og.png`** — the OG card (theme accent, scope chip, title, `folio.` wordmark) rasterized from the existing SVG via `@resvg/resvg-wasm`. The `og:image` / `twitter:image` meta on shared note and thread pages now point here (`image/png`). The `og.svg` route stays as a fallback, and `og.png` itself degrades to SVG if the rasterizer is unavailable.
+- **`og:description` / `twitter:description`** on shared note pages, sourced from the note summary (truncated). Threads carry a note-count description.
+- **`og/` sidecar** shipped beside the binary (resolved via `config.bundledOgDir()`): `resvg.wasm` + the bundled brand font `FamiljenGrotesk.ttf` (OFL) — resvg-wasm has no system fonts, so card text needs a provided face. Loaded lazily at first render; **not** embedded in the binary, so the CLI stays lean.
+
+### Notes
+
+- Takes effect after a cloud redeploy (`sudo folio-cloud-deploy`) — the binary + `og/` sidecar ship to `/opt/folio`.
+- Unaffected: only `/p/<token>` capability links unfurl; the authed per-user `/n/:id` page is a JS shell behind auth (previewer bots get a redirect).
+
 ## v0.34.3 — 2026-05-23
 
 **Fix — images broke on `set`-scoped shares ("Include linked notes").** A set share grants a bundle of notes that can span threads, but the capability **asset** route's scope check only matched the **root note's** thread. An image living in a *linked* note's (different) thread returned "not found" — the note rendered, only its `<img>` was broken.

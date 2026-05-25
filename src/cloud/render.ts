@@ -162,16 +162,24 @@ const PICK_AFFORDANCE = `
  * Referrer-Policy: no-referrer. These reduce capability-URL leakage via
  * search indexes and external Referer logs.
  */
-export function renderSharedNotePage(token: string, uuid: string, title: string, publicUrl: string = ""): string {
+export function renderSharedNotePage(token: string, uuid: string, title: string, publicUrl: string = "", description: string = ""): string {
   const esc = (s: string): string =>
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   // Absolute URL for og:image / og:url so social previewers don't try to
   // resolve a relative path against their own host. publicUrl is the
   // cloud's externally-reachable origin (https://folio.notibox.ai); empty
-  // string falls back to relative URLs (fine for testing).
-  const ogImg = `${publicUrl}/p/${esc(token)}/og.svg`;
+  // string falls back to relative URLs (fine for testing). og:image is the
+  // PNG (rasterized) — SVG og:images don't unfurl on most platforms.
+  const ogImg = `${publicUrl}/p/${esc(token)}/og.png`;
   const ogUrl = `${publicUrl}/p/${esc(token)}/n/${esc(uuid)}`;
   const safeTitle = title || "Folio note";
+  // Short plain-text description for the unfurl card. Note content already
+  // sits behind the capability link the sender chose to share, so a summary
+  // snippet in the preview is consistent with the title leak (cf. Notion).
+  const safeDesc = description.replace(/\s+/g, " ").trim().slice(0, 200);
+  const descTags = safeDesc
+    ? `\n  <meta property="og:description" content="${esc(safeDesc)}">\n  <meta name="twitter:description" content="${esc(safeDesc)}">\n  <meta name="description" content="${esc(safeDesc)}">`
+    : "";
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -183,14 +191,14 @@ export function renderSharedNotePage(token: string, uuid: string, title: string,
   <meta property="og:title" content="${esc(safeTitle)}">
   <meta property="og:type" content="article">
   <meta property="og:image" content="${esc(ogImg)}">
-  <meta property="og:image:type" content="image/svg+xml">
+  <meta property="og:image:type" content="image/png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:url" content="${esc(ogUrl)}">
   <meta property="og:site_name" content="Folio">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${esc(safeTitle)}">
-  <meta name="twitter:image" content="${esc(ogImg)}">
+  <meta name="twitter:image" content="${esc(ogImg)}">${descTags}
   <style>
     html, body { margin: 0; padding: 0; height: 100%; background: #1a1a1a; }
     iframe { width: 100%; height: 100vh; border: 0; display: block; background: #fff; }
@@ -264,7 +272,7 @@ export function renderSharedThreadPage(token: string, threadId: string, notes: S
       </a>`;
     })
     .join("\n");
-  const ogImg = `${publicUrl}/p/${esc(token)}/og.svg`;
+  const ogImg = `${publicUrl}/p/${esc(token)}/og.png`;
   const ogUrl = `${publicUrl}/p/${esc(token)}/t/${esc(threadId)}`;
   const ogTitle = `Thread: ${threadId}`;
   return `<!doctype html>
@@ -278,7 +286,7 @@ export function renderSharedThreadPage(token: string, threadId: string, notes: S
   <meta property="og:title" content="${esc(ogTitle)}">
   <meta property="og:type" content="article">
   <meta property="og:image" content="${esc(ogImg)}">
-  <meta property="og:image:type" content="image/svg+xml">
+  <meta property="og:image:type" content="image/png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:url" content="${esc(ogUrl)}">
@@ -287,6 +295,7 @@ export function renderSharedThreadPage(token: string, threadId: string, notes: S
   <meta name="twitter:title" content="${esc(ogTitle)}">
   <meta name="twitter:image" content="${esc(ogImg)}">
   <meta name="description" content="${notes.length} note${notes.length === 1 ? "" : "s"} in this thread.">
+  <meta property="og:description" content="${notes.length} note${notes.length === 1 ? "" : "s"} in this thread.">
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400..700&family=Instrument+Serif:ital@0;1&display=swap');
     :root { --bg: #f5f3ee; --bg-2: #efeae0; --ink: #0a0a0a; --muted: #6b6b66; --line: rgba(10,10,10,0.10); --accent: #ff5a1f; }

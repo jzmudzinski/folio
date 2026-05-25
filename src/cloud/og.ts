@@ -2,13 +2,12 @@
  * Open Graph image generator for capability URLs.
  *
  * Slack / Telegram / iMessage / Twitter scrapers fetch og:image when a
- * link is pasted and render the preview card. We emit an SVG that's both
- * small (~2KB) and accurate (renders the note's actual title + theme
- * accent + scope chip). SVG is supported by all major previewers today
- * (Twitter / X, Slack, Telegram, Discord, iMessage). If a corner case
- * scraper bails on SVG, the link still works — the preview just falls
- * back to plain text. PNG rasterization can be added later if it ever
- * becomes an issue (would need @resvg/resvg-js or similar, ~6MB WASM).
+ * link is pasted and render the preview card. We build the card as an SVG
+ * here (small ~2KB, renders the note's actual title + theme accent + scope
+ * chip), then rasterize it to PNG in generateOgPng() below — because most
+ * unfurlers (X/Twitter, Slack, Discord, iMessage, Facebook/LinkedIn) do NOT
+ * render SVG og:images and would fall back to a titleless/imageless preview.
+ * og:image therefore points at the PNG; the SVG route stays as a fallback.
  *
  * Dimensions: 1200x630 — the OG standard 1.91:1 aspect ratio. Looks good
  * at Twitter card "summary_large_image", Slack unfurled, Telegram preview.
@@ -26,7 +25,11 @@
  * wants to suppress the title on bound shares, gate this in server.ts.
  */
 
+import { initWasm, Resvg } from "@resvg/resvg-wasm";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { BRAND } from "../core/brand";
+import { bundledOgDir } from "../core/config";
 
 const THEME_ACCENTS: Record<string, string> = {
   linen: "#ff5a1f",
@@ -135,4 +138,44 @@ export function generateOgSvg(input: OgInput): string {
   <text x="120" y="555" class="wordmark"><tspan class="wordmark-ink">folio</tspan><tspan class="wordmark-dot">.</tspan></text>
   <text x="120" y="585" class="tag">VISUAL COMM FOR AGENTS</text>
 </svg>`;
+}
+
+// ─── PNG rasterization ──────────────────────────────────────────────────────
+// SVG og:images are NOT rendered by most unfurlers (X/Twitter, Slack, Discord,
+// iMessage, Facebook/LinkedIn/WhatsApp all want raster); SVG would show a
+// titleless or imageless card. So the og:image meta points at a PNG, produced
+// here by rasterizing the same SVG via @resvg/resvg-wasm. resvg-wasm has no
+// system fonts, so we feed it the bundled brand font — without it every glyph
+// renders blank. Both the .wasm and the .ttf live in the og/ sidecar dir next
+// to the binary (see config.bundledOgDir), loaded lazily on first render.
+
+let wasmInit: Promise<void> | null = null;
+function ensureWasm(): Promise<void> {
+  if (!wasmInit) {
+    wasmInit = initWasm(readFileSync(join(bundledOgDir(), "resvg.wasm"))).then(() => undefined);
+  }
+  return wasmInit;
+}
+
+let fontBuffer: Uint8Array | null = null;
+function ogFont(): Uint8Array {
+  if (!fontBuffer) fontBuffer = new Uint8Array(readFileSync(join(bundledOgDir(), "FamiljenGrotesk.ttf")));
+  return fontBuffer;
+}
+
+/**
+ * Rasterize the OG card to a 1200x630 PNG. Throws if the sidecar wasm/font are
+ * missing (e.g. a deploy that didn't ship og/) — the caller falls back to SVG.
+ */
+export async function generateOgPng(input: OgInput): Promise<Uint8Array> {
+  await ensureWasm();
+  const svg = generateOgSvg(input);
+  const resvg = new Resvg(svg, {
+    font: {
+      loadSystemFonts: false, // wasm has none; deterministic + avoids fs scan
+      fontBuffers: [ogFont()],
+      defaultFontFamily: "Familjen Grotesk", // every family in the SVG falls back to this
+    },
+  });
+  return resvg.render().asPng();
 }

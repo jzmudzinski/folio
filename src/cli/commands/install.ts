@@ -18,6 +18,7 @@ export interface InstallCliOptions {
   skillOnly?: boolean;
   mcpOnly?: boolean;
   scope?: string;
+  global?: boolean;
   dryRun?: boolean;
   yes?: boolean;
   jsonOut?: boolean;
@@ -96,17 +97,30 @@ export async function installCmd(opts: InstallCliOptions): Promise<number> {
   }
   const targets = targetsOrErr;
 
-  // Resolve Claude Code per-project scope upfront (shared across runs if
-  // claude-code is one of the targets; openclaw ignores scope).
+  // Resolve Claude Code MCP scope upfront: global (user — one top-level entry,
+  // available in every project) vs per-project (one entry under the project
+  // path). OpenClaw is always global and ignores this. `--global` / `--scope`
+  // pin it; a bare interactive install prompts.
+  let global = opts.global ?? false;
   let scope = opts.scope;
-  const needsScope = targets.includes("claude-code") && !opts.skillOnly;
-  if (needsScope && !scope) {
+  const needsMcpScope = targets.includes("claude-code") && !opts.skillOnly;
+  if (needsMcpScope && !global && !scope) {
     if (opts.yes || !process.stdin.isTTY) {
-      scope = process.cwd();
+      scope = process.cwd(); // non-interactive default stays per-project (cwd)
     } else {
-      const proposed = process.cwd();
-      out(c.dim(`MCP wiring is per-project in Claude Code (one entry per directory). OpenClaw is global.`));
-      scope = await askString(c.bold(`Which project directory should Claude Code's Folio MCP be wired to?`), proposed);
+      out(c.dim("Claude Code can wire Folio's MCP globally (every project) or per-project."));
+      const wantGlobal = await askYesNo(
+        c.bold("Install Folio's MCP globally for Claude Code (available in every project)?"),
+        true,
+      );
+      if (wantGlobal) {
+        global = true;
+      } else {
+        scope = await askString(
+          c.bold("Which project directory should Claude Code's Folio MCP be wired to?"),
+          process.cwd(),
+        );
+      }
     }
   }
 
@@ -118,6 +132,7 @@ export async function installCmd(opts: InstallCliOptions): Promise<number> {
       skill: !opts.mcpOnly,
       mcp: !opts.skillOnly,
       scope,
+      global,
       dryRun: opts.dryRun,
       yes: opts.yes,
       jsonOut: opts.jsonOut,
@@ -179,6 +194,7 @@ export async function installCmd(opts: InstallCliOptions): Promise<number> {
     }
   }
   if (totalErrors === 0) {
+    if (targets.includes("claude-code") && global) out(c.dim("  Folio MCP wired globally — available in every Claude Code project."));
     if (targets.includes("claude-code")) out(c.dim("  Restart Claude Code to pick up the skill + MCP entry."));
     if (targets.includes("openclaw")) out(c.dim("  Restart OpenClaw to pick up the new skill + MCP entry."));
   }

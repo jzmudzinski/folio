@@ -125,21 +125,30 @@ export function planInstall(opts: InstallOptions, paths = claudeCodePaths()): In
 
   // ── MCP ──
   if (wantMcp) {
-    const scope = opts.scope ?? process.cwd();
     const { command, args } = mcpCommand();
     const cfg = readJsonConfig<any>(paths.configJson);
-    const existing = cfg?.projects?.[scope]?.mcpServers?.folio;
     const desired = { type: "stdio", command, args, env: {} };
+    // Global (user) scope → top-level mcpServers.folio (every project).
+    // Otherwise per-project → projects[<path>].mcpServers.folio.
+    const scope = opts.global ? "global" : (opts.scope ?? process.cwd());
+    const jsonPointer = opts.global
+      ? `/mcpServers/folio`
+      : `/projects/${escapePointer(scope)}/mcpServers/folio`;
+    const existing = opts.global
+      ? cfg?.mcpServers?.folio
+      : cfg?.projects?.[scope]?.mcpServers?.folio;
     if (existing && shallowEqualMcp(existing, desired)) {
-      actions.push({ kind: "noop", reason: `MCP already configured for ${scope}` });
+      actions.push({ kind: "noop", reason: opts.global ? "MCP already configured globally (all projects)" : `MCP already configured for ${scope}` });
     } else {
       actions.push({
         kind: "writeJson",
         file: paths.configJson,
-        jsonPointer: `/projects/${escapePointer(scope)}/mcpServers/folio`,
+        jsonPointer,
         before: existing ?? null,
         after: desired,
-        reason: existing ? "MCP entry differs; will update" : "add MCP entry",
+        reason: existing
+          ? "MCP entry differs; will update"
+          : (opts.global ? "add global MCP entry (all projects)" : "add MCP entry"),
       });
       if (command === process.execPath && args.length > 0) {
         warnings.push(
@@ -174,21 +183,36 @@ export function planUninstall(opts: UninstallOptions, paths = claudeCodePaths())
   if (wantMcp) {
     const cfg = readJsonConfig<any>(paths.configJson);
     const projects = cfg?.projects ?? {};
-    const scopes = opts.allScopes
-      ? Object.keys(projects).filter((s) => projects[s]?.mcpServers?.folio)
-      : [opts.scope ?? process.cwd()];
     let touched = 0;
-    for (const scope of scopes) {
-      const existing = projects?.[scope]?.mcpServers?.folio;
-      if (!existing) continue;
+    // Global (top-level) entry: removed by --global, or swept by --all-scopes.
+    const removeGlobal = opts.global || opts.allScopes;
+    if (removeGlobal && cfg?.mcpServers?.folio) {
       actions.push({
         kind: "deleteJson",
         file: paths.configJson,
-        jsonPointer: `/projects/${escapePointer(scope)}/mcpServers/folio`,
-        before: existing,
-        reason: `remove MCP entry from ${scope}`,
+        jsonPointer: `/mcpServers/folio`,
+        before: cfg.mcpServers.folio,
+        reason: "remove global MCP entry (all projects)",
       });
       touched++;
+    }
+    // Per-project entries: skipped when --global is given on its own.
+    if (!opts.global || opts.allScopes) {
+      const scopes = opts.allScopes
+        ? Object.keys(projects).filter((s) => projects[s]?.mcpServers?.folio)
+        : [opts.scope ?? process.cwd()];
+      for (const scope of scopes) {
+        const existing = projects?.[scope]?.mcpServers?.folio;
+        if (!existing) continue;
+        actions.push({
+          kind: "deleteJson",
+          file: paths.configJson,
+          jsonPointer: `/projects/${escapePointer(scope)}/mcpServers/folio`,
+          before: existing,
+          reason: `remove MCP entry from ${scope}`,
+        });
+        touched++;
+      }
     }
     if (touched === 0) {
       actions.push({ kind: "noop", reason: "no MCP entries to remove" });
@@ -270,6 +294,15 @@ export function check(paths = claudeCodePaths()): CheckReport {
   const cfg = readJsonConfig<any>(paths.configJson);
   const projects = cfg?.projects ?? {};
   const entries: { scope: string; command: string; state: "ok" | "stale" }[] = [];
+  // Global (top-level) entry first, if present.
+  const globalEntry = cfg?.mcpServers?.folio;
+  if (globalEntry) {
+    entries.push({
+      scope: "global",
+      command: globalEntry.command,
+      state: globalEntry.command === command && existsSync(globalEntry.command) ? "ok" : "stale",
+    });
+  }
   for (const scope of Object.keys(projects)) {
     const entry = projects[scope]?.mcpServers?.folio;
     if (!entry) continue;
@@ -305,9 +338,11 @@ export function refreshAfterUpdate(paths = claudeCodePaths()): { refreshed: numb
     actions.push(...plan.actions.filter((a) => a.kind !== "noop"));
   }
 
-  // Refresh each MCP scope.
+  // Refresh each MCP scope — global (top-level) or per-project.
   for (const entry of report.mcp.entries) {
-    const plan = planInstall({ target: "claude-code", skill: false, mcp: true, scope: entry.scope }, paths);
+    const plan = entry.scope === "global"
+      ? planInstall({ target: "claude-code", skill: false, mcp: true, global: true }, paths)
+      : planInstall({ target: "claude-code", skill: false, mcp: true, scope: entry.scope }, paths);
     applyPlan(plan, paths);
     actions.push(...plan.actions.filter((a) => a.kind !== "noop"));
   }

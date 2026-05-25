@@ -21,8 +21,15 @@ export interface InstallOptions {
   /**
    * MCP scope for clients that store wiring per project (Claude Code).
    * If omitted, the installer prompts interactively (or uses cwd in --yes mode).
+   * Ignored when `global` is true.
    */
   scope?: string;
+  /**
+   * Install the MCP at user/global scope (Claude Code): a single top-level
+   * `mcpServers.folio` entry in ~/.claude.json, available in every project —
+   * instead of a per-project `projects[<path>].mcpServers.folio` entry.
+   */
+  global?: boolean;
   /** Show plan without mutating disk. */
   dryRun?: boolean;
   /** Skip interactive confirm. */
@@ -37,7 +44,9 @@ export interface UninstallOptions {
   mcp?: boolean;
   /** When uninstalling MCP from Claude Code, which project scope. */
   scope?: string;
-  /** Remove from every project scope where the folio entry is present. */
+  /** Remove the user/global (top-level `mcpServers.folio`) entry. */
+  global?: boolean;
+  /** Remove from every project scope where the folio entry is present (and the global entry). */
   allScopes?: boolean;
   dryRun?: boolean;
   yes?: boolean;

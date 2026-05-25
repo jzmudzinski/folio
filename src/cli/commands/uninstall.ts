@@ -17,6 +17,7 @@ export interface UninstallCliOptions {
   skillOnly?: boolean;
   mcpOnly?: boolean;
   scope?: string;
+  global?: boolean;
   allScopes?: boolean;
   dryRun?: boolean;
   yes?: boolean;
@@ -72,12 +73,15 @@ export async function uninstallCmd(opts: UninstallCliOptions): Promise<number> {
       skill: !opts.mcpOnly,
       mcp: !opts.skillOnly,
       scope: opts.scope,
+      global: opts.global,
       allScopes: opts.allScopes,
       dryRun: opts.dryRun,
       yes: opts.yes,
       jsonOut: opts.jsonOut,
     };
-    if (target === "claude-code" && !uOpts.scope && !uOpts.allScopes && !opts.skillOnly) {
+    // Default to the cwd project scope only when nothing more specific was
+    // asked for — --global / --scope / --all-scopes all suppress that default.
+    if (target === "claude-code" && !uOpts.scope && !uOpts.global && !uOpts.allScopes && !opts.skillOnly) {
       uOpts.scope = process.cwd();
     }
     if (target === "claude-code") plans.push(planUninstallClaudeCode(uOpts));

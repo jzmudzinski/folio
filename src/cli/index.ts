@@ -81,8 +81,8 @@ function help(): number {
   out(`  ${c.cyan("export <id>")}       Export note as HTML (--standalone inlines theme CSS, --out path to file or stdout)`);
   out(`  ${c.cyan("serve")}             Start local viewer on http://127.0.0.1:4810`);
   out(`  ${c.cyan("update")}            Check + install latest release from GitHub (--check, --force, --pre, --json)`);
-  out(`  ${c.cyan("install")}           Wire Folio into an agent client (--target claude-code | openclaw | all, --skill-only, --mcp-only, --scope, --dry-run, --yes)`);
-  out(`  ${c.cyan("uninstall")}         Remove Folio wiring (--target claude-code | openclaw | all, --skill-only, --mcp-only, --scope, --all-scopes, --dry-run, --yes)`);
+  out(`  ${c.cyan("install")}           Wire Folio into an agent client (--target claude-code | openclaw | all, --skill-only, --mcp-only, --global, --scope, --dry-run, --yes)`);
+  out(`  ${c.cyan("uninstall")}         Remove Folio wiring (--target claude-code | openclaw | all, --skill-only, --mcp-only, --global, --scope, --all-scopes, --dry-run, --yes)`);
   out(`  ${c.cyan("doctor")}            Show install + storage + cloud sync state (--json, --offline)`);
   out(`  ${c.cyan("cloud <sub>")}       Cloud relay: init | serve | pair-code (see deploy/ for systemd unit)`);
   out(`  ${c.cyan("sync <sub>")}        Sync with cloud: pair | status | unpair | run (default) — flags: --remote, --code, --once, --interval`);
@@ -239,6 +239,7 @@ export async function main(argv = process.argv): Promise<number> {
           skillOnly: flagBool(flags["skill-only"]),
           mcpOnly: flagBool(flags["mcp-only"]),
           scope: flagStr(flags.scope),
+          global: flagBool(flags.global),
           dryRun: flagBool(flags["dry-run"]),
           yes: flagBool(flags.yes) || flagBool(flags.y),
           jsonOut: flagBool(flags.json),
@@ -249,6 +250,7 @@ export async function main(argv = process.argv): Promise<number> {
           skillOnly: flagBool(flags["skill-only"]),
           mcpOnly: flagBool(flags["mcp-only"]),
           scope: flagStr(flags.scope),
+          global: flagBool(flags.global),
           allScopes: flagBool(flags["all-scopes"]),
           dryRun: flagBool(flags["dry-run"]),
           yes: flagBool(flags.yes) || flagBool(flags.y),

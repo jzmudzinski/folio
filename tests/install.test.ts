@@ -57,6 +57,64 @@ test("re-running install is idempotent (all noop)", () => {
   expect(plan2.actions.every((a) => a.kind === "noop")).toBe(true);
 });
 
+// ── Global (user) MCP scope ──────────────────────────────────────────────
+
+test("install --global writes top-level mcpServers.folio, not under projects", () => {
+  const plan = planInstall({ target: "claude-code", skill: false, mcp: true, global: true }, paths());
+  const w = plan.actions.find((a) => a.kind === "writeJson") as any;
+  expect(w.jsonPointer).toBe("/mcpServers/folio");
+  applyPlan(plan, paths());
+  const cfg = readJsonConfig<any>(paths().configJson);
+  expect(cfg.mcpServers.folio.type).toBe("stdio");
+  expect(cfg.projects).toBeUndefined();
+});
+
+test("install --global is idempotent", () => {
+  applyPlan(planInstall({ target: "claude-code", skill: false, mcp: true, global: true }, paths()), paths());
+  const plan2 = planInstall({ target: "claude-code", skill: false, mcp: true, global: true }, paths());
+  expect(plan2.actions.every((a) => a.kind === "noop")).toBe(true);
+});
+
+test("global and per-project entries coexist", () => {
+  applyPlan(planInstall({ target: "claude-code", skill: false, mcp: true, global: true }, paths()), paths());
+  applyPlan(planInstall({ target: "claude-code", skill: false, mcp: true, scope: "/p" }, paths()), paths());
+  const cfg = readJsonConfig<any>(paths().configJson);
+  expect(cfg.mcpServers.folio).toBeDefined();
+  expect(cfg.projects["/p"].mcpServers.folio).toBeDefined();
+});
+
+test("uninstall --global removes the top-level entry, leaves per-project", () => {
+  applyPlan(planInstall({ target: "claude-code", skill: false, mcp: true, global: true }, paths()), paths());
+  applyPlan(planInstall({ target: "claude-code", skill: false, mcp: true, scope: "/p" }, paths()), paths());
+  applyPlan(planUninstall({ target: "claude-code", skill: false, mcp: true, global: true }, paths()), paths());
+  const cfg = readJsonConfig<any>(paths().configJson);
+  expect(cfg.mcpServers?.folio).toBeUndefined();
+  expect(cfg.projects["/p"].mcpServers.folio).toBeDefined();
+});
+
+test("uninstall --all-scopes removes the global entry too", () => {
+  applyPlan(planInstall({ target: "claude-code", skill: false, mcp: true, global: true }, paths()), paths());
+  applyPlan(planInstall({ target: "claude-code", skill: false, mcp: true, scope: "/p1" }, paths()), paths());
+  applyPlan(planUninstall({ target: "claude-code", skill: false, mcp: true, allScopes: true }, paths()), paths());
+  const cfg = readJsonConfig<any>(paths().configJson);
+  expect(cfg.mcpServers?.folio).toBeUndefined();
+  expect(cfg.projects["/p1"].mcpServers.folio).toBeUndefined();
+});
+
+test("check reports a global entry with scope 'global'", () => {
+  applyPlan(planInstall({ target: "claude-code", skill: false, mcp: true, global: true }, paths()), paths());
+  const report = check(paths());
+  expect(report.mcp.entries.find((e) => e.scope === "global")).toBeDefined();
+});
+
+test("refreshAfterUpdate refreshes a stale global entry", () => {
+  writeFileSync(paths().configJson, JSON.stringify({ mcpServers: { folio: { type: "stdio", command: "/old/folio-mcp", args: [] } } }));
+  _resetBackupMemoForTests();
+  refreshAfterUpdate(paths());
+  const cfg = readJsonConfig<any>(paths().configJson);
+  expect(cfg.mcpServers.folio.command).not.toBe("/old/folio-mcp");
+});
+
 test("install with --skill-only does not touch ~/.claude.json", () => {
   const plan = planInstall({ target: "claude-code", skill: true, mcp: false }, paths());
   applyPlan(plan, paths());

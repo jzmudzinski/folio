@@ -107,4 +107,59 @@ export const ENTRIES_CSS = `
   padding-left: 10px;
   border-left: 2px solid var(--border, rgba(0,0,0,0.08));
 }
+
+/* ── Task entries (carry a state:* tag) — checklist row, not a log line ──
+   feed-render emits .entry.task → <button.entry-check> + <div.entry-body>
+   (.content over a demoted .meta). Plain entries keep the timestamp-led
+   layout above. */
+.entry.task {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 9px 4px 9px 14px;
+}
+.entry.task > .entry-check {
+  flex: 0 0 auto;
+  width: 19px;
+  height: 19px;
+  margin-top: 1px;
+  padding: 0;
+  border: 2px solid var(--accent, #ff5a1f);
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  line-height: 1;
+  color: #fff;
+  transition: background .12s, border-color .12s, box-shadow .12s;
+}
+.entry.task > .entry-check:hover {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #ff5a1f) 16%, transparent);
+}
+.entry.task.state-done > .entry-check { background: var(--ok, #2f9050); border-color: var(--ok, #2f9050); }
+.entry.task.state-done > .entry-check::after { content: "✓"; }
+.entry.task.state-cancelled > .entry-check { border-color: var(--text-muted, rgba(0,0,0,0.4)); }
+.entry.task.state-cancelled > .entry-check::after { content: "✕"; color: var(--text-muted, rgba(0,0,0,0.55)); }
+.entry.task.state-in_progress > .entry-check::after { content: "·"; color: var(--accent, #ff5a1f); font-weight: 900; font-size: 19px; }
+.entry.task > .entry-body { flex: 1 1 auto; min-width: 0; }
+.entry.task > .entry-body > .content { font-size: 14.5px; line-height: 1.5; }
+.entry.task > .entry-body > .meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-family: ui-monospace, "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  color: var(--text-muted, rgba(0,0,0,0.5));
+  margin: 4px 0 0;
+}
+/* state-done/-cancelled content sits under .entry-body, so the direct-child
+   rules above don't reach it — restate strikethrough for task rows. The
+   whole-row dim on .state-cancelled would grey the checkbox too, so keep the
+   row opaque and dim only the text. */
+.entry.task.state-cancelled { opacity: 1; }
+.entry.task.state-done > .entry-body > .content { text-decoration: line-through; opacity: 0.55; }
+.entry.task.state-cancelled > .entry-body > .content { text-decoration: line-through; opacity: 0.5; }
 `;

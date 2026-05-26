@@ -20,15 +20,45 @@ function esc(s: string): string {
   );
 }
 
-/** Single entry → `<article class="entry …" data-entry-id="…">…</article>`. */
+/**
+ * Where clicking the checkbox moves a task. done/cancelled → reopen; anything
+ * else → done. Mirrored verbatim in the inline bootstrap + live-panel JS.
+ */
+export function checkToggleTarget(state?: string): "open" | "done" {
+  return state === "done" || state === "cancelled" ? "open" : "done";
+}
+
+/** Single entry → `<article class="entry …" data-entry-id="…">…</article>`.
+ *  State-tagged entries (todos) render as a checklist row; everything else
+ *  keeps the timestamp-led "log" layout. */
 export function renderEntryHtml(c: CompiledEntry): string {
   const cls = ["entry"];
   if (c.pinned) cls.push("pinned");
   if (c.state) cls.push(`state-${c.state}`);
+  const timeHtml = `<time datetime="${esc(c.ts)}">${esc(c.ts)}</time>`;
+
+  if (c.state) {
+    cls.push("task");
+    // The checkbox already conveys state, so drop the state:* pill from the row.
+    const tagsHtml = c.compiled_tags
+      .filter((t) => !t.startsWith("state:"))
+      .map((t) => `<span class="pill info">${esc(t)}</span>`)
+      .join(" ");
+    const target = checkToggleTarget(c.state);
+    return [
+      `<article class="${cls.join(" ")}" data-entry-id="${esc(c.id)}">`,
+      `  <button class="entry-check" type="button" data-move-entry="${esc(c.id)}" data-move-state="${target}" aria-label="Toggle done"></button>`,
+      `  <div class="entry-body">`,
+      `    <div class="content">${c.content_html}</div>`,
+      `    <div class="meta">${timeHtml} ${tagsHtml}</div>`,
+      `  </div>`,
+      `</article>`,
+    ].join("\n");
+  }
+
   const tagsHtml = c.compiled_tags
     .map((t) => `<span class="pill info">${esc(t)}</span>`)
     .join(" ");
-  const timeHtml = `<time datetime="${esc(c.ts)}">${esc(c.ts)}</time>`;
   return [
     `<article class="${cls.join(" ")}" data-entry-id="${esc(c.id)}">`,
     `  <header class="meta">${timeHtml} ${tagsHtml}</header>`,
@@ -113,18 +143,58 @@ export const INLINE_FEED_BOOTSTRAP_JS = `
     return { host: h, pinned: pinned, feed: feed };
   }
   function escAttr(s) { return String(s).replace(/[<>&"']/g, function(ch){ return ({"<":"&lt;",">":"&gt;","&":"&amp;","\\"":"&quot;","'":"&#39;"})[ch]||ch; }); }
+  // Mirror of feed-render.checkToggleTarget — done/cancelled reopen, else done.
+  function checkTarget(state) { return (state === "done" || state === "cancelled") ? "open" : "done"; }
+  // Derive a state value from raw or compiled tags (streamed entries may be raw,
+  // i.e. carry tags but no compiled .state). Last state:* wins.
+  function deriveState(c) {
+    if (c.state) return c.state;
+    var tags = c.compiled_tags || c.tags || [];
+    for (var i = tags.length - 1; i >= 0; i--) { if (tags[i].indexOf("state:") === 0) return tags[i].slice(6); }
+    return undefined;
+  }
   function renderEntry(c) {
     var cls = ["entry"];
     if (c.pinned) cls.push("pinned");
-    if (c.state) cls.push("state-" + c.state);
-    var tags = (c.compiled_tags || c.tags || []).map(function(t){ return '<span class="pill info">' + escAttr(t) + '</span>'; }).join(" ");
+    var state = deriveState(c);
+    if (state) cls.push("state-" + state);
+    var allTags = c.compiled_tags || c.tags || [];
+    var time = '<time datetime="' + escAttr(c.ts) + '">' + escAttr(c.ts) + '</time>';
     var a = document.createElement("article");
-    a.className = cls.join(" ");
     a.setAttribute("data-entry-id", c.id);
-    a.innerHTML =
-      '<header class="meta"><time datetime="' + escAttr(c.ts) + '">' + escAttr(c.ts) + '</time> ' + tags + '</header>' +
-      '<div class="content">' + (c.content_html || "") + '</div>';
+    if (state) {
+      cls.push("task");
+      var taskTags = allTags.filter(function(t){ return t.indexOf("state:") !== 0; })
+        .map(function(t){ return '<span class="pill info">' + escAttr(t) + '</span>'; }).join(" ");
+      a.className = cls.join(" ");
+      a.innerHTML =
+        '<button class="entry-check" type="button" data-move-entry="' + escAttr(c.id) + '" data-move-state="' + checkTarget(state) + '" aria-label="Toggle done"></button>' +
+        '<div class="entry-body"><div class="content">' + (c.content_html || "") + '</div>' +
+        '<div class="meta">' + time + ' ' + taskTags + '</div></div>';
+    } else {
+      var tags = allTags.map(function(t){ return '<span class="pill info">' + escAttr(t) + '</span>'; }).join(" ");
+      a.className = cls.join(" ");
+      a.innerHTML =
+        '<header class="meta">' + time + ' ' + tags + '</header>' +
+        '<div class="content">' + (c.content_html || "") + '</div>';
+    }
     return a;
+  }
+  // A tag-only follow-up (empty content + refs) is a state change, not a new
+  // row — update the referenced task row in place instead of appending.
+  function newStateFromTags(tags) {
+    for (var i = (tags || []).length - 1; i >= 0; i--) { if (tags[i].indexOf("state:") === 0) return tags[i].slice(6); }
+    return null;
+  }
+  var STATE_VALS = ["open", "in_progress", "done", "cancelled", "snoozed"];
+  function updateRowState(refId, newState) {
+    var h = host(); if (!h || !newState) return;
+    var row = h.querySelector('.entry[data-entry-id="' + String(refId).replace(/"/g, "") + '"]');
+    if (!row) return;
+    for (var i = 0; i < STATE_VALS.length; i++) row.classList.remove("state-" + STATE_VALS[i]);
+    row.classList.add("state-" + newState);
+    var chk = row.querySelector(".entry-check");
+    if (chk) chk.setAttribute("data-move-state", checkTarget(newState));
   }
   function appendNewEntry(c) {
     var s = ensureSections(); if (!s) return;
@@ -389,22 +459,51 @@ export const INLINE_FEED_BOOTSTRAP_JS = `
     });
   }
 
+  // Feed-view checkbox clicks: post a move to the parent (which appends the
+  // state:* follow-up). Delegated on the feed host so it covers server-rendered
+  // checkboxes present at load + any appended later. Same channel as kanban.
+  var wiredFeedChecks = false;
+  function wireFeedChecks() {
+    if (wiredFeedChecks) return;
+    var h = host(); if (!h) return;
+    wiredFeedChecks = true;
+    h.addEventListener("click", function (e) {
+      var btn = e.target && e.target.closest && e.target.closest(".entry-check[data-move-entry]");
+      if (!btn) return;
+      var id = btn.getAttribute("data-move-entry");
+      var st = btn.getAttribute("data-move-state");
+      if (!id || !st) return;
+      try { parent.postMessage({ ns: "folio-feed", type: "move", entry_id: id, state: st }, "*"); } catch (_) {}
+    });
+  }
+
   window.addEventListener("message", function (ev) {
     var d = ev.data;
     if (!d || typeof d !== "object") return;
     if (d.ns !== "folio") return;
     if (d.type === "entry" && d.entry) {
-      // Feed view: legacy append-to-DOM path.
-      appendNewEntry(d.entry);
+      var entry = d.entry;
+      var content = (entry.content_html || "").toString().trim();
+      // Tag-only follow-up (empty content + refs) = a state change → update the
+      // referenced task row(s) in place. Entry with content = a new feed row.
+      if (!content && entry.refs && entry.refs.length) {
+        var ns = newStateFromTags(entry.tags);
+        for (var ri = 0; ri < entry.refs.length; ri++) updateRowState(entry.refs[ri], ns);
+      } else if (content) {
+        appendNewEntry(entry);
+      }
       // Kanban view: track raw entry + re-render lanes.
-      if (d.entry.id && !seenIds[d.entry.id]) {
-        seenIds[d.entry.id] = true;
-        rawEntries.push(d.entry);
+      if (entry.id && !seenIds[entry.id]) {
+        seenIds[entry.id] = true;
+        rawEntries.push(entry);
         renderKanban();
         wireKanban();
       }
     }
   });
+
+  // Wire feed checkboxes against the server-rendered entries present at load.
+  wireFeedChecks();
 
   // Signal to parent that we're ready to receive entries (parent may have
   // queued some during iframe load).

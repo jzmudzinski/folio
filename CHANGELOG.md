@@ -2,6 +2,23 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.37.0 — 2026-05-26
+
+**Changed — live-note todo entries render as a checklist, not a log.** Entries carrying a `state:*` tag (i.e. tasks) now show as a checklist row in the Feed view: a checkbox reflecting the state, the task text as the main line, and the timestamp + remaining tags demoted below. Plain entries (journals, logs, no `state:`) keep the timestamp-led feed layout — only todos change.
+
+### Changed
+
+- Feed-view `state:*` entries render `<button class="entry-check">` + `.entry-body` (content over a demoted meta) instead of a timestamp-led log line. The checkbox shows ✓ (done), ✕ (cancelled), a dot (in_progress), or empty (open); done/cancelled strike through the text. The redundant `state:*` pill is dropped from the row. Styling lives in `entries-css.ts`, so it applies to the inline feed, the server initial paint, and finalized notes alike.
+- The Feed checkbox is **clickable** — it posts the same `folio-feed` move the Kanban view uses, so toggling a task persists (and is readable by the agent via `list_entries`).
+
+### Fixed
+
+- A tag-only follow-up (a `state:*` change with empty content) now updates the referenced task row in place instead of appending an empty entry to the feed.
+
+### Notes
+
+- Inline live notes only this release; panel-mode feeds keep the prior look.
+
 ## v0.36.0 — 2026-05-25
 
 **Added — `folio install` can wire the Claude Code MCP globally (every project), and a bare install now asks.** Previously the installer only ever wrote a per-project entry (`projects[<cwd>].mcpServers.folio`), so Folio had to be re-installed in each repo. You can now install it once at user/global scope.

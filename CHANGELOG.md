@@ -2,6 +2,21 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.38.0 — 2026-05-27
+
+**Fixed — `folio install --target openclaw` now installs the skill as a copy, not a symlink, so OpenClaw actually loads it.** OpenClaw's skill loader rejects any skill whose realpath escapes its workspace root (a supply-chain "symlink-escape" guard). Folio installed its skill as a symlink into `/opt/folio/<ver>/skills/folio` — outside the root — so OpenClaw silently skipped it (`"reason":"symlink-escape" … "Skipping escaped skill path outside its configured root."`). The agent got the MCP tools but **zero guidance** from SKILL.md/STYLEBOOK/examples. This quietly affected the whole OpenClaw fleet.
+
+### Fixed
+
+- For the `openclaw` target, the skill **and** the `folio-event-watcher` hook are installed as **copied directories** (`cp -rL`), not symlinks — the only form OpenClaw's loader accepts when the bundle lives outside the workspace. Other OpenClaw skills (gog, 1password, …) are already real dirs; Folio was the lone symlink.
+- The copied dir is stamped with a `.folio-version` marker. Reinstall and `folio update` detect version drift and re-copy (idempotent: same version → noop); a legacy symlink is detected and replaced by a copy.
+- `folio doctor` now reports an OpenClaw skill copy as `ok (copy, vX)`, flags a leftover symlink as `wrong-target` (re-install to fix), and a version-drifted copy as `stale`. (Previously it mislabelled the correct copy as `wrong-target` and suggested a "refresh" that re-broke it.)
+- `folio uninstall --target openclaw` removes the copied skill/hook dirs (a directory without the Folio marker is left untouched).
+
+### Internal
+
+- New `copyDir` / `rmDir` plan actions in the install engine (apply in the shared `applyPlan`).
+
 ## v0.37.0 — 2026-05-26
 
 **Changed — live-note todo entries render as a checklist, not a log.** Entries carrying a `state:*` tag (i.e. tasks) now show as a checklist row in the Feed view: a checkbox reflecting the state, the task text as the main line, and the timestamp + remaining tags demoted below. Plain entries (journals, logs, no `state:`) keep the timestamp-led feed layout — only todos change.

@@ -153,6 +153,8 @@ function formatAction(a: PlanAction): string {
   switch (a.kind) {
     case "rmSymlink":
       return `${c.warn("rmlink")}     ${a.dst}${a.currentTarget ? c.dim(`  # (was → ${a.currentTarget})`) : ""}`;
+    case "rmDir":
+      return `${c.warn("rmdir")}      ${a.dst}  ${c.dim("# " + a.reason)}`;
     case "deleteJson":
       return `${c.warn("delete")}     ${a.file} ${c.dim(a.jsonPointer)}  ${c.dim("# " + a.reason)}`;
     case "writeJson":

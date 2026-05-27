@@ -86,13 +86,20 @@ export async function doctorCmd(opts: DoctorOptions = {}): Promise<number> {
       case "wrong-target":
         warnings.push({
           level: "warn",
-          message: cr.skill.installedAt
-            ? `[${label}] skill symlink ${cr.skill.installedAt} points elsewhere (${cr.skill.currentTarget ?? "non-symlink"}); ${refreshHint}`
-            : `[${label}] skill expected at ${cr.skill.expected}; ${refreshHint}`,
+          message: cr.skill.note
+            ? `[${label}] ${cr.skill.note} — ${refreshHint}`
+            : (cr.skill.installedAt
+              ? `[${label}] skill symlink ${cr.skill.installedAt} points elsewhere (${cr.skill.currentTarget ?? "non-symlink"}); ${refreshHint}`
+              : `[${label}] skill expected at ${cr.skill.expected}; ${refreshHint}`),
         });
         break;
       case "stale":
-        warnings.push({ level: "warn", message: `[${label}] skill symlink target ${cr.skill.expected} does not exist on disk.` });
+        warnings.push({
+          level: "warn",
+          message: cr.skill.note
+            ? `[${label}] ${cr.skill.note}`
+            : `[${label}] skill symlink target ${cr.skill.expected} does not exist on disk.`,
+        });
         break;
     }
     for (const e of cr.mcp.entries) {
@@ -233,11 +240,17 @@ function printTargetSection(title: string, cr: CheckResult): void {
 function formatSkillState(s: CheckResult["skill"]): string {
   switch (s.state) {
     case "ok":
-      return `${c.ok("ok")} ${c.dim(s.installedAt + " → " + s.currentTarget)}`;
+      // Symlink installs show "→ target"; copied installs (no currentTarget)
+      // show the version note instead.
+      return s.currentTarget
+        ? `${c.ok("ok")} ${c.dim(s.installedAt + " → " + s.currentTarget)}`
+        : `${c.ok("ok")} ${c.dim((s.installedAt ?? "") + (s.note ? ` (${s.note})` : ""))}`;
     case "missing":
       return `${c.dim("not installed")}`;
     case "stale":
-      return `${c.warn("stale")} ${c.dim(s.installedAt + " → " + s.currentTarget + (s.note ? ` (${s.note})` : ""))}`;
+      return s.currentTarget
+        ? `${c.warn("stale")} ${c.dim(s.installedAt + " → " + s.currentTarget + (s.note ? ` (${s.note})` : ""))}`
+        : `${c.warn("stale")} ${c.dim((s.installedAt ?? "") + (s.note ? ` (${s.note})` : ""))}`;
     case "wrong-target":
       return `${c.warn("wrong-target")} ${c.dim((s.installedAt ?? "") + " → " + (s.currentTarget ?? "") + (s.note ? ` (${s.note})` : ""))}`;
   }

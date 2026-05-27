@@ -16,10 +16,11 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { existsSync, mkdirSync, lstatSync, readlinkSync, symlinkSync, unlinkSync } from "node:fs";
+import { existsSync, lstatSync, readlinkSync, readFileSync } from "node:fs";
 import { readJsonConfig } from "./json-config";
-import { skillSourcePath, mcpCommand, escapePointer } from "./claude-code";
+import { skillSourcePath, mcpCommand, escapePointer, VERSION_MARKER } from "./claude-code";
 import { bundledHooksDir } from "../../core/config";
+import pkg from "../../../package.json" with { type: "json" };
 import type {
   CheckReport,
   InstallOptions,
@@ -30,6 +31,26 @@ import type {
 
 const SKILL_NAME = "folio";
 const HOOK_NAME = "folio-event-watcher";
+
+// OpenClaw skills/hooks are installed as COPIED directories, not symlinks:
+// its loader rejects any whose realpath escapes the workspace root (a
+// supply-chain "symlink-escape" guard), and Folio's bundle lives in
+// /opt/folio/<ver> — outside the root — so a symlink is silently skipped and
+// the skill never loads. A copy is the only thing OpenClaw will accept. The
+// copied dir is stamped with VERSION_MARKER (.folio-version) so reinstall /
+// `folio update` can detect version drift and re-copy.
+const FOLIO_VERSION: string = pkg.version;
+
+/** A real (non-symlink) directory at p. lstat doesn't follow links, so a
+ *  symlink-to-dir reports isDirectory() === false here. */
+function isRealDir(p: string): boolean {
+  try { return lstatSync(p).isDirectory(); } catch { return false; }
+}
+
+/** Folio version recorded in a copied skill/hook dir's marker, or null. */
+function markerVersion(dir: string): string | null {
+  try { return readFileSync(join(dir, VERSION_MARKER), "utf-8").trim() || null; } catch { return null; }
+}
 
 export interface OpenclawPaths {
   home: string;
@@ -56,7 +77,8 @@ export function openclawPaths(homeOverride?: string): OpenclawPaths {
 }
 
 /** v0.21.0+: source path of the bundled folio-event-watcher OpenClaw hook.
- *  Symlinked into ~/.openclaw/hooks/<HOOK_NAME>/ by `folio install`. */
+ *  Copied into ~/.openclaw/hooks/<HOOK_NAME>/ by `folio install` (copy, not
+ *  symlink — same escape-guard reason as the skill). */
 export function hookSourcePath(): string {
   return join(bundledHooksDir(), "openclaw", HOOK_NAME);
 }
@@ -107,25 +129,22 @@ export function planInstall(opts: InstallOptions, paths = openclawPaths()): Inst
     return { target: "openclaw", actions, warnings };
   }
 
-  // ── Skill symlink ──
+  // ── Skill (copied dir, NOT a symlink — see FOLIO_VERSION note above) ──
   if (wantSkill) {
     const src = skillSourcePath();
     if (!existsSync(src)) {
       warnings.push(`Skill source missing at ${src} — Folio install is incomplete.`);
     } else {
       const dst = paths.skillLink;
-      if (isSymlink(dst)) {
-        const current = readlinkSafe(dst);
-        if (current === src) {
-          actions.push({ kind: "noop", reason: `skill already linked → ${src}` });
-        } else {
-          actions.push({ kind: "rmSymlink", dst, currentTarget: current, reason: "skill symlink points elsewhere; will retarget" });
-          actions.push({ kind: "symlink", src, dst, reason: "create skill symlink" });
-        }
-      } else if (existsSync(dst)) {
-        warnings.push(`${dst} exists and is not a symlink; refusing to overwrite. Move it aside and re-run.`);
+      if (isRealDir(dst) && markerVersion(dst) === FOLIO_VERSION && existsSync(join(dst, "SKILL.md"))) {
+        actions.push({ kind: "noop", reason: `skill already installed (copy, v${FOLIO_VERSION})` });
       } else {
-        actions.push({ kind: "symlink", src, dst, reason: "create skill symlink" });
+        const reason = isSymlink(dst)
+          ? "replace legacy skill symlink with a copied dir (OpenClaw rejects symlink-escape)"
+          : isRealDir(dst)
+            ? `refresh copied skill (${markerVersion(dst) ?? "unversioned"} → v${FOLIO_VERSION})`
+            : "copy skill into workspace";
+        actions.push({ kind: "copyDir", src, dst, version: FOLIO_VERSION, reason });
       }
     }
 
@@ -165,18 +184,17 @@ export function planInstall(opts: InstallOptions, paths = openclawPaths()): Inst
       warnings.push(`Hook source missing at ${src} — Folio install bundle is incomplete.`);
     } else {
       const dst = paths.hookLink;
-      if (isSymlink(dst)) {
-        const current = readlinkSafe(dst);
-        if (current === src) {
-          actions.push({ kind: "noop", reason: `hook already linked → ${src}` });
-        } else {
-          actions.push({ kind: "rmSymlink", dst, currentTarget: current, reason: "hook symlink points elsewhere; will retarget" });
-          actions.push({ kind: "symlink", src, dst, reason: "create hook symlink" });
-        }
-      } else if (existsSync(dst)) {
-        warnings.push(`${dst} exists and is not a symlink; refusing to overwrite. Move it aside and re-run.`);
+      // Same copy treatment as the skill — OpenClaw applies the escape guard to
+      // hook paths too, so a symlink into /opt/folio won't load.
+      if (isRealDir(dst) && markerVersion(dst) === FOLIO_VERSION) {
+        actions.push({ kind: "noop", reason: `hook already installed (copy, v${FOLIO_VERSION})` });
       } else {
-        actions.push({ kind: "symlink", src, dst, reason: "create hook symlink" });
+        const reason = isSymlink(dst)
+          ? "replace legacy hook symlink with a copied dir"
+          : isRealDir(dst)
+            ? `refresh copied hook (${markerVersion(dst) ?? "unversioned"} → v${FOLIO_VERSION})`
+            : "copy hook into workspace";
+        actions.push({ kind: "copyDir", src, dst, version: FOLIO_VERSION, reason });
       }
     }
 
@@ -249,11 +267,17 @@ export function planUninstall(opts: UninstallOptions, paths = openclawPaths()): 
     const dst = paths.skillLink;
     if (isSymlink(dst)) {
       const current = readlinkSafe(dst);
-      actions.push({ kind: "rmSymlink", dst, currentTarget: current, reason: "remove skill symlink" });
+      actions.push({ kind: "rmSymlink", dst, currentTarget: current, reason: "remove legacy skill symlink" });
+    } else if (isRealDir(dst)) {
+      if (markerVersion(dst) !== null) {
+        actions.push({ kind: "rmDir", dst, reason: "remove copied skill dir" });
+      } else {
+        warnings.push(`${dst} is a directory without a Folio marker; leaving alone (not created by folio install).`);
+      }
     } else if (existsSync(dst)) {
-      warnings.push(`${dst} exists but is not a symlink; leaving alone.`);
+      warnings.push(`${dst} exists but is neither a symlink nor a directory; leaving alone.`);
     } else {
-      actions.push({ kind: "noop", reason: "skill symlink already absent" });
+      actions.push({ kind: "noop", reason: "skill already absent" });
     }
 
     // Also clear any extraDirs entries that point at folio skill folders —
@@ -285,11 +309,17 @@ export function planUninstall(opts: UninstallOptions, paths = openclawPaths()): 
     const dst = paths.hookLink;
     if (isSymlink(dst)) {
       const current = readlinkSafe(dst);
-      actions.push({ kind: "rmSymlink", dst, currentTarget: current, reason: "remove hook symlink" });
+      actions.push({ kind: "rmSymlink", dst, currentTarget: current, reason: "remove legacy hook symlink" });
+    } else if (isRealDir(dst)) {
+      if (markerVersion(dst) !== null) {
+        actions.push({ kind: "rmDir", dst, reason: "remove copied hook dir" });
+      } else {
+        warnings.push(`${dst} is a directory without a Folio marker; leaving alone (not created by folio install).`);
+      }
     } else if (existsSync(dst)) {
-      warnings.push(`${dst} exists but is not a symlink; leaving alone.`);
+      warnings.push(`${dst} exists but is neither a symlink nor a directory; leaving alone.`);
     } else {
-      actions.push({ kind: "noop", reason: "hook symlink already absent" });
+      actions.push({ kind: "noop", reason: "hook already absent" });
     }
 
     const cfg = readJsonConfig<any>(paths.configJson);
@@ -337,20 +367,25 @@ export function check(paths = openclawPaths()): CheckReport {
   const link = paths.skillLink;
   let skill: CheckReport["skill"];
   if (isSymlink(link)) {
-    const current = readlinkSafe(link);
-    if (current === expected) {
-      skill = {
-        expected,
-        installedAt: link,
-        currentTarget: current,
-        state: existsSync(expected) ? "ok" : "stale",
-        note: existsSync(expected) ? undefined : "symlink target does not exist",
-      };
+    // A symlink is the *broken* state now — OpenClaw rejects it (symlink-escape).
+    skill = {
+      expected, installedAt: link, currentTarget: readlinkSafe(link), state: "wrong-target",
+      note: "legacy symlink — OpenClaw rejects it (symlink-escape); re-run install to copy a real dir",
+    };
+  } else if (isRealDir(link)) {
+    const mv = markerVersion(link);
+    if (!existsSync(join(link, "SKILL.md"))) {
+      skill = { expected, installedAt: link, currentTarget: null, state: "wrong-target", note: "directory present but no SKILL.md" };
+    } else if (mv === FOLIO_VERSION) {
+      skill = { expected, installedAt: link, currentTarget: null, state: "ok", note: `copy, v${FOLIO_VERSION}` };
     } else {
-      skill = { expected, installedAt: link, currentTarget: current, state: "wrong-target" };
+      skill = {
+        expected, installedAt: link, currentTarget: null, state: "stale",
+        note: `copied skill is ${mv ? "v" + mv : "unversioned"}; Folio is v${FOLIO_VERSION} — re-run install to refresh`,
+      };
     }
   } else if (existsSync(link)) {
-    skill = { expected, installedAt: link, currentTarget: null, state: "wrong-target", note: "exists but is not a symlink" };
+    skill = { expected, installedAt: link, currentTarget: null, state: "wrong-target", note: "exists but is not a directory" };
   } else {
     skill = { expected, installedAt: null, currentTarget: null, state: "missing" };
   }
@@ -368,32 +403,33 @@ export function check(paths = openclawPaths()): CheckReport {
       });
     }
 
-    // ── Hook check (v0.21.0+) ──
+    // ── Hook check (v0.21.0+; copied dir since the symlink-escape fix) ──
     const hookExpected = hookSourcePath();
     const hookLink = paths.hookLink;
     const hookCfg = cfg?.hooks?.internal?.entries?.[HOOK_NAME];
     const enabled = hookCfg && typeof hookCfg === "object" && hookCfg.enabled === true;
     if (isSymlink(hookLink)) {
-      const current = readlinkSafe(hookLink);
-      if (current === hookExpected) {
-        const state: NonNullable<CheckReport["hook"]>["state"] = existsSync(hookExpected)
-          ? (enabled ? "ok" : "disabled")
-          : "stale";
+      hook = {
+        name: HOOK_NAME, expected: hookExpected, installedAt: hookLink, currentTarget: readlinkSafe(hookLink),
+        state: "wrong-target", note: "legacy symlink — OpenClaw may reject it (symlink-escape); re-run install to copy",
+      };
+    } else if (isRealDir(hookLink)) {
+      const mv = markerVersion(hookLink);
+      if (mv !== FOLIO_VERSION) {
         hook = {
-          name: HOOK_NAME,
-          expected: hookExpected,
-          installedAt: hookLink,
-          currentTarget: current,
-          state,
-          note: !existsSync(hookExpected)
-            ? "symlink target does not exist"
-            : (!enabled ? "symlink in place but disabled in openclaw.json" : undefined),
+          name: HOOK_NAME, expected: hookExpected, installedAt: hookLink, currentTarget: null, state: "stale",
+          note: `copied hook is ${mv ? "v" + mv : "unversioned"}; Folio is v${FOLIO_VERSION} — re-run install to refresh`,
+        };
+      } else if (!enabled) {
+        hook = {
+          name: HOOK_NAME, expected: hookExpected, installedAt: hookLink, currentTarget: null, state: "disabled",
+          note: "copied but disabled in openclaw.json",
         };
       } else {
-        hook = { name: HOOK_NAME, expected: hookExpected, installedAt: hookLink, currentTarget: current, state: "wrong-target" };
+        hook = { name: HOOK_NAME, expected: hookExpected, installedAt: hookLink, currentTarget: null, state: "ok", note: `copy, v${FOLIO_VERSION}` };
       }
     } else if (existsSync(hookLink)) {
-      hook = { name: HOOK_NAME, expected: hookExpected, installedAt: hookLink, currentTarget: null, state: "wrong-target", note: "exists but is not a symlink" };
+      hook = { name: HOOK_NAME, expected: hookExpected, installedAt: hookLink, currentTarget: null, state: "wrong-target", note: "exists but is not a directory" };
     } else {
       hook = { name: HOOK_NAME, expected: hookExpected, installedAt: null, currentTarget: null, state: "missing" };
     }

@@ -220,6 +220,10 @@ function formatAction(a: PlanAction): string {
       return `${c.cyan("symlink")}    ${a.dst} → ${a.src}  ${c.dim("# " + a.reason)}`;
     case "rmSymlink":
       return `${c.warn("rmlink")}     ${a.dst}  ${c.dim("# " + a.reason + (a.currentTarget ? ` (was → ${a.currentTarget})` : ""))}`;
+    case "copyDir":
+      return `${c.cyan("copydir")}    ${a.dst} ${c.dim("← " + a.src)}  ${c.dim("# " + a.reason)}`;
+    case "rmDir":
+      return `${c.warn("rmdir")}      ${a.dst}  ${c.dim("# " + a.reason)}`;
     case "writeJson":
       return `${c.cyan("write")}      ${a.file} ${c.dim(a.jsonPointer)}  ${c.dim("# " + a.reason)}`;
     case "deleteJson":

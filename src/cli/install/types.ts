@@ -56,6 +56,15 @@ export interface UninstallOptions {
 export type PlanAction =
   | { kind: "symlink"; src: string; dst: string; reason: string }
   | { kind: "rmSymlink"; dst: string; currentTarget: string | null; reason: string }
+  // copyDir/rmDir: install a skill/hook as a real copied directory rather than
+  // a symlink. OpenClaw's loader rejects skills/hooks whose realpath escapes its
+  // workspace root (symlink-escape guard), so a symlink into /opt/folio is never
+  // loaded — the copy is the only thing OpenClaw will accept. `version` is
+  // stamped into a .folio-version marker so a later install/`folio update` can
+  // detect drift and re-copy. copyDir removes any existing dst first (symlink,
+  // stale copy, or file), then copies with symlinks dereferenced (cp -rL).
+  | { kind: "copyDir"; src: string; dst: string; version: string; reason: string }
+  | { kind: "rmDir"; dst: string; reason: string }
   | { kind: "writeJson"; file: string; jsonPointer: string; before: unknown; after: unknown; reason: string }
   | { kind: "deleteJson"; file: string; jsonPointer: string; before: unknown; reason: string }
   | { kind: "noop"; reason: string };

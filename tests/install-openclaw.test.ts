@@ -1,5 +1,5 @@
 import { expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, existsSync, lstatSync, readlinkSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, lstatSync, writeFileSync, mkdirSync, symlinkSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,6 +13,9 @@ import {
 } from "../src/cli/install/openclaw";
 import { applyPlan, skillSourcePath } from "../src/cli/install/claude-code";
 import { _resetBackupMemoForTests, readJsonConfig } from "../src/cli/install/json-config";
+import pkg from "../package.json" with { type: "json" };
+
+const VERSION = pkg.version;
 
 let fakeHome: string;
 
@@ -35,6 +38,18 @@ function seedOpenclawConfig(extra: any = {}): void {
   writeFileSync(p.configJson, JSON.stringify({ mcp: { servers: {} }, ...extra }, null, 2));
 }
 
+/** A real (non-symlink) directory. */
+function isRealDir(p: string): boolean {
+  try { return lstatSync(p).isDirectory(); } catch { return false; }
+}
+/** True when p is the Folio skill installed as a copy: real dir + SKILL.md + marker. */
+function isCopiedSkill(p: string): boolean {
+  return isRealDir(p) && existsSync(join(p, "SKILL.md")) && existsSync(join(p, ".folio-version"));
+}
+function markerOf(p: string): string {
+  return readFileSync(join(p, ".folio-version"), "utf-8").trim();
+}
+
 // ───── isOpenclawPresent ──────────────────────────────────────────────────
 
 test("isOpenclawPresent is false when openclaw.json missing", () => {
@@ -55,52 +70,77 @@ test("planInstall on missing OpenClaw warns and emits no actions", () => {
   expect(plan.warnings[0]).toContain("OpenClaw not detected");
 });
 
-test("planInstall on fresh OpenClaw produces symlinks (skill + hook) + writeJson for hook entry + MCP", () => {
+test("planInstall on fresh OpenClaw copies skill + hook (copyDir, NOT symlink) + writeJson for hook entry + MCP", () => {
   seedOpenclawConfig();
   const plan = planInstall({ target: "openclaw" }, paths());
   const kinds = plan.actions.map((a) => a.kind);
-  expect(kinds).toContain("symlink");
-  expect(kinds).toContain("writeJson");
-  // v0.21.0+: two symlinks (skill + hook), two writeJsons (hook entry + MCP).
-  const symlinks = plan.actions.filter((a) => a.kind === "symlink");
-  expect(symlinks.length).toBe(2);
+  // The bug fix: directories are copied, never symlinked, for OpenClaw.
+  expect(kinds).not.toContain("symlink");
+  expect(kinds).toContain("copyDir");
+  const copies = plan.actions.filter((a) => a.kind === "copyDir");
+  expect(copies.length).toBe(2); // skill + hook
+  copies.forEach((a: any) => expect(a.version).toBe(VERSION));
   const writes = plan.actions.filter((a) => a.kind === "writeJson");
-  expect(writes.length).toBe(2);
+  expect(writes.length).toBe(2); // hook entry + MCP
 });
 
-test("apply install creates workspace symlink + writes MCP entry", () => {
+test("apply install creates a REAL skill dir (copy) with SKILL.md + version marker — not a symlink", () => {
   seedOpenclawConfig();
-  const plan = planInstall({ target: "openclaw" }, paths());
-  const report = applyPlan(plan);
+  const report = applyPlan(planInstall({ target: "openclaw" }, paths()));
   expect(report.errors).toEqual([]);
-  expect(lstatSync(paths().skillLink).isSymbolicLink()).toBe(true);
-  expect(readlinkSync(paths().skillLink)).toBe(skillSourcePath());
+  const link = paths().skillLink;
+  expect(lstatSync(link).isSymbolicLink()).toBe(false);
+  expect(isCopiedSkill(link)).toBe(true);
+  expect(markerOf(link)).toBe(VERSION);
   const cfg = readJsonConfig<any>(paths().configJson);
   expect(cfg.mcp.servers.folio.command).toBeString();
-  // OpenClaw entries do not carry a `type` field.
   expect(cfg.mcp.servers.folio.type).toBeUndefined();
 });
 
-test("re-running install is idempotent (all noop)", () => {
+test("re-running install is idempotent (all noop) when version unchanged", () => {
   seedOpenclawConfig();
   applyPlan(planInstall({ target: "openclaw" }, paths()));
   const plan2 = planInstall({ target: "openclaw" }, paths());
   expect(plan2.actions.every((a) => a.kind === "noop")).toBe(true);
 });
 
-test("install with --skill-only does not touch mcp.servers.folio", () => {
+test("version drift re-copies the skill (marker mismatch → copyDir, not noop)", () => {
   seedOpenclawConfig();
+  applyPlan(planInstall({ target: "openclaw" }, paths()));
+  // Simulate a prior install from an older Folio version.
+  writeFileSync(join(paths().skillLink, ".folio-version"), "0.0.1\n");
   const plan = planInstall({ target: "openclaw", skill: true, mcp: false }, paths());
+  const skillCopy = plan.actions.find((a) => a.kind === "copyDir" && a.dst === paths().skillLink) as any;
+  expect(skillCopy).toBeDefined();
+  expect(skillCopy.reason).toContain("refresh");
   applyPlan(plan);
-  const cfg = readJsonConfig<any>(paths().configJson);
-  expect(cfg.mcp.servers.folio).toBeUndefined();
-  expect(lstatSync(paths().skillLink).isSymbolicLink()).toBe(true);
+  expect(markerOf(paths().skillLink)).toBe(VERSION);
 });
 
-test("install with --mcp-only does not create the workspace symlink", () => {
+test("a legacy symlink install is replaced by a real copied dir", () => {
   seedOpenclawConfig();
-  const plan = planInstall({ target: "openclaw", skill: false, mcp: true }, paths());
+  mkdirSync(paths().workspaceSkills, { recursive: true });
+  symlinkSync(skillSourcePath(), paths().skillLink); // legacy install
+  const plan = planInstall({ target: "openclaw", skill: true, mcp: false }, paths());
+  const skillCopy = plan.actions.find((a) => a.kind === "copyDir" && a.dst === paths().skillLink) as any;
+  expect(skillCopy).toBeDefined();
+  expect(skillCopy.reason).toContain("replace legacy");
   applyPlan(plan);
+  expect(lstatSync(paths().skillLink).isSymbolicLink()).toBe(false);
+  expect(isCopiedSkill(paths().skillLink)).toBe(true);
+});
+
+test("install with --skill-only does not touch mcp.servers.folio", () => {
+  seedOpenclawConfig();
+  applyPlan(planInstall({ target: "openclaw", skill: true, mcp: false }, paths()));
+  const cfg = readJsonConfig<any>(paths().configJson);
+  expect(cfg.mcp.servers.folio).toBeUndefined();
+  expect(isCopiedSkill(paths().skillLink)).toBe(true);
+});
+
+test("install with --mcp-only does not create the workspace skill dir", () => {
+  seedOpenclawConfig();
+  applyPlan(planInstall({ target: "openclaw", skill: false, mcp: true }, paths()));
   expect(existsSync(paths().skillLink)).toBe(false);
   const cfg = readJsonConfig<any>(paths().configJson);
   expect(cfg.mcp.servers.folio).toBeDefined();
@@ -120,8 +160,7 @@ test("install removes stale folio paths from skills.load.extraDirs", () => {
       },
     },
   });
-  const plan = planInstall({ target: "openclaw" }, paths());
-  applyPlan(plan);
+  applyPlan(planInstall({ target: "openclaw" }, paths()));
   const cfg = readJsonConfig<any>(paths().configJson);
   expect(cfg.skills.load.extraDirs).toEqual(["/keep/this/skills/other-skill"]);
 });
@@ -130,8 +169,7 @@ test("install leaves extraDirs alone when no folio paths present", () => {
   seedOpenclawConfig({
     skills: { load: { extraDirs: ["/keep/this/skills/other"] } },
   });
-  const plan = planInstall({ target: "openclaw" }, paths());
-  applyPlan(plan);
+  applyPlan(planInstall({ target: "openclaw" }, paths()));
   const cfg = readJsonConfig<any>(paths().configJson);
   expect(cfg.skills.load.extraDirs).toEqual(["/keep/this/skills/other"]);
 });
@@ -140,18 +178,9 @@ test("install leaves extraDirs alone when no folio paths present", () => {
 
 test("install preserves existing env (e.g. FOLIO_HOME) on MCP entry update", () => {
   seedOpenclawConfig({
-    mcp: {
-      servers: {
-        folio: {
-          command: "/old/folio-mcp",
-          args: [],
-          env: { FOLIO_HOME: "/tmp/folio-test-home" },
-        },
-      },
-    },
+    mcp: { servers: { folio: { command: "/old/folio-mcp", args: [], env: { FOLIO_HOME: "/tmp/folio-test-home" } } } },
   });
-  const plan = planInstall({ target: "openclaw" }, paths());
-  applyPlan(plan);
+  applyPlan(planInstall({ target: "openclaw" }, paths()));
   const cfg = readJsonConfig<any>(paths().configJson);
   expect(cfg.mcp.servers.folio.env.FOLIO_HOME).toBe("/tmp/folio-test-home");
   expect(cfg.mcp.servers.folio.command).not.toBe("/old/folio-mcp");
@@ -159,8 +188,7 @@ test("install preserves existing env (e.g. FOLIO_HOME) on MCP entry update", () 
 
 test("fresh install starts with empty env", () => {
   seedOpenclawConfig();
-  const plan = planInstall({ target: "openclaw" }, paths());
-  applyPlan(plan);
+  applyPlan(planInstall({ target: "openclaw" }, paths()));
   const cfg = readJsonConfig<any>(paths().configJson);
   expect(cfg.mcp.servers.folio.env).toEqual({});
 });
@@ -189,37 +217,44 @@ test("install creates a backup of openclaw.json on first touch", () => {
 
 // ───── planUninstall ─────────────────────────────────────────────────────
 
-test("uninstall removes symlink + mcp entry, keeps unrelated servers", () => {
+test("uninstall removes copied skill dir + mcp entry, keeps unrelated servers", () => {
   seedOpenclawConfig({
-    mcp: {
-      servers: {
-        folio: { command: "/old", args: [], env: {} },
-        other: { command: "/usr/bin/other" },
-      },
-    },
+    mcp: { servers: { other: { command: "/usr/bin/other" } } },
   });
-  mkdirSync(paths().workspaceSkills, { recursive: true });
-  symlinkSync(skillSourcePath(), paths().skillLink);
+  applyPlan(planInstall({ target: "openclaw" }, paths())); // copy in
+  expect(isCopiedSkill(paths().skillLink)).toBe(true);
 
-  const plan = planUninstall({ target: "openclaw" }, paths());
-  applyPlan(plan);
-
+  applyPlan(planUninstall({ target: "openclaw" }, paths()));
   const cfg = readJsonConfig<any>(paths().configJson);
   expect(cfg.mcp.servers.folio).toBeUndefined();
   expect(cfg.mcp.servers.other.command).toBe("/usr/bin/other");
   expect(existsSync(paths().skillLink)).toBe(false);
 });
 
+test("uninstall removes a legacy skill symlink too", () => {
+  seedOpenclawConfig();
+  mkdirSync(paths().workspaceSkills, { recursive: true });
+  symlinkSync(skillSourcePath(), paths().skillLink);
+  applyPlan(planUninstall({ target: "openclaw" }, paths()));
+  expect(existsSync(paths().skillLink)).toBe(false);
+});
+
+test("uninstall leaves a non-Folio directory (no marker) alone", () => {
+  seedOpenclawConfig();
+  mkdirSync(paths().skillLink, { recursive: true });
+  writeFileSync(join(paths().skillLink, "README.md"), "not folio"); // no marker
+  const plan = planUninstall({ target: "openclaw", skill: true, mcp: false }, paths());
+  expect(plan.actions.some((a) => a.kind === "rmDir")).toBe(false);
+  expect(plan.warnings.some((w) => w.includes("without a Folio marker"))).toBe(true);
+  applyPlan(plan);
+  expect(existsSync(paths().skillLink)).toBe(true);
+});
+
 test("uninstall also clears matching extraDirs entries", () => {
   seedOpenclawConfig({
-    skills: {
-      load: {
-        extraDirs: ["/Users/x/Projects/Folio/skills/folio", "/keep/me/skills/other"],
-      },
-    },
+    skills: { load: { extraDirs: ["/Users/x/Projects/Folio/skills/folio", "/keep/me/skills/other"] } },
   });
-  const plan = planUninstall({ target: "openclaw", skill: true, mcp: false }, paths());
-  applyPlan(plan);
+  applyPlan(planUninstall({ target: "openclaw", skill: true, mcp: false }, paths()));
   const cfg = readJsonConfig<any>(paths().configJson);
   expect(cfg.skills.load.extraDirs).toEqual(["/keep/me/skills/other"]);
 });
@@ -233,17 +268,34 @@ test("check reports missing skill + no entries on fresh openclaw", () => {
   expect(r.mcp.entries).toEqual([]);
 });
 
-test("check reports ok after install", () => {
+test("check reports ok (healthy copy) after install", () => {
   seedOpenclawConfig();
   applyPlan(planInstall({ target: "openclaw" }, paths()));
   const r = check(paths());
   expect(r.skill.state).toBe("ok");
+  expect(r.skill.note).toContain("copy");
   expect(r.mcp.entries.length).toBe(1);
   expect(r.mcp.entries[0]!.scope).toBe("global");
 });
 
+test("check flags a legacy symlink as wrong-target (the bug)", () => {
+  seedOpenclawConfig();
+  mkdirSync(paths().workspaceSkills, { recursive: true });
+  symlinkSync(skillSourcePath(), paths().skillLink);
+  const r = check(paths());
+  expect(r.skill.state).toBe("wrong-target");
+  expect(r.skill.note).toContain("symlink");
+});
+
+test("check flags a version-drifted copy as stale", () => {
+  seedOpenclawConfig();
+  applyPlan(planInstall({ target: "openclaw" }, paths()));
+  writeFileSync(join(paths().skillLink, ".folio-version"), "0.0.1\n");
+  const r = check(paths());
+  expect(r.skill.state).toBe("stale");
+});
+
 test("check returns missing-skill-but-no-mcp-entries when openclaw absent", () => {
-  // No openclaw.json: check shouldn't read mcp entries.
   const r = check(paths());
   expect(r.skill.state).toBe("missing");
   expect(r.mcp.entries).toEqual([]);
@@ -257,36 +309,38 @@ test("refreshAfterUpdate is noop when nothing installed", () => {
   expect(r.refreshed).toBe(0);
 });
 
-test("refreshAfterUpdate rewrites MCP command when binary path changes", () => {
+test("refreshAfterUpdate rewrites MCP command + re-copies skill when binary path changes", () => {
   seedOpenclawConfig({
     mcp: { servers: { folio: { command: "/old/folio-mcp", args: [], env: {} } } },
   });
-  mkdirSync(paths().workspaceSkills, { recursive: true });
-  symlinkSync(skillSourcePath(), paths().skillLink);
+  applyPlan(planInstall({ target: "openclaw", skill: true, mcp: false }, paths())); // copy skill in
+  // Simulate an older copy + stale MCP command (as after a `folio update`).
+  writeFileSync(join(paths().skillLink, ".folio-version"), "0.0.1\n");
   const r = refreshAfterUpdate(paths());
   expect(r.refreshed).toBeGreaterThan(0);
   const cfg = readJsonConfig<any>(paths().configJson);
   expect(cfg.mcp.servers.folio.command).not.toBe("/old/folio-mcp");
+  expect(markerOf(paths().skillLink)).toBe(VERSION); // re-copied to current
 });
 
 test("refreshAfterUpdate is a noop when OpenClaw is absent entirely", () => {
-  // No seed → openclaw.json missing.
   const r = refreshAfterUpdate(paths());
   expect(r.refreshed).toBe(0);
 });
 
-// ───── v0.21.0+: folio-event-watcher hook install ────────────────────────
+// ───── folio-event-watcher hook (copied dir since the symlink-escape fix) ──
 
-test("v0.21.0: install creates hook symlink + writes enabled flag", () => {
+test("install copies the hook dir + writes enabled flag", () => {
   seedOpenclawConfig();
   applyPlan(planInstall({ target: "openclaw" }, paths()));
-  // Hook symlink in ~/.openclaw/hooks/folio-event-watcher → bundled hook dir
-  expect(lstatSync(paths().hookLink).isSymbolicLink()).toBe(true);
+  expect(lstatSync(paths().hookLink).isSymbolicLink()).toBe(false);
+  expect(isRealDir(paths().hookLink)).toBe(true);
+  expect(existsSync(join(paths().hookLink, ".folio-version"))).toBe(true);
   const cfg = readJsonConfig<any>(paths().configJson);
   expect(cfg.hooks.internal.entries["folio-event-watcher"].enabled).toBe(true);
 });
 
-test("v0.21.0: check reports hook state ok after install", () => {
+test("check reports hook state ok after install", () => {
   seedOpenclawConfig();
   applyPlan(planInstall({ target: "openclaw" }, paths()));
   const r = check(paths());
@@ -295,52 +349,45 @@ test("v0.21.0: check reports hook state ok after install", () => {
   expect(r.hook!.state).toBe("ok");
 });
 
-test("v0.21.0: check reports hook missing on fresh openclaw (before install)", () => {
+test("check reports hook missing on fresh openclaw (before install)", () => {
   seedOpenclawConfig();
   const r = check(paths());
-  expect(r.hook).toBeDefined();
   expect(r.hook!.state).toBe("missing");
 });
 
-test("v0.21.0: check reports hook disabled when symlink present but enabled=false", () => {
+test("check reports hook disabled when copy present but enabled=false", () => {
   seedOpenclawConfig();
   applyPlan(planInstall({ target: "openclaw" }, paths()));
-  // Flip the enabled flag off — symlink still in place.
   const cfg = readJsonConfig<any>(paths().configJson);
   cfg.hooks.internal.entries["folio-event-watcher"].enabled = false;
-  const { writeFileSync } = require("node:fs");
   writeFileSync(paths().configJson, JSON.stringify(cfg, null, 2));
   const r = check(paths());
   expect(r.hook!.state).toBe("disabled");
 });
 
-test("v0.21.0: uninstall removes hook symlink + entry alongside skill", () => {
+test("uninstall removes copied hook dir + entry alongside skill", () => {
   seedOpenclawConfig();
   applyPlan(planInstall({ target: "openclaw" }, paths()));
-  // confirm both in place
-  expect(lstatSync(paths().hookLink).isSymbolicLink()).toBe(true);
+  expect(isRealDir(paths().hookLink)).toBe(true);
   applyPlan(planUninstall({ target: "openclaw" }, paths()));
-  // hook symlink gone
   expect(existsSync(paths().hookLink)).toBe(false);
   const cfg = readJsonConfig<any>(paths().configJson);
   expect(cfg.hooks?.internal?.entries?.["folio-event-watcher"]).toBeUndefined();
 });
 
-test("v0.21.0: install with --skill-only opts out of MCP but keeps hook (hook tracks skill flag)", () => {
+test("install with --skill-only keeps the hook (copied), opts out of MCP", () => {
   seedOpenclawConfig();
-  const plan = planInstall({ target: "openclaw", mcp: false }, paths());
-  applyPlan(plan);
-  expect(lstatSync(paths().skillLink).isSymbolicLink()).toBe(true);
-  expect(lstatSync(paths().hookLink).isSymbolicLink()).toBe(true);
+  applyPlan(planInstall({ target: "openclaw", mcp: false }, paths()));
+  expect(isCopiedSkill(paths().skillLink)).toBe(true);
+  expect(isRealDir(paths().hookLink)).toBe(true);
   const cfg = readJsonConfig<any>(paths().configJson);
   expect(cfg.hooks.internal.entries["folio-event-watcher"].enabled).toBe(true);
   expect(cfg.mcp?.servers?.folio).toBeUndefined();
 });
 
-test("v0.21.0: install with --mcp-only does NOT install the hook (hook coupled to skill)", () => {
+test("install with --mcp-only does NOT install the hook (hook coupled to skill)", () => {
   seedOpenclawConfig();
-  const plan = planInstall({ target: "openclaw", skill: false }, paths());
-  applyPlan(plan);
+  applyPlan(planInstall({ target: "openclaw", skill: false }, paths()));
   expect(existsSync(paths().hookLink)).toBe(false);
   expect(existsSync(paths().skillLink)).toBe(false);
   const cfg = readJsonConfig<any>(paths().configJson);

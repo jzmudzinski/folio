@@ -15,7 +15,7 @@
 
 import { homedir } from "node:os";
 import { join, dirname, isAbsolute, resolve } from "node:path";
-import { existsSync, mkdirSync, lstatSync, readlinkSync, symlinkSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, lstatSync, readlinkSync, symlinkSync, unlinkSync, cpSync, rmSync, writeFileSync } from "node:fs";
 import { bundledSkillsDir } from "../../core/config";
 import { mutateJsonConfig, readJsonConfig } from "./json-config";
 import type {
@@ -28,6 +28,11 @@ import type {
 } from "./types";
 
 const SKILL_NAME = "folio";
+
+// Marker file written into a copied skill/hook dir (copyDir action) recording
+// the Folio version it was copied from, so a later install / `folio update`
+// can detect drift and re-copy. Shared with openclaw.ts.
+export const VERSION_MARKER = ".folio-version";
 
 export interface ClaudeCodePaths {
   home: string;
@@ -246,6 +251,20 @@ export function applyPlan(plan: InstallPlan, _paths?: unknown): ApplyReport {
           break;
         case "rmSymlink":
           if (isSymlink(a.dst)) unlinkSync(a.dst);
+          report.applied.push(a);
+          break;
+        case "copyDir":
+          // Self-contained replace: clear whatever's at dst (legacy symlink,
+          // stale copy, or stray file), then copy the source tree with symlinks
+          // dereferenced (cp -rL), and stamp the version marker.
+          rmSync(a.dst, { recursive: true, force: true });
+          ensureDir(dirname(a.dst));
+          cpSync(a.src, a.dst, { recursive: true, dereference: true });
+          writeFileSync(join(a.dst, VERSION_MARKER), a.version + "\n");
+          report.applied.push(a);
+          break;
+        case "rmDir":
+          rmSync(a.dst, { recursive: true, force: true });
           report.applied.push(a);
           break;
         case "writeJson":

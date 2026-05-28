@@ -2,6 +2,19 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.39.0 — 2026-05-28
+
+**Added — `body_path` on `create` / `replace`, so large note bodies aren't truncated.** A big `body_html` passed inline can be silently cut off by the agent runtime before it reaches Folio (the MCP tool-call argument size ceiling) — an agent trying to save a ~50KB transcript would get a truncated note and start improvising disk-write hacks. Folio itself has no body-size limit; the bottleneck was the inline argument.
+
+### Added
+
+- **`create` and `replace` accept `body_path`** — an absolute path Folio reads **server-side**, bypassing the tool-call argument size limit entirely. Mutually exclusive with `body_html`; provide exactly one. Sanitized identically. Use it for transcripts, long docs, pasted logs — write the HTML to a file and point Folio at it.
+- The skill (SKILL.md) now tells agents to reach for `body_path` on large bodies instead of cramming `body_html`.
+
+### Changed
+
+- `body_html` is no longer a *required* schema field on `create`/`replace` (since `body_path` is the alternative); the handlers enforce that exactly one is given, with clear errors (`Provide exactly one of: body_html, body_path.`, `body_path does not exist: …`).
+
 ## v0.38.0 — 2026-05-27
 
 **Fixed — `folio install --target openclaw` now installs the skill as a copy, not a symlink, so OpenClaw actually loads it.** OpenClaw's skill loader rejects any skill whose realpath escapes its workspace root (a supply-chain "symlink-escape" guard). Folio installed its skill as a symlink into `/opt/folio/<ver>/skills/folio` — outside the root — so OpenClaw silently skipped it (`"reason":"symlink-escape" … "Skipping escaped skill path outside its configured root."`). The agent got the MCP tools but **zero guidance** from SKILL.md/STYLEBOOK/examples. This quietly affected the whole OpenClaw fleet.

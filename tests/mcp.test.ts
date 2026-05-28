@@ -349,3 +349,49 @@ test("get with include_body=true returns body_html", async () => {
   expect(data.title).toBe("Get me");
   expect(data.body_html).toContain("Hello there");
 });
+
+// ── body_path: read large bodies from a file server-side (bypass tool-call truncation) ──
+
+test("create reads body from body_path (server-side file)", async () => {
+  const { writeFileSync } = require("node:fs");
+  const marker = "BODYPATH_" + Math.random().toString(36).slice(2);
+  const bodyFile = join(tmpDir, "big-body.html");
+  writeFileSync(bodyFile, `<p>${marker}</p>`);
+  const res = await callTool("create", { type: "snippet", title: "From file", body_path: bodyFile, thread_id: "bp" });
+  expect(res.isError).toBeFalsy();
+  const { id } = JSON.parse(res.content[0].text);
+  const got = await callTool("get", { id });
+  expect(JSON.parse(got.content[0].text).body_html).toContain(marker);
+});
+
+test("create rejects both body_html and body_path", async () => {
+  const res = await callTool("create", { type: "snippet", title: "Both", body_html: "<p>x</p>", body_path: join(tmpDir, "x.html"), thread_id: "bp" });
+  expect(res.isError).toBe(true);
+  expect(res.content[0].text).toContain("exactly one");
+});
+
+test("create rejects neither body_html nor body_path", async () => {
+  const res = await callTool("create", { type: "snippet", title: "Neither", thread_id: "bp" });
+  expect(res.isError).toBe(true);
+  expect(res.content[0].text).toContain("exactly one");
+});
+
+test("create errors when body_path does not exist", async () => {
+  const res = await callTool("create", { type: "snippet", title: "Ghost", body_path: join(tmpDir, "nope.html"), thread_id: "bp" });
+  expect(res.isError).toBe(true);
+  expect(res.content[0].text).toContain("does not exist");
+});
+
+test("replace reads new body from body_path", async () => {
+  const { writeFileSync } = require("node:fs");
+  const c = await callTool("create", { type: "snippet", title: "Orig", body_html: "<p>orig</p>", thread_id: "bp" });
+  const { id } = JSON.parse(c.content[0].text);
+  const marker = "REPLACED_" + Math.random().toString(36).slice(2);
+  const bodyFile = join(tmpDir, "new-body.html");
+  writeFileSync(bodyFile, `<p>${marker}</p>`);
+  const res = await callTool("replace", { old_id: id, body_path: bodyFile });
+  expect(res.isError).toBeFalsy();
+  const { new_id } = JSON.parse(res.content[0].text);
+  const got = await callTool("get", { id: new_id });
+  expect(JSON.parse(got.content[0].text).body_html).toContain(marker);
+});

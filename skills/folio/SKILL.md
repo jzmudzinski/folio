@@ -83,6 +83,8 @@ If you can already tell the answer will need ≥2 of {multi-section headers, tab
       <Tags: tag1, tag2>   ← optional, when non-obvious
 ```
 
+> **Large body (transcript, long doc, pasted log)?** Don't cram it into the `body_html` string — a big inline argument can be silently truncated by the agent runtime before it reaches Folio. Instead write the HTML to a file and pass **`body_path`** (absolute path) to `create` / `replace`; Folio reads it server-side and sanitizes it identically. Provide exactly one of `body_html` / `body_path`.
+
 When the user later asks to change the note, use the Mutation surfaces table below.
 
 ---

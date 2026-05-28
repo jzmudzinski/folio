@@ -33,6 +33,31 @@ import { listThemes, getTheme } from "../core/themes";
 import { db, logEvent } from "../core/db";
 import type { NoteType, RenderProfile } from "../core/types";
 
+/**
+ * Resolve a note body from either `body_html` (inline) or `body_path` (read
+ * server-side from a file on disk). body_path bypasses the tool-call argument
+ * size ceiling: a large body passed inline as `body_html` can be silently
+ * truncated by the agent's runtime before it ever reaches Folio (e.g. a 50KB
+ * transcript). Exactly one of the two must be provided.
+ */
+function resolveBodyInput(args: any): { body: string } | { error: string } {
+  const hasHtml = args.body_html !== undefined && args.body_html !== null;
+  const hasPath = typeof args.body_path === "string" && args.body_path.length > 0;
+  if (hasHtml === hasPath) {
+    return { error: "Provide exactly one of: body_html, body_path." };
+  }
+  if (hasPath) {
+    const src = String(args.body_path);
+    if (!existsSync(src)) return { error: `body_path does not exist: ${src}` };
+    try {
+      return { body: readFileSync(src, "utf-8") };
+    } catch (e: any) {
+      return { error: `Failed to read body_path: ${e?.message ?? e}` };
+    }
+  }
+  return { body: String(args.body_html) };
+}
+
 const ALLOWED_TYPES: NoteType[] = ["research", "comparison", "technical", "journal", "snippet", "iteration", "presentation"];
 const ALLOWED_PROFILES: RenderProfile[] = ["hosted", "standalone"];
 
@@ -43,11 +68,12 @@ const tools: Tool[] = [
       "Create a new Folio note (HTML communication artifact). Agents call this when they want to give the user a visually-rich response (research, comparison, technical doc). Note: append-only — you cannot edit; new iteration = new note in same thread.",
     inputSchema: {
       type: "object",
-      required: ["type", "title", "body_html"],
+      required: ["type", "title"],
       properties: {
         type: { type: "string", enum: ALLOWED_TYPES, description: "Note type. Pick `research` for deep dives, `comparison` for vs tables, `technical` for ADRs/specs, `journal` for chronological, `snippet` for short, `iteration` (v0.18+) for design-iteration workflows — 3 candidates → user picks → 3 variants → repeat. Iteration notes have minimal body_html (chrome only); variants come via the propose_round tool." },
         title: { type: "string", description: "Human-readable title (used as h1)." },
-        body_html: { type: "string", description: "HTML fragment for the article body. NO <html>/<body>/<head>/<title>/<meta>; these come from the template. <style> at body level IS allowed (v0.15+) — use it for the `plain` theme or per-note custom CSS. <script>, <button>, <input>, <select>, <textarea>, <form>, role/aria-* all pass the sanitizer (v0.17.1+). Default to theme utility classes for non-plain themes: .eyebrow, .lead, .pill, .card, .verdict." },
+        body_html: { type: "string", description: "HTML fragment for the article body. NO <html>/<body>/<head>/<title>/<meta>; these come from the template. <style> at body level IS allowed (v0.15+) — use it for the `plain` theme or per-note custom CSS. <script>, <button>, <input>, <select>, <textarea>, <form>, role/aria-* all pass the sanitizer (v0.17.1+). Default to theme utility classes for non-plain themes: .eyebrow, .lead, .pill, .card, .verdict. For LARGE bodies (e.g. a transcript) prefer body_path — a big body_html string can be truncated by the agent runtime before it reaches Folio." },
+        body_path: { type: "string", description: "Absolute path to a file whose contents become the body — read server-side, so it bypasses the tool-call argument size limit that truncates large inline body_html. Provide exactly one of body_html / body_path. Sanitized identically to body_html." },
         thread_id: { type: "string", description: "Thread slug (kebab-case). Group related iterations. If omitted, slugified from title. PREFER calling suggest_thread first to continue an existing thread instead of creating duplicates." },
         theme: { type: "string", description: "Theme name (default from user config, usually 'linen'). Call list_themes to discover." },
         theme_profile: { type: "string", enum: ALLOWED_PROFILES, description: "'hosted' (default, links theme.css, ~50% less tokens) or 'standalone' (inline CSS, share-ready)." },
@@ -172,10 +198,11 @@ const tools: Tool[] = [
     description: "Supersede an existing note with a new revision (v0.22+). Body is the only thing that meaningfully changes; the old note's .html file stays on disk verbatim (capability URL still works for anyone who already received it) but listings, thread views, and search hide it. This is the right tool when the user says 'fix this' / 'polish it' / 'redo this' for note types where prior drafts are noise (snippet, comparison, research). For iteration / technical notes where variant history matters, keep using the create-new-in-same-thread pattern. Inherits type / theme / tags / thread_id / title from the old note unless you override; the new note gets its own ULID. Errors: not-found (old id unknown), already-superseded (old note already pointed at a successor; replace that one instead).",
     inputSchema: {
       type: "object",
-      required: ["old_id", "body_html"],
+      required: ["old_id"],
       properties: {
         old_id: { type: "string", description: "Note id (ULID) being replaced." },
-        body_html: { type: "string", description: "New body HTML. Sanitized per the note's theme (permissive for plain, strict everywhere else)." },
+        body_html: { type: "string", description: "New body HTML. Sanitized per the note's theme (permissive for plain, strict everywhere else). For large bodies, prefer body_path (inline body_html can be truncated by the agent runtime)." },
+        body_path: { type: "string", description: "Absolute path to a file whose contents become the new body — read server-side, bypassing the tool-call argument size limit. Provide exactly one of body_html / body_path." },
         title: { type: "string", description: "Optional new title. Default: inherit from old." },
         tags: { type: "array", items: { type: "string" }, description: "Optional new tag set (replaces, not adds). Default: inherit." },
         theme: { type: "string", description: "Optional new theme. Default: inherit." },
@@ -374,24 +401,27 @@ export async function buildServer(): Promise<Server> {
     try {
       switch (name) {
         case "create": {
-          if (!args.type || !args.title || args.body_html === undefined) {
-            return errContent("Missing required: type, title, body_html");
+          if (!args.type || !args.title) {
+            return errContent("Missing required: type, title");
           }
           if (!ALLOWED_TYPES.includes(args.type)) {
             return errContent(`Invalid type. One of: ${ALLOWED_TYPES.join(", ")}`);
           }
-          // body_html may be empty string for live notes (the feed becomes
-          // the content; body is just chrome scaffolding until finalize).
+          const createBody = resolveBodyInput(args);
+          if ("error" in createBody) return errContent(createBody.error);
+          const body_html = createBody.body;
+          // body may be empty string for live notes (the feed becomes the
+          // content; body is just chrome scaffolding until finalize).
           const live = typeof args.live === "boolean" ? args.live : false;
           const inline = typeof args.inline === "boolean" ? args.inline : false;
           const isIteration = args.type === "iteration";
-          if (!live && !isIteration && !String(args.body_html).trim()) {
-            return errContent("body_html cannot be empty unless live:true or type:iteration (both start with chrome only — content is appended via append_entry / propose_round).");
+          if (!live && !isIteration && !body_html.trim()) {
+            return errContent("body cannot be empty unless live:true or type:iteration (both start with chrome only — content is appended via append_entry / propose_round).");
           }
           const note = await createNote({
             type: args.type,
             title: String(args.title),
-            body_html: String(args.body_html),
+            body_html,
             thread_id: args.thread_id ? String(args.thread_id) : undefined,
             theme: args.theme ? String(args.theme) : undefined,
             theme_profile: args.theme_profile ? (String(args.theme_profile) as RenderProfile) : undefined,
@@ -588,9 +618,11 @@ export async function buildServer(): Promise<Server> {
 
         case "replace": {
           const old_id = String(args.old_id ?? "");
-          const body_html = String(args.body_html ?? "");
           if (!old_id) return errContent("Missing old_id");
-          if (!body_html) return errContent("Missing body_html");
+          const replaceBody = resolveBodyInput(args);
+          if ("error" in replaceBody) return errContent(replaceBody.error);
+          const body_html = replaceBody.body;
+          if (!body_html) return errContent("Body cannot be empty (provide a non-empty body_html or body_path).");
           const patch: Parameters<typeof replaceNote>[0] = { old_id, body_html };
           if (typeof args.title === "string") patch.title = args.title;
           if (Array.isArray(args.tags)) patch.tags = (args.tags as unknown[]).map(String);

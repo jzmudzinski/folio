@@ -2,6 +2,22 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.40.1 — 2026-05-30
+
+**Fixed — sidebar collapse fallout on smaller screens.** v0.40.0 shrank the sidebar's *width* to 40px on collapse, which made content wrap inside the strip and surfaced a scrollbar; on narrower screens the sidebar also jumped to full width and pushed the note below it. This patch makes the sidebar behave like a real drawer at every width — sliding off to the left on collapse, with no wrapping, no scrollbar in the strip, and no layout jump.
+
+### Fixed
+
+- **Sidebar content slides off to the left on collapse** instead of shrinking width. Content lives in a new `.side-content` wrapper (`min-width: 360px`) that animates `transform: translateX(-100%)` + `opacity`; `.note-side` gets `overflow: hidden` in the collapsed state. No more text wrap inside the 40px strip, no more vertical scrollbar.
+- **No more "sidebar jumps to full width" on small screens.** Removed two `@media` rules (`max-width: 720px` and a second hidden inside `max-width: 860px`) that re-stacked the layout to a single column. The drawer pattern now applies at every width.
+- **Right padding inside the sidebar restored.** Padding moved from `.note-side` onto `.side-content` (with `box-sizing: border-box`) so the wrapper's `min-width: 360px` doesn't push content right up against the border. The action card, pin toggle, and TOC items get their breathing room back.
+- **Stale explicit-expanded preference no longer pins the sidebar open.** Only an explicit **collapse** is persisted (as `"1"`); clicking *expand* now removes the pref instead of writing `"0"`, so a smaller screen auto-collapses again on the next load. Any legacy `"0"` is cleaned on first load.
+
+### Changed
+
+- Auto-collapse breakpoint **1024px → 1280px** (most laptops also benefit).
+- New debounced (120 ms) `resize` listener re-evaluates the auto-collapse default while dragging the window across the breakpoint, so users don't get stranded with a sidebar that suddenly dominates the viewport.
+
 ## v0.40.0 — 2026-05-30
 
 **Added — sidebar collapse toggle on note pages, with auto-collapse on smaller screens.** A small chevron at the top of `.note-side` toggles between the full 360px column and a 40px strip, freeing reading room without taking the user to a separate layout. Animated.

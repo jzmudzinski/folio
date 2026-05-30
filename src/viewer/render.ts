@@ -373,11 +373,14 @@ body.list-page { overflow: hidden; }
 
 .note-shell { display: grid; grid-template-columns: var(--side-w, 360px) 1fr; min-height: calc(100vh - 60px); transition: grid-template-columns 220ms ease; }
 .note-shell.has-live { grid-template-columns: var(--side-w, 360px) minmax(0, 1fr) minmax(340px, 26vw); }
-@media (max-width: 1180px) { .note-shell.has-live { grid-template-columns: 360px 1fr; } .note-shell.has-live .live-panel { grid-column: 1 / -1; max-height: 60vh; } }
-@media (max-width: 720px) { .note-shell, .note-shell.has-live { grid-template-columns: 1fr; } }
+@media (max-width: 1180px) { .note-shell.has-live { grid-template-columns: var(--side-w, 360px) 1fr; } .note-shell.has-live .live-panel { grid-column: 1 / -1; max-height: 60vh; } }
+/* v0.40.1 — no grid-stack override at narrow widths anymore; the sidebar
+   stays in the grid as a collapsible drawer (driven by --side-w). On small
+   screens the auto-collapse default (≤1024px in JS) lands users on the
+   40px strip — they don't see the sidebar jump full-width. */
 .live-panel { background: var(--vbg-2); border-left: 1px solid var(--vline); display: flex; flex-direction: column; height: calc(100vh - 60px); min-width: 0; }
 .live-panel-iframe { flex: 1; width: 100%; border: 0; min-height: 0; display: block; background: var(--vpanel); }
-.note-side { border-right: 1px solid var(--vline); padding: 24px 22px 22px; display: flex; flex-direction: column; gap: 0; background: var(--vbg); position: sticky; top: 60px; align-self: start; max-height: calc(100vh - 60px); overflow-y: auto; overflow-x: hidden; min-width: 0; }
+.note-side { border-right: 1px solid var(--vline); display: flex; flex-direction: column; gap: 0; background: var(--vbg); position: sticky; top: 60px; align-self: start; max-height: calc(100vh - 60px); overflow-y: auto; overflow-x: hidden; min-width: 0; }
 .note-side .back { font-family: var(--vmono); font-size: 11px; color: var(--vmuted); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 22px; transition: color .12s; }
 .note-side .back:hover { color: var(--vorange); }
 .note-side .type-pill { align-self: flex-start; font-family: var(--vmono); font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase; font-weight: 600; padding: 4px 9px; border-radius: 5px; background: var(--vorange-soft); color: var(--vorange); margin-bottom: 14px; }
@@ -392,13 +395,18 @@ body.list-page { overflow: hidden; }
    suppresses the transition briefly so initial-state load doesn't animate. */
 .note-shell.is-side-collapsed { --side-w: 40px; }
 .note-shell.no-anim, .note-shell.no-anim * { transition: none !important; }
-.note-side { transition: padding-left 220ms ease, padding-right 220ms ease; }
-.note-shell.is-side-collapsed .note-side { padding-left: 6px; padding-right: 6px; }
-.note-shell.is-side-collapsed .note-side > *:not(.side-toggle) { opacity: 0; pointer-events: none; transition: opacity 130ms ease; }
-.side-toggle { align-self: flex-end; width: 26px; height: 26px; padding: 0; border: 1px solid var(--vline); background: var(--vbg); color: var(--vmuted); border-radius: 6px; cursor: pointer; display: grid; place-items: center; font-size: 14px; line-height: 1; margin: -8px -8px 14px 0; transition: background .12s, color .12s, border-color .12s, transform 220ms ease; }
+/* Sidebar content lives in .side-content so collapse SLIDES it off to the
+   left (transform: translateX(-100%)) instead of shrinking its width — which
+   would cause text to wrap inside the 40px column and surface a scrollbar.
+   min-width: 360px keeps the wrapper at its natural width while the column
+   narrows; .note-side gets overflow: hidden in the collapsed state to clip
+   the off-screen content cleanly. */
+.side-content { display: flex; flex-direction: column; gap: 0; min-width: 360px; padding: 24px 22px 22px; box-sizing: border-box; transition: transform 220ms ease, opacity 200ms ease; }
+.note-shell.is-side-collapsed .side-content { transform: translateX(-100%); opacity: 0; pointer-events: none; }
+.note-shell.is-side-collapsed .note-side { overflow: hidden; }
+.side-toggle { position: absolute; top: 16px; right: 14px; width: 26px; height: 26px; padding: 0; border: 1px solid var(--vline); background: var(--vbg); color: var(--vmuted); border-radius: 6px; cursor: pointer; display: grid; place-items: center; font-size: 14px; line-height: 1; transition: background .12s, color .12s, border-color .12s, transform 220ms ease, right 220ms ease; z-index: 2; }
 .side-toggle:hover { background: var(--vpanel); color: var(--vink-2); border-color: var(--vmuted); }
-.note-shell.is-side-collapsed .side-toggle { transform: rotate(180deg); align-self: center; margin: 4px 0 0; }
-@media (max-width: 720px) { .side-toggle { display: none; } }
+.note-shell.is-side-collapsed .side-toggle { transform: rotate(180deg); right: 7px; }
 
 .action-card { display: block; background: var(--vink); color: var(--vbg); border-radius: 10px; padding: 14px 16px; margin-bottom: 20px; position: relative; overflow: hidden; cursor: pointer; border: 0; width: 100%; text-align: left; font-family: inherit; line-height: 1.3; transition: transform .15s, background .15s; }
 .action-card > * { display: block; }
@@ -569,8 +577,7 @@ body.list-page { overflow: hidden; }
   .thread-card { grid-template-columns: 1fr auto; gap: 12px 18px; }
   .thread-card .latest { grid-column: 2; }
   .thread-card .progress { grid-column: 1 / -1; margin-top: 4px; }
-  .note-shell { grid-template-columns: 1fr; }
-  .note-side { position: static; max-height: none; overflow: visible; border-right: 0; border-bottom: 1px solid var(--vline); }
+  /* v0.40.1 — note-shell stays as drawer at all widths; no grid stack here. */
   .note-side h1 { font-size: 22px; }
   .action-card { margin-bottom: 14px; }
 }
@@ -2690,6 +2697,7 @@ ${SHARE_POPOVER_CSS}
 <div class="${shellClass}">
   <aside class="note-side">
     <button class="side-toggle" type="button" data-folio-side-toggle aria-label="Collapse sidebar" aria-expanded="true" title="Toggle sidebar">‹</button>
+    <div class="side-content">
     <a href="${fromHref}" class="back">${fromLabel}</a>
     <span class="type-pill ${note.type}">${note.type}</span>
     <h1 class="editable-title" data-note-id="${esc(note.id)}" tabindex="0" title="Click to edit">${esc(note.title)}</h1>
@@ -2727,6 +2735,7 @@ ${SHARE_POPOVER_CSS}
               data-default-label="✕ Delete note"
               data-confirm-label="✕ Click again to confirm">✕ Delete note</button>
     </nav>
+    </div>
   </aside>
   <main class="note-main">
     ${supersedeBanner}${banner}
@@ -2742,39 +2751,64 @@ ${noteScript}${liveScript}
 <script>
 (function () {
   var STORAGE_KEY = "folio-side-collapsed";
-  var COLLAPSE_AT = 1024;
+  var COLLAPSE_AT = 1280;
   var shell = document.querySelector(".note-shell");
   if (!shell) return;
-  function inStackedMobile() { return window.matchMedia("(max-width: 720px)").matches; }
-  // Explicit user pref wins (localStorage), else auto-collapse on smallish
-  // screens. Stacked-mobile layout (<=720px) already has its own form; we
-  // skip applying the collapse class there since the toggle is hidden anyway.
-  var saved = null;
-  try { saved = localStorage.getItem(STORAGE_KEY); } catch (_) {}
+  var btn = shell.querySelector("[data-folio-side-toggle]");
+  function readSaved() { try { return localStorage.getItem(STORAGE_KEY); } catch (_) { return null; } }
+  function updateBtn() {
+    if (!btn) return;
+    var isCollapsed = shell.classList.contains("is-side-collapsed");
+    btn.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
+    btn.setAttribute("aria-label", isCollapsed ? "Expand sidebar" : "Collapse sidebar");
+  }
+  // Initial state: we only persist an explicit COLLAPSED preference ("1"),
+  // never an explicit-expanded one — that way clicking "expand" simply clears
+  // the pref, so a smaller screen auto-collapses again on the next load
+  // instead of being pinned open from an earlier session. No pref → media
+  // query default. A legacy "0" left over from older versions is treated as
+  // no-pref and actively cleared so the resize listener can fire again.
+  var saved = readSaved();
+  if (saved === "0") { try { localStorage.removeItem(STORAGE_KEY); } catch (_) {} saved = null; }
   var collapsed = saved === "1" ? true
-                : saved === "0" ? false
                 : window.matchMedia("(max-width: " + COLLAPSE_AT + "px)").matches;
-  if (!inStackedMobile() && collapsed) {
+  if (collapsed) {
     // Suppress transition for the initial paint so it doesn't animate from the
     // default expanded state on every page load.
     shell.classList.add("no-anim", "is-side-collapsed");
     void shell.offsetWidth;
     shell.classList.remove("no-anim");
   }
-  var btn = shell.querySelector("[data-folio-side-toggle]");
-  if (btn) {
-    var isCollapsed = shell.classList.contains("is-side-collapsed");
-    btn.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
-    btn.setAttribute("aria-label", isCollapsed ? "Expand sidebar" : "Collapse sidebar");
-  }
+  updateBtn();
+  // Toggle click — record the explicit user preference.
   shell.addEventListener("click", function (e) {
     var b = e.target && e.target.closest && e.target.closest("[data-folio-side-toggle]");
     if (!b) return;
     var nowCollapsed = !shell.classList.contains("is-side-collapsed");
     shell.classList.toggle("is-side-collapsed", nowCollapsed);
-    try { localStorage.setItem(STORAGE_KEY, nowCollapsed ? "1" : "0"); } catch (_) {}
-    b.setAttribute("aria-expanded", nowCollapsed ? "false" : "true");
-    b.setAttribute("aria-label", nowCollapsed ? "Expand sidebar" : "Collapse sidebar");
+    try {
+      // Collapse = explicit pref. Expand = clear pref (so auto-collapse
+      // can fire again on a smaller screen).
+      if (nowCollapsed) localStorage.setItem(STORAGE_KEY, "1");
+      else localStorage.removeItem(STORAGE_KEY);
+    } catch (_) {}
+    updateBtn();
+  });
+  // Resize — re-evaluate the auto-collapse default when the user hasn't pinned
+  // a preference, so dragging across the breakpoint doesn't strand them with a
+  // sidebar that suddenly dominates the viewport. Debounced.
+  var rt = null;
+  window.addEventListener("resize", function () {
+    if (rt) clearTimeout(rt);
+    rt = setTimeout(function () {
+      if (readSaved() != null) return;
+      var should = window.matchMedia("(max-width: " + COLLAPSE_AT + "px)").matches;
+      var is = shell.classList.contains("is-side-collapsed");
+      if (should !== is) {
+        shell.classList.toggle("is-side-collapsed", should);
+        updateBtn();
+      }
+    }, 120);
   });
 })();
 </script>`, { bodyClass: "note-page" });

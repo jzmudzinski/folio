@@ -371,8 +371,8 @@ body.list-page { overflow: hidden; }
 .list-side .list-section:first-of-type { padding-top: 0; }
 .list-main { padding: 0; min-width: 0; max-height: calc(100vh - 60px); overflow-y: auto; }
 
-.note-shell { display: grid; grid-template-columns: 360px 1fr; min-height: calc(100vh - 60px); }
-.note-shell.has-live { grid-template-columns: 360px minmax(0, 1fr) minmax(340px, 26vw); }
+.note-shell { display: grid; grid-template-columns: var(--side-w, 360px) 1fr; min-height: calc(100vh - 60px); transition: grid-template-columns 220ms ease; }
+.note-shell.has-live { grid-template-columns: var(--side-w, 360px) minmax(0, 1fr) minmax(340px, 26vw); }
 @media (max-width: 1180px) { .note-shell.has-live { grid-template-columns: 360px 1fr; } .note-shell.has-live .live-panel { grid-column: 1 / -1; max-height: 60vh; } }
 @media (max-width: 720px) { .note-shell, .note-shell.has-live { grid-template-columns: 1fr; } }
 .live-panel { background: var(--vbg-2); border-left: 1px solid var(--vline); display: flex; flex-direction: column; height: calc(100vh - 60px); min-width: 0; }
@@ -386,6 +386,19 @@ body.list-page { overflow: hidden; }
 .note-side .type-pill.journal { background: rgba(47,144,80,0.10); color: var(--vgood); }
 .note-side .type-pill.snippet { background: var(--vbg-2); color: var(--vmuted); }
 .note-side h1 { font-family: var(--vhead); font-weight: 500; font-size: 24px; line-height: 1.15; letter-spacing: -0.025em; margin: 0 0 22px; text-wrap: balance; }
+/* v0.40 — sidebar collapse toggle. --side-w drives the grid column; collapsed
+   shows only the toggle in a 40px strip. transition: grid-template-columns
+   works in Chrome/Firefox/Safari for these interpolatable track lists. .no-anim
+   suppresses the transition briefly so initial-state load doesn't animate. */
+.note-shell.is-side-collapsed { --side-w: 40px; }
+.note-shell.no-anim, .note-shell.no-anim * { transition: none !important; }
+.note-side { transition: padding-left 220ms ease, padding-right 220ms ease; }
+.note-shell.is-side-collapsed .note-side { padding-left: 6px; padding-right: 6px; }
+.note-shell.is-side-collapsed .note-side > *:not(.side-toggle) { opacity: 0; pointer-events: none; transition: opacity 130ms ease; }
+.side-toggle { align-self: flex-end; width: 26px; height: 26px; padding: 0; border: 1px solid var(--vline); background: var(--vbg); color: var(--vmuted); border-radius: 6px; cursor: pointer; display: grid; place-items: center; font-size: 14px; line-height: 1; margin: -8px -8px 14px 0; transition: background .12s, color .12s, border-color .12s, transform 220ms ease; }
+.side-toggle:hover { background: var(--vpanel); color: var(--vink-2); border-color: var(--vmuted); }
+.note-shell.is-side-collapsed .side-toggle { transform: rotate(180deg); align-self: center; margin: 4px 0 0; }
+@media (max-width: 720px) { .side-toggle { display: none; } }
 
 .action-card { display: block; background: var(--vink); color: var(--vbg); border-radius: 10px; padding: 14px 16px; margin-bottom: 20px; position: relative; overflow: hidden; cursor: pointer; border: 0; width: 100%; text-align: left; font-family: inherit; line-height: 1.3; transition: transform .15s, background .15s; }
 .action-card > * { display: block; }
@@ -2676,6 +2689,7 @@ ${SHARE_POPOVER_CSS}
 <div class="reading-progress"><div class="reading-progress-fill"></div></div>
 <div class="${shellClass}">
   <aside class="note-side">
+    <button class="side-toggle" type="button" data-folio-side-toggle aria-label="Collapse sidebar" aria-expanded="true" title="Toggle sidebar">‹</button>
     <a href="${fromHref}" class="back">${fromLabel}</a>
     <span class="type-pill ${note.type}">${note.type}</span>
     <h1 class="editable-title" data-note-id="${esc(note.id)}" tabindex="0" title="Click to edit">${esc(note.title)}</h1>
@@ -2724,7 +2738,46 @@ ${SHARE_POPOVER_CSS}
 ${sharePop}
 ${noteScript}${liveScript}
 <script>${sharePopoverJs(note.id)}</script>
-<script>${inlineMetadataEditorJs(note.id)}</script>`, { bodyClass: "note-page" });
+<script>${inlineMetadataEditorJs(note.id)}</script>
+<script>
+(function () {
+  var STORAGE_KEY = "folio-side-collapsed";
+  var COLLAPSE_AT = 1024;
+  var shell = document.querySelector(".note-shell");
+  if (!shell) return;
+  function inStackedMobile() { return window.matchMedia("(max-width: 720px)").matches; }
+  // Explicit user pref wins (localStorage), else auto-collapse on smallish
+  // screens. Stacked-mobile layout (<=720px) already has its own form; we
+  // skip applying the collapse class there since the toggle is hidden anyway.
+  var saved = null;
+  try { saved = localStorage.getItem(STORAGE_KEY); } catch (_) {}
+  var collapsed = saved === "1" ? true
+                : saved === "0" ? false
+                : window.matchMedia("(max-width: " + COLLAPSE_AT + "px)").matches;
+  if (!inStackedMobile() && collapsed) {
+    // Suppress transition for the initial paint so it doesn't animate from the
+    // default expanded state on every page load.
+    shell.classList.add("no-anim", "is-side-collapsed");
+    void shell.offsetWidth;
+    shell.classList.remove("no-anim");
+  }
+  var btn = shell.querySelector("[data-folio-side-toggle]");
+  if (btn) {
+    var isCollapsed = shell.classList.contains("is-side-collapsed");
+    btn.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
+    btn.setAttribute("aria-label", isCollapsed ? "Expand sidebar" : "Collapse sidebar");
+  }
+  shell.addEventListener("click", function (e) {
+    var b = e.target && e.target.closest && e.target.closest("[data-folio-side-toggle]");
+    if (!b) return;
+    var nowCollapsed = !shell.classList.contains("is-side-collapsed");
+    shell.classList.toggle("is-side-collapsed", nowCollapsed);
+    try { localStorage.setItem(STORAGE_KEY, nowCollapsed ? "1" : "0"); } catch (_) {}
+    b.setAttribute("aria-expanded", nowCollapsed ? "false" : "true");
+    b.setAttribute("aria-label", nowCollapsed ? "Expand sidebar" : "Collapse sidebar");
+  });
+})();
+</script>`, { bodyClass: "note-page" });
 }
 
 // ───────────────────────────────────────────────────────────────────────

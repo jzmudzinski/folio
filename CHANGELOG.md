@@ -2,6 +2,16 @@
 
 All notable changes per release. The latest version is documented in [README.md](README.md). Older entries here for reference.
 
+## v0.40.0 — 2026-05-30
+
+**Added — sidebar collapse toggle on note pages, with auto-collapse on smaller screens.** A small chevron at the top of `.note-side` toggles between the full 360px column and a 40px strip, freeing reading room without taking the user to a separate layout. Animated.
+
+### Added
+
+- **`.side-toggle` button** at the top of every note's sidebar. Click toggles `.note-shell.is-side-collapsed`, which flips `--side-w` from `360px` → `40px` (CSS variable driving `grid-template-columns`). Transition: `grid-template-columns 220ms ease` + sidebar-content `opacity 130ms`. The chevron rotates 180° in the collapsed state. `aria-expanded` / `aria-label` update both at load and on click.
+- **Auto-collapse on smaller screens.** Initial state: an explicit `localStorage["folio-side-collapsed"]` preference wins; otherwise the sidebar starts collapsed when `matchMedia("(max-width: 1024px)")` matches. Stacked-mobile (≤720px) layout is untouched and the toggle is hidden there (the sidebar is already a top strip).
+- A short `.no-anim` window on first paint suppresses the transition so the initial state lands without sliding in from the full width.
+
 ## v0.39.0 — 2026-05-28
 
 **Added — `body_path` on `create` / `replace`, so large note bodies aren't truncated.** A big `body_html` passed inline can be silently cut off by the agent runtime before it reaches Folio (the MCP tool-call argument size ceiling) — an agent trying to save a ~50KB transcript would get a truncated note and start improvising disk-write hacks. Folio itself has no body-size limit; the bottleneck was the inline argument.

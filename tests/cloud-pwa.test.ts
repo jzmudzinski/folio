@@ -76,6 +76,22 @@ test("/pair serves pair form without auth", async () => {
   expect(body).toContain("device_id");
 });
 
+test("/pair prefills the code from ?code= and auto-submits", async () => {
+  // The QR encodes the full /pair?code=NNNNNN URL; the inline JS reads
+  // location.search client-side, so the served page is identical regardless of
+  // the query string. Assert the prefill + auto-submit logic ships in the page.
+  const res = await fetch(`${baseUrl}/pair?code=123456`);
+  expect(res.status).toBe(200);
+  const body = await res.text();
+  // Reads the code param and validates it's exactly 6 digits.
+  expect(body).toContain("URLSearchParams(location.search).get('code')");
+  expect(body).toContain("/^[0-9]{6}$/.test(codeParam)");
+  // Prefills the #code input from the param.
+  expect(body).toContain("document.getElementById('code').value = codeParam");
+  // Auto-submits the form when the code came from the URL.
+  expect(body).toContain("form.requestSubmit()");
+});
+
 test("/manifest.webmanifest is valid JSON with required PWA fields", async () => {
   const res = await fetch(`${baseUrl}/manifest.webmanifest`);
   expect(res.status).toBe(200);

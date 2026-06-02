@@ -633,6 +633,17 @@ export function renderPair(publicUrl: string): string {
   else if (/Macintosh/i.test(ua)) suggested = 'mac';
   document.getElementById('name').value = suggested;
 
+  // Prefill the pairing code from the query string (?code=NNNNNN). Scanning the
+  // QR — which encodes the full /pair?code=… URL — should pair without retyping
+  // the 6 digits. Only accept an exact 6-digit code; anything else falls back to
+  // manual entry. We never log the code.
+  let autoCode = false;
+  const codeParam = new URLSearchParams(location.search).get('code');
+  if (codeParam && /^[0-9]{6}$/.test(codeParam)) {
+    document.getElementById('code').value = codeParam;
+    autoCode = true;
+  }
+
   // Build a stable client-side device id (per-origin, persisted in IDB).
   function rndUlid() {
     // 26-char Crockford-base32 ULID-ish: simple time + random. Good enough
@@ -693,6 +704,13 @@ export function renderPair(publicUrl: string): string {
       submit.textContent = 'Pair this device';
     });
   });
+
+  // Auto-pair when the code arrived via the QR URL — the device name is already
+  // auto-filled, so the submit has everything it needs. If the code was already
+  // used or expired (e.g. on reload), the normal #err handling surfaces it.
+  if (autoCode) {
+    form.requestSubmit();
+  }
 })();
   </script>
 </body>

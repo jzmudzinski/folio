@@ -86,6 +86,11 @@ export const NOTE_BOOTSTRAP = `<script>
   function attachCopyCode(){
     document.querySelectorAll('pre').forEach(function(pre){
       if (pre.dataset.ccBound) return;
+      // Skip diagram containers (e.g. <pre class="mermaid">). Mermaid reads the
+      // element's textContent to parse the graph, so a "copy" button injected
+      // inside leaks a trailing "copy" line → "Syntax error in text". The button
+      // is useless there anyway — Mermaid replaces the <pre> with an SVG.
+      if (pre.classList.contains('mermaid')) return;
       pre.dataset.ccBound = '1';
       var btn = document.createElement('button');
       btn.className = 'folio-copy-btn';

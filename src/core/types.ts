@@ -1,4 +1,66 @@
-export type NoteType = "research" | "comparison" | "technical" | "journal" | "snippet" | "iteration" | "presentation";
+export type NoteType = "research" | "comparison" | "technical" | "journal" | "snippet" | "iteration" | "presentation" | "recipe";
+
+/** v0.42: structured recipe payload. The agent emits this compact data
+ *  instead of full HTML; the server renders a responsive, self-contained
+ *  body fragment (own <style> + content + <script>) so the recipe displays
+ *  correctly everywhere — local viewer, /raw, export, cloud-published —
+ *  with no per-context injection. Only `ingredients` and `steps` are
+ *  required; everything else is optional so a lean recipe stays lean. */
+export interface RecipeIngredient {
+  /** Numeric where possible (enables servings scaling); a string like
+   *  "do smaku" renders as text and is not scaled. */
+  qty?: number | string;
+  unit?: string;
+  name: string;
+  note?: string;
+}
+export interface RecipeIngredientGroup {
+  /** Optional sub-heading ("Sos", "Garnish"). Omit for a flat list. */
+  group?: string;
+  items: RecipeIngredient[];
+}
+export interface RecipeStep {
+  text: string;
+  /** Optional duration shown beside the step ("20 s", "10 min"). */
+  time?: string;
+}
+export interface RecipeMeta {
+  /** "4 porcje" / "1 drink". A leading number is used as the scaling base. */
+  servings?: string | number;
+  prep_time?: string;
+  cook_time?: string;
+  total_time?: string;
+  difficulty?: string;
+  // drink-only (ignored visually for dishes):
+  glass?: string;
+  method?: string;
+  abv?: string;
+}
+/** Optional section-label overrides. Defaults are Polish (matches the
+ *  _base template's default lang="pl"); the agent overrides per content
+ *  language. */
+export interface RecipeLabels {
+  ingredients?: string;
+  steps?: string;
+  equipment?: string;
+  tips?: string;
+  source?: string;
+  servings?: string;
+}
+export interface RecipeData {
+  kind?: "dish" | "drink";
+  summary?: string;
+  /** Relative asset URL from attach_asset (hero image). */
+  image?: string;
+  meta?: RecipeMeta;
+  /** Grouped form `[{group?, items}]` or pass a single group with no name. */
+  ingredients: RecipeIngredientGroup[];
+  steps: RecipeStep[];
+  equipment?: string[];
+  tips?: string[];
+  source?: { title?: string; url?: string };
+  labels?: RecipeLabels;
+}
 
 export type RenderProfile = "hosted" | "standalone";
 

@@ -1,0 +1,25 @@
+{
+  "kind": "dish",
+  "summary": "Włoski klasyk z czterech składników — gotowy w czasie gotowania makaronu.",
+  "meta": { "servings": "2 porcje", "prep_time": "5 min", "cook_time": "12 min", "difficulty": "łatwy" },
+  "ingredients": [
+    { "items": [
+      { "qty": 200, "unit": "g", "name": "spaghetti" },
+      { "qty": 4, "name": "ząbki czosnku", "note": "w cienkich plasterkach" },
+      { "qty": 60, "unit": "ml", "name": "oliwa z oliwiek extra vergine" },
+      { "qty": 1, "name": "papryczka peperoncino", "note": "opcjonalnie" },
+      { "qty": "do smaku", "name": "natka pietruszki" },
+      { "qty": "do smaku", "name": "sól" }
+    ] }
+  ],
+  "steps": [
+    { "text": "Ugotuj spaghetti al dente w osolonej wodzie; zachowaj szklankę wody z gotowania." },
+    { "text": "Na zimnej oliwie podsmażaj czosnek i peperoncino na małym ogniu, aż czosnek się zezłoci — nie przypal.", "time": "3 min" },
+    { "text": "Przełóż makaron na patelnię, dolej trochę wody z gotowania i energicznie wymieszaj, aż sos się zemulguje." },
+    { "text": "Zdejmij z ognia, wmieszaj posiekaną natkę i podawaj od razu." }
+  ],
+  "tips": [
+    "Woda z gotowania makaronu to klucz do kremowego sosu — nie wylewaj jej.",
+    "Czosnek smaż na zimnej oliwie od początku, żeby równomiernie oddał aromat."
+  ]
+}

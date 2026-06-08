@@ -214,6 +214,7 @@ a { color: inherit; text-decoration: none; }
 .row .type.technical   { color: var(--vblue); }
 .row .type.journal     { color: var(--vgood); }
 .row .type.snippet     { color: var(--vmuted); }
+.row .type.recipe      { color: var(--vgood); }
 .row .title { font-family: var(--vhead); font-weight: 500; font-size: 18px; line-height: 1.3; letter-spacing: -0.015em; color: var(--vink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .row .title-sub { display: block; font-family: var(--vmono); font-size: 11px; color: var(--vmuted); font-weight: 400; letter-spacing: 0; margin-top: 3px; }
 .row .title-sub .thread:hover { color: var(--vorange); }
@@ -783,6 +784,7 @@ function filterBar(activeType?: string, activeStatus?: string, counts?: CountSum
     <a href="${withTag({ type: "comparison" })}" class="fp${on(activeType === "comparison")}">Comparison <span class="count">${cs.byType.comparison ?? 0}</span></a>
     <a href="${withTag({ type: "technical" })}" class="fp${on(activeType === "technical")}">Technical <span class="count">${cs.byType.technical ?? 0}</span></a>
     ${cs.byType.journal ? `<a href="${withTag({ type: "journal" })}" class="fp${on(activeType === "journal")}">Journal <span class="count">${cs.byType.journal}</span></a>` : ""}
+    ${cs.byType.recipe ? `<a href="${withTag({ type: "recipe" })}" class="fp${on(activeType === "recipe")}">Recipe <span class="count">${cs.byType.recipe}</span></a>` : ""}
     <span class="sep"></span>
     ${pinnedChip}
     <a href="${withTag({ final: "1" })}" class="fp${on(activeStatus === "final")}"><span class="star">★</span> Final <span class="count">${cs.final}</span></a>

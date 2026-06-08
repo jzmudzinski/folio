@@ -143,6 +143,7 @@ Decision order:
 | "ADR", "technical decision", "spec", "proposal" | `technical` |
 | "save this" + short content (<400 words), single point | `snippet` |
 | **"slide deck", "presentation", "talk", "pokaz mi to w prezentacji"** | **`presentation`** (v0.26+) |
+| **"recipe", "przepis", "danie", "drink", "cocktail", "jak zrobić X" (kuchnia/bar)** | **`recipe`** (v0.42+) |
 
 **`comparison` vs `iteration` — the load-bearing distinction:** `comparison` = options the user already has (real things with known properties, agent renders side-by-side). `iteration` = options the agent generates (logo directions, hero layouts, email tone variants) where the user picks one and the agent refines.
 
@@ -169,6 +170,22 @@ Decision order:
 ```
 
 If unclear → ask one question. If a prompt mentions "wariantów / versions / propositions / mockups" + "I'll pick / wybiorę / choose one", treat as iteration.
+
+**`recipe` shape (v0.42+) — STRUCTURED, not HTML.** Do NOT write `body_html`. Pass a `recipe` object and the server renders a responsive, self-contained layout (mobile single-column / desktop sticky-ingredients-rail, tap-to-check ingredients, a servings scaler, print styles). One schema covers a dish and a drink (`kind`). Only `ingredients` + `steps` are required. Full field reference + dish/drink examples in [`reference/recipe.md`](reference/recipe.md). Minimal call:
+
+```
+create({ type: "recipe", title: "Negroni", recipe: {
+  kind: "drink",
+  meta: { servings: "1 drink", glass: "tumbler", method: "built" },
+  ingredients: [{ items: [
+    { qty: 30, unit: "ml", name: "gin" },
+    { qty: 30, unit: "ml", name: "Campari" },
+    { qty: 30, unit: "ml", name: "czerwony wermut" } ] }],
+  steps: [ { text: "Wlej składniki do szklanki z lodem i zamieszaj." },
+           { text: "Udekoruj plasterkiem pomarańczy." } ] } })
+```
+
+Numeric `qty` enables the servings scaler — prefer numbers over strings ("do smaku" is fine where there's genuinely no amount). Hero image: `attach_asset` first, then pass the relative URL as `recipe.image`. Edit later via `replace({ old_id, recipe: {…} })` — re-send the (compact) data, not HTML. Escape hatch: `type:"recipe"` with hand-written `body_html` still works if you need full control.
 
 ---
 

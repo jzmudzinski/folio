@@ -31,7 +31,8 @@ import { loadConfig, folioRoot, bundledThemesDir, themesDir, viewerLocalBaseUrl,
 import { scheduleAutoSync } from "../core/sync";
 import { listThemes, getTheme } from "../core/themes";
 import { db, logEvent } from "../core/db";
-import type { NoteType, RenderProfile } from "../core/types";
+import { renderRecipe, validateRecipe } from "../core/recipe";
+import type { NoteType, RenderProfile, RecipeData } from "../core/types";
 
 /**
  * Resolve a note body from either `body_html` (inline) or `body_path` (read
@@ -58,7 +59,57 @@ function resolveBodyInput(args: any): { body: string } | { error: string } {
   return { body: String(args.body_html) };
 }
 
-const ALLOWED_TYPES: NoteType[] = ["research", "comparison", "technical", "journal", "snippet", "iteration", "presentation"];
+const ALLOWED_TYPES: NoteType[] = ["research", "comparison", "technical", "journal", "snippet", "iteration", "presentation", "recipe"];
+
+/** JSON-schema fragment describing the structured recipe payload. Inlined on
+ *  the `create` / `replace` tools so the agent sees the fields it can fill
+ *  directly in the tool contract (full guidance lives in reference/recipe.md). */
+const RECIPE_SCHEMA = {
+  type: "object",
+  description:
+    "Structured recipe data (type:\"recipe\"). Emit this INSTEAD of body_html — the server renders a responsive, self-contained body. Only ingredients + steps are required. One schema covers dishes and drinks (kind switches labels). See reference/recipe.md.",
+  required: ["ingredients", "steps"],
+  properties: {
+    kind: { type: "string", enum: ["dish", "drink"], description: "Default 'dish'. 'drink' surfaces glass/method/abv." },
+    summary: { type: "string", description: "1–2 sentence intro (rendered as the lead)." },
+    image: { type: "string", description: "Relative asset URL from attach_asset (hero image)." },
+    meta: {
+      type: "object",
+      properties: {
+        servings: { type: ["string", "number"], description: "'4 porcje' / '1 drink'. A leading number is the scaling base." },
+        prep_time: { type: "string" }, cook_time: { type: "string" }, total_time: { type: "string" },
+        difficulty: { type: "string" }, glass: { type: "string" }, method: { type: "string" }, abv: { type: "string" },
+      },
+    },
+    ingredients: {
+      type: "array", description: "Groups of ingredients. For a flat list pass one group with no `group` name.",
+      items: {
+        type: "object", required: ["items"],
+        properties: {
+          group: { type: "string" },
+          items: {
+            type: "array",
+            items: {
+              type: "object", required: ["name"],
+              properties: {
+                qty: { type: ["number", "string"], description: "Numeric where possible (enables servings scaling)." },
+                unit: { type: "string" }, name: { type: "string" }, note: { type: "string" },
+              },
+            },
+          },
+        },
+      },
+    },
+    steps: {
+      type: "array", description: "Ordered preparation steps.",
+      items: { type: "object", required: ["text"], properties: { text: { type: "string" }, time: { type: "string" } } },
+    },
+    equipment: { type: "array", items: { type: "string" } },
+    tips: { type: "array", items: { type: "string" } },
+    source: { type: "object", properties: { title: { type: "string" }, url: { type: "string" } } },
+    labels: { type: "object", description: "Section-label overrides (defaults are Polish).", properties: { ingredients: { type: "string" }, steps: { type: "string" }, equipment: { type: "string" }, tips: { type: "string" }, source: { type: "string" }, servings: { type: "string" } } },
+  },
+};
 const ALLOWED_PROFILES: RenderProfile[] = ["hosted", "standalone"];
 
 const tools: Tool[] = [
@@ -70,7 +121,8 @@ const tools: Tool[] = [
       type: "object",
       required: ["type", "title"],
       properties: {
-        type: { type: "string", enum: ALLOWED_TYPES, description: "Note type. Pick `research` for deep dives, `comparison` for vs tables, `technical` for ADRs/specs, `journal` for chronological, `snippet` for short, `iteration` (v0.18+) for design-iteration workflows — 3 candidates → user picks → 3 variants → repeat. Iteration notes have minimal body_html (chrome only); variants come via the propose_round tool." },
+        type: { type: "string", enum: ALLOWED_TYPES, description: "Note type. Pick `research` for deep dives, `comparison` for vs tables, `technical` for ADRs/specs, `journal` for chronological, `snippet` for short, `iteration` (v0.18+) for design-iteration workflows — 3 candidates → user picks → 3 variants → repeat. `recipe` (v0.42+) for a cooking recipe or drink — pass the `recipe` object instead of body_html and the server renders a responsive layout. Iteration notes have minimal body_html (chrome only); variants come via the propose_round tool." },
+        recipe: RECIPE_SCHEMA,
         title: { type: "string", description: "Human-readable title (used as h1)." },
         body_html: { type: "string", description: "HTML fragment for the article body. NO <html>/<body>/<head>/<title>/<meta>; these come from the template. <style> at body level IS allowed (v0.15+) — use it for the `plain` theme or per-note custom CSS. <script>, <button>, <input>, <select>, <textarea>, <form>, role/aria-* all pass the sanitizer (v0.17.1+). Default to theme utility classes for non-plain themes: .eyebrow, .lead, .pill, .card, .verdict. For LARGE bodies (e.g. a transcript) prefer body_path — a big body_html string can be truncated by the agent runtime before it reaches Folio." },
         body_path: { type: "string", description: "Absolute path to a file whose contents become the body — read server-side, so it bypasses the tool-call argument size limit that truncates large inline body_html. Provide exactly one of body_html / body_path. Sanitized identically to body_html." },
@@ -206,6 +258,7 @@ const tools: Tool[] = [
         title: { type: "string", description: "Optional new title. Default: inherit from old." },
         tags: { type: "array", items: { type: "string" }, description: "Optional new tag set (replaces, not adds). Default: inherit." },
         theme: { type: "string", description: "Optional new theme. Default: inherit." },
+        recipe: RECIPE_SCHEMA,
       },
     },
   },
@@ -407,9 +460,20 @@ export async function buildServer(): Promise<Server> {
           if (!ALLOWED_TYPES.includes(args.type)) {
             return errContent(`Invalid type. One of: ${ALLOWED_TYPES.join(", ")}`);
           }
-          const createBody = resolveBodyInput(args);
-          if ("error" in createBody) return errContent(createBody.error);
-          const body_html = createBody.body;
+          // Structured recipe: the agent sends `recipe` data instead of HTML.
+          // Render it to a self-contained body fragment, then fall through the
+          // normal pipeline. body_html / body_path remain an escape hatch
+          // (type:"recipe" with hand-written HTML still works).
+          let body_html: string;
+          if (args.type === "recipe" && args.recipe !== undefined && args.body_html === undefined && args.body_path === undefined) {
+            const recErrs = validateRecipe(args.recipe);
+            if (recErrs.length) return errContent(`Invalid recipe: ${recErrs.join("; ")}`);
+            body_html = renderRecipe(args.recipe as RecipeData, String(args.title));
+          } else {
+            const createBody = resolveBodyInput(args);
+            if ("error" in createBody) return errContent(createBody.error);
+            body_html = createBody.body;
+          }
           // body may be empty string for live notes (the feed becomes the
           // content; body is just chrome scaffolding until finalize).
           const live = typeof args.live === "boolean" ? args.live : false;
@@ -619,10 +683,21 @@ export async function buildServer(): Promise<Server> {
         case "replace": {
           const old_id = String(args.old_id ?? "");
           if (!old_id) return errContent("Missing old_id");
-          const replaceBody = resolveBodyInput(args);
-          if ("error" in replaceBody) return errContent(replaceBody.error);
-          const body_html = replaceBody.body;
-          if (!body_html) return errContent("Body cannot be empty (provide a non-empty body_html or body_path).");
+          // Recipe edit: re-render from structured data (title inherited from
+          // the old note unless overridden), same as create.
+          let body_html: string;
+          if (args.recipe !== undefined && args.body_html === undefined && args.body_path === undefined) {
+            const recErrs = validateRecipe(args.recipe);
+            if (recErrs.length) return errContent(`Invalid recipe: ${recErrs.join("; ")}`);
+            const oldMeta = getNoteMeta(old_id);
+            const recipeTitle = typeof args.title === "string" ? args.title : (oldMeta?.title ?? "");
+            body_html = renderRecipe(args.recipe as RecipeData, recipeTitle);
+          } else {
+            const replaceBody = resolveBodyInput(args);
+            if ("error" in replaceBody) return errContent(replaceBody.error);
+            body_html = replaceBody.body;
+            if (!body_html) return errContent("Body cannot be empty (provide a non-empty body_html or body_path).");
+          }
           const patch: Parameters<typeof replaceNote>[0] = { old_id, body_html };
           if (typeof args.title === "string") patch.title = args.title;
           if (Array.isArray(args.tags)) patch.tags = (args.tags as unknown[]).map(String);

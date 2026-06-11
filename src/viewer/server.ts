@@ -20,7 +20,7 @@ function countSummary(): { all: number; final: number; expiring: number; pinned:
   const d = db();
   const all = d.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM notes WHERE status='active'").get()?.n ?? 0;
   const final = d.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM notes WHERE is_final=1 AND status='active'").get()?.n ?? 0;
-  const expiring = d.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM notes WHERE is_final=0 AND status='active' AND expires_at < datetime('now','+7 days')").get()?.n ?? 0;
+  const expiring = d.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM notes WHERE is_final=0 AND status='active' AND superseded_by IS NULL AND expires_at IS NOT NULL AND expires_at < datetime('now','+7 days')").get()?.n ?? 0;
   // v0.29: superseded_by filter matches what listNotes returns, so the chip
   // number agrees with the rendered list. Older counts (final/expiring/all)
   // omit this filter — that's a pre-existing inconsistency, out of scope here.
@@ -95,16 +95,17 @@ export async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
           const finalOnly = url.searchParams.get("final") === "1";
           const expiring = url.searchParams.get("expiring") === "1";
           const pinnedOnly = url.searchParams.get("pinned") === "1";
-          let notes = listNotes({
+          const notes = listNotes({
             type: type ?? undefined,
             tag: tag ?? undefined,
             is_final: finalOnly ? true : undefined,
             is_pinned: pinnedOnly ? true : undefined,
-            limit: 100,
+            // Expiring is filtered in SQL (scans all notes, soonest-first) —
+            // post-filtering a recency-ordered LIMIT window dropped every
+            // expiring note (they're the oldest, beyond the window).
+            expiring: expiring || undefined,
+            limit: expiring ? 500 : 100,
           });
-          if (expiring) {
-            notes = notes.filter((n) => !n.is_final && n.expires_at && new Date(n.expires_at).getTime() - Date.now() < 7 * 86400000);
-          }
           const popularTags = listPopularTags(20);
           // v0.23 — continue-rail. Only fetched on the bare home view (no
           // filters); pageList itself decides whether to render it.

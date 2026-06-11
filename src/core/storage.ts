@@ -216,6 +216,11 @@ export interface ListOptions {
    *  "pinned only" filter is what the 📌 chip in the viewer's filter
    *  bar binds to. */
   is_pinned?: boolean;
+  /** When true, return only non-final notes expiring within 7 days, soonest
+   *  first. Pushed into SQL (not post-filtered) so it scans ALL notes — the
+   *  expiring ones are the oldest, which a recency-ordered LIMIT window would
+   *  otherwise exclude. Binds to the "⏱ Expiring 7d" chip. */
+  expiring?: boolean;
   limit?: number;
   offset?: number;
   /** v0.22: include notes that have been replaced via the `replace` primitive.
@@ -250,6 +255,9 @@ export function listNotes(opts: ListOptions = {}): NoteMeta[] {
     where.push("notes.is_pinned = ?");
     params.push(opts.is_pinned ? 1 : 0);
   }
+  if (opts.expiring) {
+    where.push("notes.is_final = 0 AND notes.expires_at IS NOT NULL AND notes.expires_at < datetime('now', '+7 days')");
+  }
   if (!opts.include_superseded) {
     where.push("notes.superseded_by IS NULL");
   }
@@ -261,6 +269,8 @@ export function listNotes(opts: ListOptions = {}): NoteMeta[] {
   // thread view is a chronological history and shouldn't reorder.
   const orderBy = opts.thread_id
     ? "notes.created DESC"
+    : opts.expiring
+    ? "notes.expires_at ASC"
     : "notes.is_pinned DESC, notes.pinned_at DESC, notes.created DESC";
   const sql = `SELECT notes.* FROM notes ${joinClause} WHERE ${where.join(" AND ")} ORDER BY ${orderBy} LIMIT ? OFFSET ?`;
   const rows = db()
